@@ -134,7 +134,7 @@ header {
 .logo {
     display: flex;
     align-items: center;
-    min-height: 88px;
+    min-height: clamp(56px, 12vw, 88px);
     color: var(--primary-color);
 }
 
@@ -161,7 +161,7 @@ header {
 }
 
 .app-header-logo svg {
-    height: 144px;
+    height: clamp(48px, 14vw, 144px);
     width: auto;
     display: block;
 }
@@ -1173,7 +1173,7 @@ body.dark-theme .debug-row--accent {
     }
 
     .app-header-logo svg {
-        height: 38px;
+        height: clamp(48px, 14vw, 144px);
     }
 
     .loading-title {
