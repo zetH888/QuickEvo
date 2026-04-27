@@ -39,7 +39,7 @@ const themeIcon = document.getElementById('theme-icon'); // Ikona motywu (słoń
 const importButton = document.getElementById('import-button'); // Przycisk otwierający import
 const fileInput = document.getElementById('file-input'); // Ukryty input plików
 const uploadProgressContainer = document.getElementById('upload-progress-container'); // Kontener paska importu
-const uploadProgress = document.getElementById('upload-progress'); // Wypełnienie paska importu
+const uploadProgress = document.getElementById('upload-progress'); // Pasek postępu importu (<progress>)
 const uploadStatus = document.getElementById('upload-status'); // Tekst statusu importu
 const searchView = document.getElementById('search-view'); // Widok wyszukiwania
 const filePreviewView = document.getElementById('file-preview-view'); // Widok podglądu pliku
@@ -47,7 +47,7 @@ const backToSearchBtn = document.getElementById('back-to-search'); // Powrót do
 const previewMeta = document.getElementById('preview-meta'); // Meta dane podglądu
 const loadingOverlay = document.getElementById('loading-overlay'); // Overlay ładowania
 const loadingStatusText = document.getElementById('loading-status-text'); // Tekst statusu w overlay
-const loadingProgressFill = document.getElementById('loading-progress-fill'); // Pasek postępu overlay
+const loadingProgressBar = document.getElementById('loading-progress-bar'); // Pasek postępu overlay (<progress>)
 const loadingProgressMeta = document.getElementById('loading-progress-meta'); // Procent postępu overlay
 const loadingError = document.getElementById('loading-error'); // Pole błędu w overlay
 const loadingContinueButton = document.getElementById('loading-continue-button'); // Przycisk „Dalej” w overlay
@@ -325,12 +325,12 @@ function renderPayloadDetails(payload, depth = 0, budget = { nodes: 0 }) {
         const safeKey = escapeHtml(keyLabel);
 
         if (v && typeof v === 'object') {
-            rows.push(`<div class="debug-kv" style="padding-left:${depth * 14}px"><div class="debug-k">${safeKey}</div><div class="debug-v">{…}</div></div>`);
+            rows.push(`<div class="debug-kv" data-depth="${depth}"><div class="debug-k">${safeKey}</div><div class="debug-v">{…}</div></div>`);
             const nested = renderPayloadDetails(v, depth + 1, budget);
             if (nested) rows.push(nested);
         } else {
             const safeVal = escapeHtml(v == null ? '' : String(v));
-            rows.push(`<div class="debug-kv" style="padding-left:${depth * 14}px"><div class="debug-k">${safeKey}</div><div class="debug-v">${safeVal}</div></div>`);
+            rows.push(`<div class="debug-kv" data-depth="${depth}"><div class="debug-k">${safeKey}</div><div class="debug-v">${safeVal}</div></div>`);
         }
     }
     if (rows.length === 0) return '';
@@ -393,8 +393,7 @@ async function copyTextToClipboard(text) {
         const ta = document.createElement('textarea');
         ta.value = value;
         ta.setAttribute('readonly', 'true');
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
+        ta.className = 'qe-clipboard-ta';
         document.body.appendChild(ta);
         ta.select();
         const ok = document.execCommand('copy');
@@ -1165,7 +1164,7 @@ function setLoadingProgressPercent(percent, { force = false } = {}) {
     loadingProgressValue = next;
     const rounded = Math.round(next);
     if (loadingProgressMeta) loadingProgressMeta.textContent = `${rounded}%`;
-    if (loadingProgressFill) loadingProgressFill.style.width = `${next.toFixed(2)}%`;
+    if (loadingProgressBar) loadingProgressBar.value = next;
 }
 
 function setLoadingStatusText(text) {
@@ -1205,7 +1204,6 @@ function lazyLoadBackgroundImage() {
         image.decoding = 'async';
 
         image.onload = () => {
-            document.body.style.setProperty('--lazy-bg-image', `url("${backgroundUrl}")`);
             document.body.classList.add('has-lazy-bg');
             logAction('bg', { phase: 'lazy_loaded' }, 'INFO');
         };
@@ -1972,7 +1970,7 @@ async function handleImportFiles(files) {
     for (const r of rejected) logAction('import', { fileName: r.name, reason: r.reason }, 'WARN');
 
     uploadProgressContainer.classList.remove('hidden');
-    uploadProgress.style.width = '0%';
+    if (uploadProgress) uploadProgress.value = 0;
     uploadStatus.textContent = `Import: ${accepted.length} plik(ów)...`;
 
     const summary = { files: [], records: 0, errors: rejected.length };
@@ -1987,7 +1985,7 @@ async function handleImportFiles(files) {
 
             uploadStatus.textContent = `Importuję: ${formatFileName(name)}`;
             const percent = Math.max(0, Math.min(95, (processed / Math.max(1, accepted.length)) * 100));
-            uploadProgress.style.width = `${percent}%`;
+            if (uploadProgress) uploadProgress.value = percent;
 
             try {
                 await docsPutBlob(name, file);
@@ -2005,7 +2003,7 @@ async function handleImportFiles(files) {
         }
 
         summary.records = Math.max(0, allData.length - before);
-        uploadProgress.style.width = '100%';
+        if (uploadProgress) uploadProgress.value = 100;
         uploadStatus.textContent = 'Import zakończony.';
 
         logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');

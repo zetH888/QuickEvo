@@ -19,9 +19,7 @@
             <div id="welcome-text" class="loading-title loading-title-welcome">Witamy w QuickEvo!</div>
             <div class="loading-subtitle" id="loading-status-text">Inicjalizacja...</div>
             <div class="loading-progress">
-                <div class="loading-progress-bar">
-                    <div id="loading-progress-fill" class="loading-progress-fill"></div>
-                </div>
+                <progress id="loading-progress-bar" class="loading-progress-bar" max="100" value="0"></progress>
                 <div class="loading-progress-meta"><span id="loading-progress-meta">0%</span></div>
             </div>
             <div id="loading-error" class="loading-error hidden" role="alert"></div>
@@ -45,9 +43,7 @@
                     </button>
                     <input type="file" name="file" id="file-input" class="visually-hidden" accept=".xlsx,.csv" multiple>
                     <div id="upload-progress-container" class="hidden">
-                        <div class="progress-bar">
-                            <div id="upload-progress" class="progress-fill"></div>
-                        </div>
+                        <progress id="upload-progress" class="upload-progress" max="100" value="0"></progress>
                         <span id="upload-status">Wysyłanie...</span>
                     </div>
 

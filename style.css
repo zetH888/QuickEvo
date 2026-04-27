@@ -85,7 +85,7 @@ body::before {
     content: "";
     position: fixed;
     inset: 0;
-    background-image: var(--lazy-bg-image, none);
+    background-image: none;
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -96,6 +96,7 @@ body::before {
 }
 
 body.has-lazy-bg::before {
+    background-image: url("https://images.unsplash.com/photo-1473448912268-2022ce9509d8?auto=format&fit=crop&w=2400&q=80");
     opacity: 0.22;
 }
 
@@ -340,19 +341,27 @@ input:checked + .slider:before {
     gap: 8px;
 }
 
-.progress-bar {
+.upload-progress {
     width: 140px;
     height: 8px;
-    background: var(--border-color);
     border-radius: 4px;
     overflow: hidden;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--border-color);
+    background: var(--card-gradient);
 }
 
-.progress-fill {
-    height: 100%;
-    background: var(--primary-color);
-    width: 0%;
-    transition: width 0.3s;
+.upload-progress::-webkit-progress-bar {
+    background: var(--card-gradient);
+}
+
+.upload-progress::-webkit-progress-value {
+    background: linear-gradient(90deg, var(--primary-color) 0%, rgba(0, 102, 204, 0.55) 100%);
+}
+
+.upload-progress::-moz-progress-bar {
+    background: linear-gradient(90deg, var(--primary-color) 0%, rgba(0, 102, 204, 0.55) 100%);
 }
 
 #upload-status {
@@ -700,30 +709,26 @@ footer {
     width: 100%;
     min-width: 0;
     height: 16px;
-    background: var(--progress-track);
     border-radius: 8px;
     overflow: hidden;
+    appearance: none;
+    -webkit-appearance: none;
     border: 1px solid var(--progress-track-border);
+    background: var(--progress-track);
 }
 
-.loading-progress-fill {
-    height: 100%;
-    width: 0%;
+.loading-progress-bar::-webkit-progress-bar {
+    background: var(--progress-track);
+}
+
+.loading-progress-bar::-webkit-progress-value {
     background: linear-gradient(90deg, var(--progress-fill-start) 0%, var(--progress-fill-end) 100%);
-    transition: width 0.25s ease;
-    position: relative;
-    overflow: hidden;
+    background-size: 200% 100%;
+    animation: qeProgressGlint 1.4s ease-in-out infinite;
 }
 
-/* Efekt odblasku przesuwający się w obrębie wypełnienia paska */
-.loading-progress-fill::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(90deg, rgba(0, 0, 0, 0) 0%, var(--progress-glint) 50%, rgba(0, 0, 0, 0) 100%);
-    transform: translateX(-120%);
-    animation: qeProgressGlint 1.4s ease-in-out infinite;
-    opacity: 0.9;
+.loading-progress-bar::-moz-progress-bar {
+    background: linear-gradient(90deg, var(--progress-fill-start) 0%, var(--progress-fill-end) 100%);
 }
 
 @keyframes qeProgressGlint {
@@ -1074,6 +1079,16 @@ body.dark-theme .debug-payload {
     padding: 2px 0;
 }
 
+.debug-kv[data-depth="1"] { padding-left: 14px; }
+.debug-kv[data-depth="2"] { padding-left: 28px; }
+.debug-kv[data-depth="3"] { padding-left: 42px; }
+
+.qe-clipboard-ta {
+    position: fixed;
+    left: -9999px;
+    top: 0;
+}
+
 .debug-k {
     opacity: 0.85;
     font-weight: 700;
@@ -1188,14 +1203,13 @@ body.dark-theme .debug-row--accent {
 
 @media (prefers-reduced-motion: reduce) {
     .app-shell,
-    .loading-progress-fill,
     .loading-title-welcome,
     .loading-continue-button {
         transition: none !important;
         animation: none !important;
     }
 
-    .loading-progress-fill::after {
+    .loading-progress-bar::-webkit-progress-value {
         animation: none !important;
     }
 
