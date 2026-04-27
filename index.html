@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <base href="./">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; worker-src blob:; font-src 'self' data:;">
+    <title>QuickEvo - Wyszukiwarka Tras</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20viewBox%3D%270%200%20100%20100%27%3E%3Cdefs%3E%3CradialGradient%20id%3D%27g%27%20cx%3D%2735%27%20cy%3D%2730%27%20r%3D%2780%27%3E%3Cstop%20offset%3D%270%25%27%20stop-color%3D%27%230066cc%27/%3E%3Cstop%20offset%3D%27100%25%27%20stop-color%3D%27%230066cc%27%20stop-opacity%3D%270.35%27/%3E%3C/radialGradient%3E%3C/defs%3E%3Ccircle%20cx%3D%2750%27%20cy%3D%2750%27%20r%3D%2746%27%20fill%3D%27url(%23g)%27/%3E%3Ctext%20x%3D%2750%27%20y%3D%2762%27%20text-anchor%3D%27middle%27%20font-family%3D%27Segoe%20UI%2C%20Arial%2C%20sans-serif%27%20font-size%3D%2742%27%20font-weight%3D%27800%27%20fill%3D%27%23ffffff%27%3EQE%3C/text%3E%3C/svg%3E">
+    <!-- Style aplikacji (bez parametrów wersji w URL) -->
+    <link rel="stylesheet" href="style.css">
+    <!-- Biblioteka do parsowania XLSX -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="light-theme">
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-card" role="status" aria-live="polite" aria-busy="true">
+            <div id="welcome-graphic" class="welcome-graphic" aria-hidden="true"></div>
+            <div id="welcome-text" class="loading-title loading-title-welcome">Witamy w QuickEvo!</div>
+            <div class="loading-subtitle" id="loading-status-text">Inicjalizacja...</div>
+            <div class="loading-progress">
+                <div class="loading-progress-bar">
+                    <div id="loading-progress-fill" class="loading-progress-fill"></div>
+                </div>
+                <div class="loading-progress-meta"><span id="loading-progress-meta">0%</span></div>
+            </div>
+            <div id="loading-error" class="loading-error hidden" role="alert"></div>
+            <button id="loading-continue-button" class="loading-continue-button" type="button" disabled>Dalej</button>
+        </div>
+    </div>
+    <div id="app-shell" class="container app-shell app-shell-hidden" aria-hidden="true">
+        <header>
+            <div class="header-top">
+                <div class="logo">
+                    <a id="home-link" class="home-link" href="./" aria-label="QuickEvo - strona główna">
+                        <div id="app-header-logo" class="app-header-logo" aria-label="QuickEvo"></div>
+                    </a>
+                </div>
+                <div class="toolbar">
+                    <button id="import-button" class="icon-button" type="button" aria-label="Importuj pliki .xlsx/.csv">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 3a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42L11 12.59V4a1 1 0 0 1 1-1z"></path>
+                            <path d="M5 14a1 1 0 0 1 1 1v3h12v-3a1 1 0 1 1 2 0v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"></path>
+                        </svg>
+                    </button>
+                    <input type="file" name="file" id="file-input" class="visually-hidden" accept=".xlsx,.csv" multiple>
+                    <div id="upload-progress-container" class="hidden">
+                        <div class="progress-bar">
+                            <div id="upload-progress" class="progress-fill"></div>
+                        </div>
+                        <span id="upload-status">Wysyłanie...</span>
+                    </div>
+
+                    <div class="theme-switch-container">
+                    <label class="switch">
+                        <input type="checkbox" id="theme-toggle">
+                        <span class="slider"></span>
+                    </label>
+                    <span id="theme-icon">☀️</span>
+                    </div>
+                </div>
+            </div>
+            <p>System zarządzania trasami i dokumentami</p>
+        </header>
+
+        <main>
+            <div id="search-view">
+                <div class="search-container">
+                    <input type="text" id="search-input" placeholder="Przeszukaj trasy (min. 3 znaki)..." autocomplete="off">
+                    <div id="status-indicator" class="status">Ładowanie...</div>
+                </div>
+
+                <div id="results-info" class="results-info"></div>
+                <div id="results-list" class="results-list"></div>
+                <div id="results-footer" class="results-footer hidden">
+                    <button id="show-more-button" class="btn-secondary" type="button">Pokaż więcej</button>
+                    <div id="show-more-loading" class="inline-loader hidden" aria-live="polite">Ładowanie...</div>
+                    <div id="show-more-error" class="inline-error hidden" role="alert"></div>
+                </div>
+            </div>
+
+            <div id="file-preview-view" class="hidden">
+                <button id="back-to-search" class="btn-secondary">← Powrót do wyszukiwania</button>
+                <div id="preview-container">
+                    <h2 id="preview-filename"></h2>
+                    <div id="preview-meta" class="preview-meta hidden"></div>
+                    <div class="table-container">
+                        <table id="preview-table">
+                            <thead><tr id="table-header"></tr></thead>
+                            <tbody id="table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <div id="file-list-info">Monitorowane pliki: <span id="file-count">0</span></div>
+        </footer>
+    </div>
+    <div id="drop-zone" class="drop-zone hidden" aria-hidden="true">
+        <div class="drop-zone-card">
+            <div class="drop-zone-title">Upuść pliki .xlsx/.csv</div>
+            <div class="drop-zone-subtitle">Limit: 5MB na plik</div>
+        </div>
+    </div>
+    <div id="debug-tray" class="debug-tray" aria-label="DebugLog" aria-expanded="false">
+        <button id="debug-tray-toggle" class="debug-tray-toggle" type="button" aria-label="Otwórz/Zamknij DebugLog">
+            <span class="debug-tray-dot" aria-hidden="true"></span>
+        </button>
+        <div class="debug-panel">
+            <div class="debug-panel-header">
+                <div class="debug-panel-title">DebugLog</div>
+                <div class="debug-panel-actions">
+                    <input id="debug-search" class="debug-panel-search" type="search" placeholder="Szukaj w logach..." aria-label="Szukaj w logach">
+                    <button id="debug-copy" class="debug-panel-btn" type="button" aria-label="Kopiuj logi">Kopiuj</button>
+                    <button id="debug-minimize" class="debug-panel-btn" type="button" aria-label="Zwiń debugger">Zwiń</button>
+                    <button id="debug-clear" class="debug-panel-btn" type="button" aria-label="Wyczyść logi">Wyczyść</button>
+                </div>
+            </div>
+            <div id="debug-log" class="debug-panel-log" role="log" aria-live="polite"></div>
+        </div>
+    </div>
+    <!-- Logika aplikacji (bez parametrów wersji w URL) -->
+    <script src="app.js"></script>
+</body>
+</html>
