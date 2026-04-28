@@ -37,6 +37,7 @@ const fileCountSpan = document.getElementById('file-count'); // Licznik monitoro
 const themeToggle = document.getElementById('theme-toggle'); // Przełącznik motywu
 const themeIcon = document.getElementById('theme-icon'); // Ikona motywu (słońce/księżyc)
 const importButton = document.getElementById('import-button'); // Przycisk otwierający import
+const importGoogleDriveButton = document.getElementById('import-google-drive-button'); // Przycisk importu z Google Drive
 const fileInput = document.getElementById('file-input'); // Ukryty input plików
 const uploadProgressContainer = document.getElementById('upload-progress-container'); // Kontener paska importu
 const uploadProgress = document.getElementById('upload-progress'); // Pasek postępu importu (<progress>)
@@ -92,71 +93,6 @@ let debugRenderQueued = false;
 let debugSearchTerm = '';
 
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
-const STATIC_DOCS_FALLBACK = [
-    '0(Ł-10) I kurs.xlsx',
-    '0(Ł-11) II kurs.xlsx',
-    'TRASA 1    (M-Aleje) 30.03.2026.xlsx',
-    'TRASA 10 (PON I SR I PT ) (B).xlsx',
-    'TRASA 10 (WT I CZW) (B) 30.03.2026.xlsx',
-    'TRASA 11   (J).xlsx',
-    'TRASA 12   (U).xlsx',
-    'TRASA 13  (Y).xlsx',
-    'TRASA 14 (PN I SR I PT)  (O).xlsx',
-    'TRASA 15  (F).xlsx',
-    'TRASA 16  (CMP 1) 30.03.2026.xlsx',
-    'TRASA 17  (CMP 2) 30.03.2026.xlsx',
-    'TRASA 18  (CMP 3) 30.03.2026.xlsx',
-    'TRASA 19  (CMP 4) 30.03.2026.xlsx',
-    'TRASA 2    (M-Puławska) 30.03.2026.xlsx',
-    'TRASA 20  (CMP 5).xlsx',
-    'TRASA 21  (CMP 6).xlsx',
-    'TRASA 26   (Ż).xlsx',
-    'TRASA 3    (H).xlsx',
-    'TRASA 30   (S WILANÓW).xlsx',
-    'TRASA 31   (A WILANÓW).xlsx',
-    'TRASA 32   (D WILANÓW).xlsx',
-    'TRASA 33   (N-Dzika-Wilanów-Piaseczno).xlsx',
-    'TRASA 36   (L).xlsx',
-    'TRASA 37   (Ł NOC).xlsx',
-    'TRASA 39   (Sochaczew).xlsx',
-    'TRASA 4    (P).xlsx',
-    'TRASA 40 ( WYSZOGRÓD PON - PT).xlsx',
-    'TRASA 41 BIAŁYSTOK.xlsx',
-    'TRASA 5    (R).xlsx',
-    'TRASA 6    (G).xlsx',
-    'TRASA 7    (K).xlsx',
-    'TRASA 8  (PN I SR I PT)(E) 30.03.2026.xlsx',
-    'TRASA 8  (WT I CZW)  (E).xlsx',
-    'TRASA 9     (T).xlsx',
-    'TRASA J  (WT I PT) (BIAŁOBRZEGI).xlsx',
-    'TRASA N-2  (NIEDZIELA SKIERNIEWICE).xlsx',
-    'Trasa 22     (WIECZOREK 4).xlsx',
-    'Trasa 23    (WIECZOREK 5).xlsx',
-    'Trasa 24    (WIECZOREK 6).xlsx',
-    'Trasa 25    (WIECZOREK 7).xlsx',
-    'Trasa A      (WIECZOREK 1).xlsx',
-    'Trasa B      (WIECZOREK 2).xlsx',
-    'Trasa C      (WIECZOREK 3).xlsx',
-    'Trasa D     (WIECZOREK I).xlsx',
-    'Trasa E     (WIECZOREK II).xlsx',
-    'Trasa F     (WIECZOREK III).xlsx',
-    'Trasa G    (WIECZOREK IV).xlsx',
-    'Trasa H    (WIECZOREK V).xlsx',
-    'Trasa I      (WIECZOREK RADOM).xlsx',
-    'Trasa N - 1 (NIEDZIELA WOŁOMIN).xlsx',
-    'Trasa S-1     (SOBOTA A).xlsx',
-    'Trasa S-10   (SOBOTA CMP 1).xlsx',
-    'Trasa S-11  (SOBOTA CMP 2).xlsx',
-    'Trasa S-12  (SOBOTA R).xlsx',
-    'Trasa S-2     (SOBOTA AII).xlsx',
-    'Trasa S-3    (SOBOTA M).xlsx',
-    'Trasa S-4    (SOBOTA MII).xlsx',
-    'Trasa S-5    (SOBOTA N).xlsx',
-    'Trasa S-6    (SOBOTA NII).xlsx',
-    'Trasa S-7    (SOBOTA S).xlsx',
-    'Trasa S-8    (SOBOTA W).xlsx',
-    'Trasa S-9    (SOBOTA Ł).xlsx'
-];
 
 function ensureFetchPolyfill() {
     if (typeof window.fetch === 'function') return;
@@ -477,92 +413,6 @@ async function docsPutBlob(fileName, blob) {
     });
 }
 
-async function docsClearAll() {
-    const db = await openDocsDb();
-    await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readwrite');
-        const store = tx.objectStore(DOCS_DB_STORE);
-        const req = store.clear();
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error || new Error('Błąd czyszczenia /docs'));
-    });
-}
-
-async function tryBootstrapDocsFromStaticFolder() {
-    const proto = String(window.location?.protocol || '').toLowerCase();
-    if (proto !== 'http:' && proto !== 'https:') return 0;
-
-    try {
-        const docsUrl = new URL('docs/', window.location.href);
-        const files = [];
-
-        try {
-            const res = await fetch(docsUrl.toString(), { cache: 'no-store' });
-            if (res.ok) {
-                const contentType = String(res.headers?.get?.('content-type') || '');
-                const text = await res.text();
-                if (contentType.includes('text/html') || text.includes('<a')) {
-                    const doc = new DOMParser().parseFromString(text, 'text/html');
-                    const anchors = Array.from(doc.querySelectorAll('a'));
-                    const candidates = [];
-                    for (const a of anchors) {
-                        const href = String(a.getAttribute('href') || '').trim();
-                        if (!href || href === '../' || href.startsWith('?')) continue;
-                        const cleanHref = href.split('#')[0].split('?')[0];
-                        const lower = cleanHref.toLowerCase();
-                        if (!(lower.endsWith('.xlsx') || lower.endsWith('.csv'))) continue;
-                        candidates.push(cleanHref);
-                    }
-
-                    const seen = new Set();
-                    for (const href of candidates) {
-                        let url = null;
-                        try { url = new URL(href, docsUrl.toString()); } catch { continue; }
-                        const fileName = decodeURIComponent(url.pathname.split('/').pop() || '');
-                        if (!fileName) continue;
-                        if (seen.has(fileName)) continue;
-                        seen.add(fileName);
-                        files.push({ url: url.toString(), name: fileName });
-                    }
-                }
-            }
-        } catch {
-        }
-
-        if (files.length === 0) {
-            for (const name of STATIC_DOCS_FALLBACK) {
-                const encodedName = encodeURIComponent(String(name ?? ''));
-                const url = new URL(`docs/${encodedName}`, window.location.href).toString();
-                files.push({ url, name });
-            }
-        }
-
-        if (files.length === 0) return 0;
-
-        logAction('boot', { phase: 'bootstrap_docs', files: files.length }, 'INFO');
-
-        let imported = 0;
-        for (const f of files) {
-            try {
-                const fr = await fetch(f.url, { cache: 'no-store' });
-                if (!fr.ok) continue;
-                const blob = await fr.blob();
-                if (blob.size > MAX_IMPORT_BYTES) continue;
-                await docsPutBlob(f.name, blob);
-                imported += 1;
-            } catch {
-            }
-        }
-
-        logAction('boot', { phase: 'bootstrap_docs_done', attempted: files.length, imported }, imported > 0 ? 'INFO' : 'WARN');
-        if (imported > 0) logAction('import', { phase: 'bootstrap', files: imported }, 'INFO');
-        return imported;
-    } catch (err) {
-        logAction('boot', { phase: 'bootstrap_docs_error', message: err?.message ? String(err.message) : 'error' }, 'WARN');
-        return 0;
-    }
-}
-
 // Inicjalizacja
 async function init() {
     ensureFetchPolyfill();
@@ -583,20 +433,16 @@ async function init() {
 
     try {
         await openDocsDb();
-        const existing = await docsListFiles();
-        if (!Array.isArray(existing) || existing.length === 0) {
-            await tryBootstrapDocsFromStaticFolder();
-        }
         await loadAllFiles({ fullReload: true, showProgress: true });
         loadingDataReady = true;
         setSearchEnabled(allData.length > 0);
         if (allData.length === 0) {
-            setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.csv.');
+            setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.xls/.csv.');
         }
     } catch (err) {
         loadingFailed = true;
         setSearchEnabled(false);
-        showLoadingError('Błąd ładowania danych. Zaimportuj pliki .xlsx/.csv.');
+        showLoadingError('Błąd ładowania danych. Zaimportuj pliki .xlsx/.xls/.csv.');
         logAction('boot', { phase: 'error', message: err?.message ? String(err.message) : 'error' }, 'ERROR');
     } finally {
         loadingProgressDone = true;
@@ -656,6 +502,10 @@ function setupEventListeners() {
     if (importButton) importButton.addEventListener('click', () => {
         logAction('import', { phase: 'open_dialog' }, 'INFO');
         fileInput?.click();
+    });
+    if (importGoogleDriveButton) importGoogleDriveButton.addEventListener('click', async () => {
+        logAction('import', { phase: 'open_google_picker' }, 'INFO');
+        await handleImportGoogleDrive();
     });
     if (fileInput) {
         fileInput.addEventListener('change', async (e) => {
@@ -776,7 +626,7 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
         const spreadsheetFiles = Array.isArray(files)
             ? files.map(f => String(f?.name ?? '')).filter(f => {
                 const lower = f.toLowerCase();
-                return lower.endsWith('.xlsx') || lower.endsWith('.csv');
+                return lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
             })
             : [];
 
@@ -867,12 +717,25 @@ async function processFile(fileName) {
     await parseSpreadsheet(blob, fileName);
 }
 
-async function parseSpreadsheet(blob, fileName) {
+async function parseSpreadsheet(source, fileName) {
     try {
         const lower = String(fileName || '').toLowerCase();
         const workbook = lower.endsWith('.csv')
-            ? XLSX.read(await blob.text(), { type: 'string' })
-            : XLSX.read(await blob.arrayBuffer());
+            ? XLSX.read(
+                typeof source === 'string'
+                    ? source
+                    : (source && typeof source.text === 'function' ? await source.text() : ''),
+                { type: 'string' }
+            )
+            : XLSX.read(await (async () => {
+                if (source instanceof ArrayBuffer) return source;
+                if (ArrayBuffer.isView(source)) {
+                    const view = source;
+                    return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+                }
+                if (source && typeof source.arrayBuffer === 'function') return await source.arrayBuffer();
+                throw new Error('Nieprawidłowe dane wejściowe do parsowania');
+            })());
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
@@ -1193,32 +1056,6 @@ function prepareManualContinue() {
     if (loadingProgressDone && (loadingDataReady || loadingFailed)) {
         if (loadingContinueButton) loadingContinueButton.disabled = false;
         if (loadingOverlay) loadingOverlay.setAttribute('aria-busy', 'false');
-    }
-}
-
-function lazyLoadBackgroundImage() {
-    const backgroundUrl = 'https://images.unsplash.com/photo-1473448912268-2022ce9509d8?auto=format&fit=crop&w=2400&q=80';
-    const startLazyLoad = () => {
-        const image = new Image();
-        image.loading = 'lazy';
-        image.decoding = 'async';
-
-        image.onload = () => {
-            document.body.classList.add('has-lazy-bg');
-            logAction('bg', { phase: 'lazy_loaded' }, 'INFO');
-        };
-
-        image.onerror = () => {
-            logAction('bg', { phase: 'lazy_failed' }, 'WARN');
-        };
-
-        image.src = backgroundUrl;
-    };
-
-    if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(startLazyLoad, { timeout: 1200 });
-    } else {
-        window.setTimeout(startLazyLoad, 600);
     }
 }
 
@@ -1951,6 +1788,139 @@ function formatCellValue(value) {
     return asString;
 }
 
+async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
+    const safeName = String(fileName || '').trim();
+    if (!safeName) throw new Error('Brak nazwy pliku');
+    if (!(arrayBuffer instanceof ArrayBuffer)) throw new Error('Brak danych pliku (ArrayBuffer)');
+
+    const blob = new Blob([arrayBuffer], { type: String(mimeType || '') || 'application/octet-stream' });
+    await docsPutBlob(safeName, blob);
+    removeFileData(safeName);
+    loadedFiles.delete(safeName);
+    await parseSpreadsheet(arrayBuffer, safeName);
+    loadedFiles.add(safeName);
+}
+
+async function runWithConcurrency(items, limit, worker) {
+    const list = Array.isArray(items) ? items : [];
+    const max = Math.max(1, Number(limit || 1));
+    let idx = 0;
+    const workers = new Array(Math.min(max, list.length)).fill(null).map(async () => {
+        while (true) {
+            const i = idx;
+            idx += 1;
+            if (i >= list.length) break;
+            await worker(list[i], i);
+        }
+    });
+    await Promise.all(workers);
+}
+
+async function handleImportGoogleDrive() {
+    const api = window.GoogleDriveImport;
+    if (!api || typeof api.pickExcelFiles !== 'function' || typeof api.downloadFileArrayBuffer !== 'function') {
+        const msg = 'Import z Google Drive jest niedostępny (brak modułu).';
+        console.error(msg);
+        logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
+        uploadProgressContainer.classList.remove('hidden');
+        if (uploadProgress) uploadProgress.value = 0;
+        uploadStatus.textContent = msg;
+        window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1500);
+        return;
+    }
+
+    importGoogleDriveButton?.setAttribute('aria-busy', 'true');
+    if (importGoogleDriveButton) importGoogleDriveButton.disabled = true;
+
+    uploadProgressContainer.classList.remove('hidden');
+    if (uploadProgress) uploadProgress.value = 0;
+    uploadStatus.textContent = 'Google Drive: inicjalizacja...';
+
+    const summary = { files: [], records: 0, errors: 0, rejected: 0 };
+    const before = allData.length;
+
+    try {
+        uploadStatus.textContent = 'Google Drive: otwieram wybór plików...';
+        const picked = await api.pickExcelFiles();
+        const pickedFiles = Array.isArray(picked?.files) ? picked.files : [];
+        const token = String(picked?.accessToken || '');
+
+        if (pickedFiles.length === 0) {
+            uploadStatus.textContent = 'Google Drive: anulowano.';
+            logAction('import', { source: 'google_drive', phase: 'cancel' }, 'INFO');
+            return;
+        }
+
+        const accepted = [];
+        for (const f of pickedFiles) {
+            const name = String(f?.name || '');
+            const ok = typeof api.validateExcelFileName === 'function'
+                ? api.validateExcelFileName(name)
+                : (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.xls'));
+            if (!ok) {
+                summary.rejected += 1;
+                logAction('import', { source: 'google_drive', fileName: name, reason: 'extension' }, 'WARN');
+                continue;
+            }
+            accepted.push({ id: String(f?.id || ''), name, mimeType: String(f?.mimeType || '') });
+        }
+
+        summary.errors += summary.rejected;
+        if (accepted.length === 0) {
+            uploadStatus.textContent = 'Google Drive: brak poprawnych plików (.xlsx/.xls).';
+            return;
+        }
+
+        let done = 0;
+        const total = accepted.length;
+        uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
+
+        await runWithConcurrency(accepted, 2, async (meta) => {
+            const name = String(meta?.name || '').trim();
+            try {
+                uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
+                const ab = await api.downloadFileArrayBuffer(meta.id, token);
+                if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) {
+                    throw new Error('Plik przekracza limit 5MB');
+                }
+                uploadStatus.textContent = `Google Drive: przetwarzam ${formatFileName(name)}...`;
+                await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
+                summary.files.push(name);
+            } catch (err) {
+                summary.errors += 1;
+                console.error(err);
+                logAction('import', { source: 'google_drive', fileName: name, message: err?.message ? String(err.message) : 'Błąd importu' }, 'ERROR');
+            } finally {
+                done += 1;
+                if (uploadProgress) uploadProgress.value = Math.round((done / Math.max(1, total)) * 100);
+            }
+        });
+
+        summary.records = Math.max(0, allData.length - before);
+        uploadStatus.textContent = 'Google Drive: import zakończony.';
+        logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
+
+        const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
+        setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
+
+        fileCountSpan.textContent = String((await docsListFiles()).length);
+        setSearchEnabled(allData.length > 0);
+
+        if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
+            performSearch(lastQuery.trim());
+        }
+    } catch (err) {
+        const msg = err?.message ? String(err.message) : 'Błąd importu z Google Drive';
+        console.error(err);
+        logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
+        uploadStatus.textContent = `Google Drive: ${msg}`;
+    } finally {
+        importGoogleDriveButton?.setAttribute('aria-busy', 'false');
+        if (importGoogleDriveButton) importGoogleDriveButton.disabled = false;
+        window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
+    }
+}
+
 async function handleImportFiles(files) {
     const list = Array.isArray(files) ? files : [];
     if (list.length === 0) return;
@@ -1960,7 +1930,7 @@ async function handleImportFiles(files) {
     for (const f of list) {
         const name = String(f?.name || '');
         const lower = name.toLowerCase();
-        const okExt = lower.endsWith('.xlsx') || lower.endsWith('.csv');
+        const okExt = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
         const okSize = Number(f?.size || 0) <= MAX_IMPORT_BYTES;
         if (!okExt) rejected.push({ name, reason: 'extension' });
         else if (!okSize) rejected.push({ name, reason: 'size' });
@@ -2046,36 +2016,6 @@ function queueSelfTests() {
     if (!shouldRunSelfTests()) return;
     selfTestsQueued = true;
     window.setTimeout(() => runSelfTests(), 0);
-}
-
-function parseHexColor(hex) {
-    const raw = String(hex || '').trim().replace(/^#/, '');
-    if (raw.length === 3) {
-        const r = parseInt(raw[0] + raw[0], 16);
-        const g = parseInt(raw[1] + raw[1], 16);
-        const b = parseInt(raw[2] + raw[2], 16);
-        return { r, g, b };
-    }
-    if (raw.length === 6) {
-        const r = parseInt(raw.slice(0, 2), 16);
-        const g = parseInt(raw.slice(2, 4), 16);
-        const b = parseInt(raw.slice(4, 6), 16);
-        return { r, g, b };
-    }
-    return null;
-}
-
-function srgbToLinear(c) {
-    const v = c / 255;
-    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-}
-
-function contrastRatio(rgb1, rgb2) {
-    const l1 = 0.2126 * srgbToLinear(rgb1.r) + 0.7152 * srgbToLinear(rgb1.g) + 0.0722 * srgbToLinear(rgb1.b);
-    const l2 = 0.2126 * srgbToLinear(rgb2.r) + 0.7152 * srgbToLinear(rgb2.g) + 0.0722 * srgbToLinear(rgb2.b);
-    const light = Math.max(l1, l2);
-    const dark = Math.min(l1, l2);
-    return (light + 0.05) / (dark + 0.05);
 }
 
 function runSelfTests() {
