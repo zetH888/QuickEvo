@@ -454,7 +454,7 @@ async function init() {
 
 // Obsługa motywów
 function setupTheme() {
-    const savedTheme = storageGet('theme') || 'light';
+    const savedTheme = storageGet('theme') || 'dark';
     applyTheme(savedTheme);
     themeToggle.checked = savedTheme === 'dark';
 
@@ -1843,7 +1843,17 @@ function highlightLabsInPreviewTable() {
             const t = td?.textContent ? String(td.textContent) : '';
             if (t) rowText += ` ${t}`;
         }
-        tr.classList.toggle('highlight-lab', rowMatchesKeyLab(rowText));
+        
+        const isLab = rowMatchesKeyLab(rowText);
+        tr.classList.toggle('highlight-lab', isLab);
+
+        if (isLab) {
+            const facilityCell = tr.querySelector('.facility-column');
+            if (facilityCell && !facilityCell.querySelector('.lab-badge')) {
+                const originalText = facilityCell.textContent;
+                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(originalText)}</span>`;
+            }
+        }
     }
 }
 
@@ -1925,9 +1935,18 @@ function showFilePreview(fileName, highlightRowIndex) {
         tdNum.textContent = String(rowObj.originalRowIndex + 1);
         tr.appendChild(tdNum);
 
-        rowObj.cells.forEach(cell => {
+        rowObj.cells.forEach((cell, cellIdx) => {
             const td = document.createElement('td');
             td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
+            
+            // Dodajemy klasę identyfikującą kolumnę placówki
+            if (tableModel.headers[cellIdx]) {
+                const h = normalizeText(String(tableModel.headers[cellIdx]));
+                if (h.includes('nazwa') || h.includes('placowk')) {
+                    td.classList.add('facility-column');
+                }
+            }
+            
             tr.appendChild(td);
         });
         tbody.appendChild(tr);
