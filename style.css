@@ -80,11 +80,6 @@ body.light-theme {
     --progress-glint: rgba(255, 255, 255, 0.3);
 }
 
-body.dark-theme {
-    /* Zachowujemy selektor body.dark-theme na wypadek, gdyby JS wymuszał go, 
-       ale domyślnie zmienne są w :root dla ciemnego motywu. */
-}
-
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     background-image: var(--bg-gradient);

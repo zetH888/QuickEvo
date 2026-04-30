@@ -1,20 +1,52 @@
 /**
  * QuickEvo - Logika Frontendowa
+ * 
+ * Aplikacja do wyszukiwania tras i dokumentów w plikach Excel (.xlsx, .xls) oraz CSV.
+ * Obsługuje import plików z dysku lokalnego oraz z Google Drive.
+ * Wykorzystuje IndexedDB do przechowywania plików i Web Workers (opcjonalnie) do przetwarzania.
  */
 
-let allData = []; // Znormalizowane wiersze z wszystkich plików (rekordy do wyszukiwania)
-let currentResults = []; // Aktualnie wyświetlana strona wyników
-let matchedResults = []; // Wszystkie dopasowania dla bieżącego zapytania
-let selectedResultIndex = -1; // Indeks zaznaczonego wyniku (nawigacja klawiaturą)
-let lastQuery = ''; // Ostatnie zapytanie użyte do wyszukiwania
-let loadedFiles = new Set(); // Zbiór nazw plików już przetworzonych do indeksu
-let fullFileData = {}; // Mapowanie: nazwa pliku -> pełny model tabeli do podglądu
-let isSearchEnabled = false; // Flaga dostępności wyszukiwarki (po załadowaniu danych)
-let isLoading = false; // Flaga globalnego ładowania plików
-let isLoadingMoreResults = false; // Flaga stronicowania wyników
-let loadErrors = []; // Lista błędów wczytywania poszczególnych plików
-const PAGE_SIZE = 10; // Rozmiar strony wyników
-const KEY_LAB_TOKEN_SETS = [ // Zestawy tokenów do wykrywania wierszy związanych z laboratorium
+/** @type {Array<Object>} Znormalizowane wiersze ze wszystkich załadowanych plików. Każdy obiekt zawiera dane do wyszukiwania i wyświetlania. */
+let allData = []; 
+
+/** @type {Array<Object>} Aktualnie wyświetlana strona wyników wyszukiwania (paginacja). */
+let currentResults = []; 
+
+/** @type {Array<Object>} Wszystkie dopasowania dla bieżącego zapytania, pogrupowane według plików. */
+let matchedResults = []; 
+
+/** @type {number} Indeks zaznaczonego wyniku podczas nawigacji klawiaturą (-1 jeśli brak). Zakres: -1 do matchedResults.length - 1. */
+let selectedResultIndex = -1; 
+
+/** @type {string} Ostatnie zapytanie użyte do wyszukiwania. Służy do odświeżania wyników po imporcie nowych danych. */
+let lastQuery = ''; 
+
+/** @type {Set<string>} Zbiór nazw plików, które zostały już przetworzone i dodane do indeksu allData. */
+let loadedFiles = new Set(); 
+
+/** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli (używane w widoku podglądu). */
+let fullFileData = {}; 
+
+/** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna (wymaga załadowanych danych). */
+let isSearchEnabled = false; 
+
+/** @type {boolean} Flaga wskazująca, czy trwa obecnie proces ładowania plików z bazy danych. */
+let isLoading = false; 
+
+/** @type {boolean} Flaga wskazująca, czy trwa obecnie doczytywanie kolejnej strony wyników. */
+let isLoadingMoreResults = false; 
+
+/** @type {Array<Object>} Lista błędów napotkanych podczas wczytywania poszczególnych plików. */
+let loadErrors = []; 
+
+/** @const {number} Liczba grup wyników wyświetlanych na jednej stronie paginacji. */
+const PAGE_SIZE = 10; 
+
+/**
+ * Zestaw tokenów do wykrywania wierszy związanych z laboratorium.
+ * @type {Array<Array<string>>}
+ */
+const KEY_LAB_TOKEN_SETS = [
     ['dzika', 'laboratorium'],
     ['dzika', 'lm'],
     ['piaseczno', 'laboratorium'],
@@ -23,77 +55,163 @@ const KEY_LAB_TOKEN_SETS = [ // Zestawy tokenów do wykrywania wierszy związany
     ['szpital', 'medicover'],
     ['wilanow', 'laboratorium']
 ];
-let compiledKeyLabTokenSets = []; // Zestawy tokenów skompilowane do szybkich dopasowań
-let lastHomeResetTs = 0; // Timestamp ostatniego resetu stanu z przycisku „Home”
-let debouncedSearchRef = null; // Referencja do debounce dla wyszukiwania
-let debouncedLogSearchRef = null; // Referencja do debounce dla logowania wyszukiwań
 
-// Elementy DOM (referencje do kluczowych elementów UI)
-const searchInput = document.getElementById('search-input'); // Input wyszukiwania
-const resultsList = document.getElementById('results-list'); // Kontener listy wyników
-const resultsInfo = document.getElementById('results-info'); // Informacja o wynikach (liczba/stan)
-const statusIndicator = document.getElementById('status-indicator'); // Tekst statusu pod polem wyszukiwania
-const fileCountSpan = document.getElementById('file-count'); // Licznik monitorowanych plików
-const themeToggle = document.getElementById('theme-toggle'); // Przełącznik motywu
-const themeIcon = document.getElementById('theme-icon'); // Ikona motywu (słońce/księżyc)
-const importButton = document.getElementById('import-button'); // Przycisk otwierający import
-const importGoogleDriveButton = document.getElementById('import-google-drive-button'); // Przycisk importu z Google Drive
-const fileInput = document.getElementById('file-input'); // Ukryty input plików
-const uploadProgressContainer = document.getElementById('upload-progress-container'); // Kontener paska importu
-const uploadProgress = document.getElementById('upload-progress'); // Pasek postępu importu (<progress>)
-const uploadStatus = document.getElementById('upload-status'); // Tekst statusu importu
-const searchView = document.getElementById('search-view'); // Widok wyszukiwania
-const filePreviewView = document.getElementById('file-preview-view'); // Widok podglądu pliku
-const backToSearchBtn = document.getElementById('back-to-search'); // Powrót do wyszukiwania
-const previewMeta = document.getElementById('preview-meta'); // Meta dane podglądu
-const loadingOverlay = document.getElementById('loading-overlay'); // Overlay ładowania
-const loadingStatusText = document.getElementById('loading-status-text'); // Tekst statusu w overlay
-const loadingProgressBar = document.getElementById('loading-progress-bar'); // Pasek postępu overlay (<progress>)
-const loadingProgressMeta = document.getElementById('loading-progress-meta'); // Procent postępu overlay
-const loadingError = document.getElementById('loading-error'); // Pole błędu w overlay
-const loadingContinueButton = document.getElementById('loading-continue-button'); // Przycisk „Dalej” w overlay
-const appShell = document.getElementById('app-shell'); // Główna otoczka aplikacji
-const appHeaderLogo = document.getElementById('app-header-logo'); // Kontener loga w nagłówku
-const homeLink = document.getElementById('home-link'); // Link „Home” (reset stanu)
-const resultsFooter = document.getElementById('results-footer'); // Stopka wyników (paginacja)
-const showMoreButton = document.getElementById('show-more-button'); // Przycisk „Pokaż więcej”
-const showMoreLoading = document.getElementById('show-more-loading'); // Loader paginacji
-const showMoreError = document.getElementById('show-more-error'); // Błąd paginacji
-const dropZone = document.getElementById('drop-zone'); // Overlay drag&drop
-const debugTray = document.getElementById('debug-tray'); // Panel DebugLog
-const debugTrayToggle = document.getElementById('debug-tray-toggle'); // Przełącznik panelu DebugLog
-const debugSearchInput = document.getElementById('debug-search'); // Wyszukiwanie w logach
-const debugCopyButton = document.getElementById('debug-copy'); // Kopiowanie logów
-const debugMinimizeButton = document.getElementById('debug-minimize'); // Zamykanie panelu logów
-const debugLogEl = document.getElementById('debug-log'); // Kontener listy logów
-const debugClearButton = document.getElementById('debug-clear'); // Czyszczenie logów
+/**
+ * Skompilowane zestawy tokenów do szybkich dopasowań.
+ * @type {Array<Array<string>>}
+ */
+let compiledKeyLabTokenSets = []; 
 
-// Timestamp referencyjny do wyliczenia opóźnienia wejścia aplikacji (0.3s po "gotowym" DOM).
+/**
+ * Timestamp ostatniego kliknięcia przycisku Home.
+ * @type {number}
+ */
+let lastHomeResetTs = 0; 
+
+/**
+ * Referencja do debounce dla wyszukiwania.
+ * @type {Function|null}
+ */
+let debouncedSearchRef = null; 
+
+/**
+ * Referencja do debounce dla logowania wyszukiwań.
+ * @type {Function|null}
+ */
+let debouncedLogSearchRef = null; 
+
+/**
+ * Referencje do kluczowych elementów interfejsu użytkownika (DOM).
+ */
+const searchInput = document.getElementById('search-input');
+const resultsList = document.getElementById('results-list');
+const resultsInfo = document.getElementById('results-info');
+const statusIndicator = document.getElementById('status-indicator');
+const fileCountSpan = document.getElementById('file-count');
+const themeToggle = document.getElementById('theme-toggle');
+const themeIcon = document.getElementById('theme-icon');
+const importButton = document.getElementById('import-button');
+const importGoogleDriveButton = document.getElementById('import-google-drive-button');
+const fileInput = document.getElementById('file-input');
+const uploadProgressContainer = document.getElementById('upload-progress-container');
+const uploadProgress = document.getElementById('upload-progress');
+const uploadStatus = document.getElementById('upload-status');
+const searchView = document.getElementById('search-view');
+const filePreviewView = document.getElementById('file-preview-view');
+const backToSearchBtn = document.getElementById('back-to-search');
+const previewMeta = document.getElementById('preview-meta');
+const loadingOverlay = document.getElementById('loading-overlay');
+const loadingStatusText = document.getElementById('loading-status-text');
+const loadingProgressBar = document.getElementById('loading-progress-bar');
+const loadingProgressMeta = document.getElementById('loading-progress-meta');
+const loadingError = document.getElementById('loading-error');
+const loadingContinueButton = document.getElementById('loading-continue-button');
+const appShell = document.getElementById('app-shell');
+const appHeaderLogo = document.getElementById('app-header-logo');
+const homeLink = document.getElementById('home-link');
+const resultsFooter = document.getElementById('results-footer');
+const showMoreButton = document.getElementById('show-more-button');
+const showMoreLoading = document.getElementById('show-more-loading');
+const showMoreError = document.getElementById('show-more-error');
+const dropZone = document.getElementById('drop-zone');
+const debugTray = document.getElementById('debug-tray');
+const debugTrayToggle = document.getElementById('debug-tray-toggle');
+const debugSearchInput = document.getElementById('debug-search');
+const debugCopyButton = document.getElementById('debug-copy');
+const debugMinimizeButton = document.getElementById('debug-minimize');
+const debugLogEl = document.getElementById('debug-log');
+const debugClearButton = document.getElementById('debug-clear');
+
+/**
+ * Timestamp referencyjny do wyliczenia opóźnienia wejścia aplikacji.
+ * @type {number}
+ */
 const DOM_READY_TS = performance.now();
 
-// Loader progress: pamiętamy ostatnią wartość, żeby nie cofać paska (naturalniejsze odczucie).
+/**
+ * Aktualna wartość paska postępu w ekranie ładowania.
+ * @type {number}
+ */
 let loadingProgressValue = 0;
+
+/**
+ * Flaga zakończenia animacji ładowania.
+ * @type {boolean}
+ */
 let loadingProgressDone = false;
+
+/**
+ * Flaga gotowości danych aplikacji.
+ * @type {boolean}
+ */
 let loadingDataReady = false;
+
+/**
+ * Flaga błędu ładowania.
+ * @type {boolean}
+ */
 let loadingFailed = false;
+
+/**
+ * Czas rozpoczęcia procesu ładowania.
+ * @type {number}
+ */
 let loadingStartedAt = 0;
 
-
-// Unikalny prefix dla definicji SVG (<defs>) aby uniknąć kolizji id przy wielu instancjach loga.
+/**
+ * Licznik instancji loga dla unikalnych ID SVG.
+ * @type {number}
+ */
 let logoInstanceCounter = 0;
 
+/**
+ * Nazwa i wersja bazy danych IndexedDB.
+ */
 const DOCS_DB_NAME = 'quickevo_docs_v2';
 const DOCS_DB_VERSION = 1;
 const DOCS_DB_STORE = 'files';
+
+/**
+ * Obietnica otwarcia bazy danych.
+ * @type {Promise|null}
+ */
 let docsDbPromise = null;
+
+/**
+ * Bufor wpisów w panelu debugowania.
+ * @type {Array<Object>}
+ */
 let debugEntries = [];
+
+/**
+ * Maksymalna liczba wpisów renderowanych w DebugLog.
+ */
 const DEBUG_RENDER_LIMIT = 900;
+
+/**
+ * Flaga widoczności panelu debugowania.
+ */
 let debugUiOpen = false;
+
+/**
+ * Flaga planowania renderowania panelu debugowania.
+ */
 let debugRenderQueued = false;
+
+/**
+ * Fraza wyszukiwania w logach debugowania.
+ */
 let debugSearchTerm = '';
 
+/**
+ * Limit rozmiaru pliku podczas importu (5MB).
+ */
 const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Zapewnia polifill dla funkcji fetch, jeśli nie jest dostępna natywnie.
+ * @complexity O(1)
+ */
 function ensureFetchPolyfill() {
     if (typeof window.fetch === 'function') return;
     window.fetch = (url, opts = {}) => new Promise((resolve, reject) => {
@@ -126,16 +244,40 @@ function ensureFetchPolyfill() {
     });
 }
 
+/**
+ * Rezerwowy magazyn danych w pamięci.
+ * @type {Map<string, string>}
+ */
 const memoryStorage = new Map();
+
+/**
+ * Pobiera wartość z magazynu lokalnego (localStorage) z fallbackiem do pamięci.
+ * @param {string} key Klucz danych.
+ * @returns {string|null} Pobrana wartość.
+ * @complexity O(1)
+ */
 function storageGet(key) {
     try { return window.localStorage.getItem(key); } catch { }
     return memoryStorage.has(key) ? memoryStorage.get(key) : null;
 }
+
+/**
+ * Zapisuje wartość w magazynie lokalnym (localStorage) z fallbackiem do pamięci.
+ * @param {string} key Klucz danych.
+ * @param {string} value Wartość do zapisu.
+ * @complexity O(1)
+ */
 function storageSet(key, value) {
     try { window.localStorage.setItem(key, value); return; } catch { }
     memoryStorage.set(key, String(value));
 }
 
+/**
+ * Zabezpiecza ciąg znaków przed atakami XSS poprzez zamianę znaków specjalnych HTML.
+ * @param {any} value Wartość wejściowa.
+ * @returns {string} Ciąg zabezpieczony.
+ * @complexity O(N)
+ */
 function escapeHtml(value) {
     return String(value ?? '')
         .replaceAll('&', '&amp;')
@@ -145,12 +287,28 @@ function escapeHtml(value) {
         .replaceAll("'", '&#39;');
 }
 
+/**
+ * Globalne instancje parserów DOM dla HTML i SVG.
+ */
 const htmlDomParser = new DOMParser();
 const svgDomParser = new DOMParser();
+
+/**
+ * Czyści zawartość elementu DOM.
+ * @param {HTMLElement} el Element do wyczyszczenia.
+ * @complexity O(N)
+ */
 function clearElement(el) {
     if (!el) return;
     el.replaceChildren();
 }
+
+/**
+ * Bezpiecznie ustawia zawartość HTML elementu.
+ * @param {HTMLElement} el Element docelowy.
+ * @param {string} html Kod HTML.
+ * @complexity O(N)
+ */
 function setElementHtml(el, html) {
     if (!el) return;
     const source = String(html ?? '');
@@ -162,6 +320,13 @@ function setElementHtml(el, html) {
     }
     el.replaceChildren(...Array.from(wrapper.childNodes));
 }
+
+/**
+ * Bezpiecznie wstrzykuje kod SVG do elementu.
+ * @param {HTMLElement} el Element docelowy.
+ * @param {string} svgSource Kod SVG.
+ * @complexity O(N)
+ */
 function setElementSvg(el, svgSource) {
     if (!el) return;
     const source = String(svgSource ?? '').trim();
@@ -178,10 +343,22 @@ function setElementSvg(el, svgSource) {
     el.replaceChildren(document.importNode(root, true));
 }
 
+/**
+ * Formatuje liczbę do dwóch cyfr.
+ * @param {number|string} value Wartość.
+ * @returns {string} Sformatowany ciąg.
+ * @complexity O(1)
+ */
 function pad2(value) {
     return String(value).padStart(2, '0');
 }
 
+/**
+ * Formatuje znacznik czasu na czytelną datę i czas.
+ * @param {number} ts Znacznik czasu (ms).
+ * @returns {string} Sformatowana data.
+ * @complexity O(1)
+ */
 function formatTimestamp(ts) {
     const d = new Date(ts);
     const yyyy = d.getFullYear();
@@ -194,12 +371,24 @@ function formatTimestamp(ts) {
     return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}.${ms}`;
 }
 
+/**
+ * Przełącza widoczność strefy upuszczania plików.
+ * @param {boolean} visible Czy widoczna.
+ * @complexity O(1)
+ */
 function setDropZoneVisible(visible) {
     if (!dropZone) return;
     dropZone.classList.toggle('hidden', !visible);
     dropZone.setAttribute('aria-hidden', visible ? 'false' : 'true');
 }
 
+/**
+ * Formatuje dane do wyświetlenia w panelu debugowania.
+ * @param {string} action Typ akcji.
+ * @param {any} payload Dane akcji.
+ * @returns {string} Sformatowany HTML.
+ * @complexity O(N)
+ */
 function formatDebugPayload(action, payload) {
     const a = String(action || '').toLowerCase();
     if (a === 'search') {
@@ -227,6 +416,11 @@ function formatDebugPayload(action, payload) {
     return '';
 }
 
+/**
+ * Otwiera lub zamyka panel debugowania.
+ * @param {boolean} open Czy otworzyć.
+ * @complexity O(1)
+ */
 function setDebugUiOpen(open) {
     debugUiOpen = Boolean(open);
     if (!debugTray) return;
@@ -235,6 +429,12 @@ function setDebugUiOpen(open) {
     if (debugUiOpen) scheduleDebugRender();
 }
 
+/**
+ * Bezpiecznie konwertuje obiekt na ciąg JSON do celów wyszukiwania.
+ * @param {any} value Obiekt.
+ * @returns {string} JSON.
+ * @complexity O(N)
+ */
 function safeStringifyForSearch(value) {
     try {
         if (value == null) return '';
@@ -245,6 +445,14 @@ function safeStringifyForSearch(value) {
     }
 }
 
+/**
+ * Renderuje szczegóły obiektu payload w panelu debugowania.
+ * @param {any} payload Dane.
+ * @param {number} depth Głębokość rekurencji.
+ * @param {Object} budget Limit węzłów.
+ * @returns {string} HTML.
+ * @complexity O(N)
+ */
 function renderPayloadDetails(payload, depth = 0, budget = { nodes: 0 }) {
     if (!payload || typeof payload !== 'object') return '';
     if (depth > 3) return '';
@@ -273,6 +481,11 @@ function renderPayloadDetails(payload, depth = 0, budget = { nodes: 0 }) {
     return `<div class="debug-payload">${rows.join('')}</div>`;
 }
 
+/**
+ * Pobiera listę widocznych wpisów w panelu debugowania.
+ * @returns {Array<Object>} Lista wpisów.
+ * @complexity O(N)
+ */
 function getVisibleDebugEntries() {
     const total = debugEntries.length;
     const startIdx = Math.max(0, total - DEBUG_RENDER_LIMIT);
@@ -281,6 +494,10 @@ function getVisibleDebugEntries() {
     return term ? slice.filter(e => String(e?.searchText || '').includes(term)) : slice;
 }
 
+/**
+ * Renderuje listę logów w panelu debugowania.
+ * @complexity O(N)
+ */
 function renderDebugLog() {
     if (!debugLogEl) return;
     if (!debugUiOpen) return;
@@ -309,6 +526,10 @@ function renderDebugLog() {
     if (shouldStickToBottom) debugLogEl.scrollTop = debugLogEl.scrollHeight;
 }
 
+/**
+ * Planuje renderowanie logów debugowania.
+ * @complexity O(1)
+ */
 function scheduleDebugRender() {
     if (debugRenderQueued) return;
     debugRenderQueued = true;
@@ -318,6 +539,12 @@ function scheduleDebugRender() {
     });
 }
 
+/**
+ * Kopiuje tekst do schowka systemowego.
+ * @param {string} text Tekst do skopiowania.
+ * @returns {Promise<boolean>} Czy sukces.
+ * @complexity O(N)
+ */
 async function copyTextToClipboard(text) {
     const value = String(text || '');
     try {
@@ -340,6 +567,13 @@ async function copyTextToClipboard(text) {
     }
 }
 
+/**
+ * Rejestruje akcję w panelu debugowania.
+ * @param {string} action Akcja.
+ * @param {any} payload Dane.
+ * @param {string} level Poziom logowania.
+ * @complexity O(N)
+ */
 function logAction(action, payload, level = 'INFO') {
     const act = String(action || '');
     const lvl = String(level || 'INFO').toUpperCase();
@@ -349,6 +583,11 @@ function logAction(action, payload, level = 'INFO') {
     scheduleDebugRender();
 }
 
+/**
+ * Otwiera połączenie z bazą IndexedDB.
+ * @returns {Promise<IDBDatabase>} Połączenie.
+ * @complexity O(1)
+ */
 function openDocsDb() {
     if (docsDbPromise) return docsDbPromise;
     docsDbPromise = new Promise((resolve, reject) => {
@@ -369,6 +608,11 @@ function openDocsDb() {
     return docsDbPromise;
 }
 
+/**
+ * Pobiera listę plików z bazy danych.
+ * @returns {Promise<Array<Object>>} Lista plików.
+ * @complexity O(F)
+ */
 async function docsListFiles() {
     const db = await openDocsDb();
     return await new Promise((resolve, reject) => {
@@ -387,6 +631,12 @@ async function docsListFiles() {
     });
 }
 
+/**
+ * Pobiera Blob pliku z bazy danych.
+ * @param {string} fileName Nazwa pliku.
+ * @returns {Promise<Blob|null>} Blob.
+ * @complexity O(log F)
+ */
 async function docsGetBlob(fileName) {
     const safe = String(fileName || '');
     const db = await openDocsDb();
@@ -399,6 +649,12 @@ async function docsGetBlob(fileName) {
     });
 }
 
+/**
+ * Zapisuje Blob pliku w bazie danych.
+ * @param {string} fileName Nazwa pliku.
+ * @param {Blob} blob Blob.
+ * @complexity O(log F + S)
+ */
 async function docsPutBlob(fileName, blob) {
     const safe = String(fileName || '').trim();
     if (!safe) throw new Error('Brak nazwy pliku');
@@ -431,6 +687,10 @@ async function init() {
     loadingStartedAt = performance.now();
     logAction('boot', { phase: 'start' });
 
+    await performInitialDataLoad();
+}
+
+async function performInitialDataLoad() {
     try {
         await openDocsDb();
         await loadAllFiles({ fullReload: true, showProgress: true });
@@ -440,16 +700,24 @@ async function init() {
             setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.xls/.csv.');
         }
     } catch (err) {
-        loadingFailed = true;
-        setSearchEnabled(false);
-        showLoadingError('Błąd ładowania danych. Zaimportuj pliki .xlsx/.xls/.csv.');
-        logAction('boot', { phase: 'error', message: err?.message ? String(err.message) : 'error' }, 'ERROR');
+        handleInitialLoadError(err);
     } finally {
-        loadingProgressDone = true;
-        prepareManualContinue();
-        const totalMs = Math.round(performance.now() - loadingStartedAt);
-        logAction('boot', { phase: 'done', ms: totalMs });
+        finalizeBoot();
     }
+}
+
+function handleInitialLoadError(err) {
+    loadingFailed = true;
+    setSearchEnabled(false);
+    showLoadingError('Błąd ładowania danych. Zaimportuj pliki .xlsx/.xls/.csv.');
+    logAction('boot', { phase: 'error', message: err?.message ? String(err.message) : 'error' }, 'ERROR');
+}
+
+function finalizeBoot() {
+    loadingProgressDone = true;
+    prepareManualContinue();
+    const totalMs = Math.round(performance.now() - loadingStartedAt);
+    logAction('boot', { phase: 'done', ms: totalMs });
 }
 
 // Obsługa motywów
@@ -479,6 +747,17 @@ function applyTheme(theme) {
 
 // Event Listeners
 function setupEventListeners() {
+    setupSearchListeners();
+    setupImportListeners();
+    setupDebugListeners();
+    setupDragAndDropListeners();
+    setupNavigationListeners();
+    setupGlobalErrorListeners();
+
+    document.addEventListener('qe:preview-ready', () => highlightLabsInPreviewTable(), { passive: true });
+}
+
+function setupSearchListeners() {
     const debouncedSearch = debounce((query) => performSearch(query), 180);
     const debouncedLogSearch = debounce((query) => logClientEvent('search', { query }), 450);
     debouncedSearchRef = debouncedSearch;
@@ -487,27 +766,33 @@ function setupEventListeners() {
     searchInput.addEventListener('input', (e) => {
         if (!isSearchEnabled) return;
         const query = e.target.value.trim();
-        if (query.length >= 3) {
-            debouncedSearch(query);
-            debouncedLogSearch(query);
-        } else {
-            debouncedSearch.cancel();
-            debouncedLogSearch.cancel();
-            
-            if (query.length > 0) {
-                statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
-                statusIndicator.classList.add('status--hint');
-            } else {
-                statusIndicator.textContent = 'Dane gotowe.';
-                statusIndicator.classList.remove('status--hint');
-            }
-            
-            clearResults();
-        }
+        handleSearchInput(query, debouncedSearch, debouncedLogSearch);
     });
 
     searchInput.addEventListener('keydown', handleKeyNavigation);
+}
 
+function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
+    if (query.length >= 3) {
+        debouncedSearch(query);
+        debouncedLogSearch(query);
+    } else {
+        debouncedSearch.cancel();
+        debouncedLogSearch.cancel();
+        
+        if (query.length > 0) {
+            statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
+            statusIndicator.classList.add('status--hint');
+        } else {
+            statusIndicator.textContent = 'Dane gotowe.';
+            statusIndicator.classList.remove('status--hint');
+        }
+        
+        clearResults();
+    }
+}
+
+function setupImportListeners() {
     if (importButton) importButton.addEventListener('click', () => {
         logAction('import', { phase: 'open_dialog' }, 'INFO');
         fileInput?.click();
@@ -523,7 +808,9 @@ function setupEventListeners() {
             fileInput.value = '';
         });
     }
+}
 
+function setupDebugListeners() {
     if (debugTrayToggle) {
         debugTrayToggle.addEventListener('click', () => setDebugUiOpen(!debugUiOpen));
     }
@@ -537,18 +824,7 @@ function setupEventListeners() {
         });
     }
     if (debugCopyButton) {
-        debugCopyButton.addEventListener('click', async () => {
-            const entries = getVisibleDebugEntries();
-            const text = entries.map((e) => {
-                const ts = formatTimestamp(e.ts);
-                const level = String(e.level || 'INFO').toUpperCase();
-                const action = String(e.action || '');
-                const payload = safeStringifyForSearch(e.payload);
-                return `[${ts}] [${level}] ${action}${payload ? ' ' + payload : ''}`;
-            }).join('\n');
-            const ok = await copyTextToClipboard(text);
-            logAction('debug', { action: 'copy', ok, lines: entries.length }, ok ? 'INFO' : 'WARN');
-        });
+        debugCopyButton.addEventListener('click', handleDebugCopy);
     }
     if (debugClearButton) {
         debugClearButton.addEventListener('click', () => {
@@ -556,7 +832,22 @@ function setupEventListeners() {
             scheduleDebugRender();
         });
     }
+}
 
+async function handleDebugCopy() {
+    const entries = getVisibleDebugEntries();
+    const text = entries.map((e) => {
+        const ts = formatTimestamp(e.ts);
+        const level = String(e.level || 'INFO').toUpperCase();
+        const action = String(e.action || '');
+        const payload = safeStringifyForSearch(e.payload);
+        return `[${ts}] [${level}] ${action}${payload ? ' ' + payload : ''}`;
+    }).join('\n');
+    const ok = await copyTextToClipboard(text);
+    logAction('debug', { action: 'copy', ok, lines: entries.length }, ok ? 'INFO' : 'WARN');
+}
+
+function setupDragAndDropListeners() {
     let dragDepth = 0;
     document.addEventListener('dragenter', (e) => {
         const dt = e.dataTransfer;
@@ -584,7 +875,9 @@ function setupEventListeners() {
         logAction('import', { phase: 'drop', files: dt.files.length }, 'INFO');
         await handleImportFiles(Array.from(dt.files));
     });
+}
 
+function setupNavigationListeners() {
     backToSearchBtn.addEventListener('click', () => {
         filePreviewView.classList.add('hidden');
         searchView.classList.remove('hidden');
@@ -607,7 +900,9 @@ function setupEventListeners() {
             loadMoreResults();
         });
     }
+}
 
+function setupGlobalErrorListeners() {
     window.addEventListener('error', (e) => {
         const msg = e?.message ? String(e.message) : 'window.error';
         logAction('error', { message: msg }, 'ERROR');
@@ -617,8 +912,6 @@ function setupEventListeners() {
         const msg = reason?.message ? String(reason.message) : (reason ? String(reason) : 'unhandledrejection');
         logAction('error', { message: msg }, 'ERROR');
     });
-
-    document.addEventListener('qe:preview-ready', () => highlightLabsInPreviewTable(), { passive: true });
 }
 
 // Ładowanie i procesowanie plików
@@ -626,73 +919,21 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
     if (isLoading) return;
     isLoading = true;
     const loadStart = performance.now();
-    let total = 0;
-    let done = 0;
 
     try {
-        statusIndicator.textContent = 'Sprawdzanie plików...';
-        const files = await docsListFiles();
-        const spreadsheetFiles = Array.isArray(files)
-            ? files.map(f => String(f?.name ?? '')).filter(f => {
-                const lower = f.toLowerCase();
-                return lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
-            })
-            : [];
-
-        spreadsheetFiles.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+        const spreadsheetFiles = await getSpreadsheetFiles();
         fileCountSpan.textContent = spreadsheetFiles.length;
 
-        if (fullReload) {
-            allData = [];
-            currentResults = [];
-            selectedResultIndex = -1;
-            lastQuery = '';
-            loadedFiles = new Set();
-            fullFileData = {};
-            loadErrors = [];
-        }
+        if (fullReload) resetAppData();
 
         const filesToLoad = fullReload
             ? spreadsheetFiles
             : spreadsheetFiles.filter(f => !loadedFiles.has(f));
 
-        total = filesToLoad.length;
-        done = 0;
-
-        if (showProgress) {
-            setLoadingStatusText(total === 0 ? 'Brak plików .xlsx/.csv. Zaimportuj dane.' : 'Wczytywanie plików...');
-            // Progress jest liczony na podstawie realnie przetworzonych plików (bez sztucznego opóźnienia).
-            setLoadingProgressPercent(total === 0 ? 100 : 0, { force: true });
-        }
+        if (showProgress) updateLoadingProgressStart(filesToLoad.length);
 
         if (filesToLoad.length > 0) {
-            const concurrency = Math.max(1, Math.min(6, (navigator?.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 4)));
-            let cursor = 0;
-            const workers = new Array(Math.min(concurrency, filesToLoad.length)).fill(0).map(async () => {
-                while (true) {
-                    const i = cursor++;
-                    if (i >= filesToLoad.length) break;
-                    const file = filesToLoad[i];
-                    const displayName = formatFileName(file);
-                    if (showProgress) setLoadingStatusText(`Wczytuję: ${displayName}`);
-
-                    try {
-                        await processFile(file);
-                        loadedFiles.add(file);
-                    } catch (err) {
-                        loadErrors.push({ fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' });
-                        logAction('load_file', { fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' }, 'WARN');
-                    } finally {
-                        done += 1;
-                        if (showProgress) {
-                            const percent = total > 0 ? (done / total) * 100 : 100;
-                            setLoadingProgressPercent(percent);
-                        }
-                    }
-                }
-            });
-            await Promise.all(workers);
-
+            await processFilesWithConcurrency(filesToLoad, showProgress);
             statusIndicator.textContent = loadErrors.length > 0
                 ? `Dane gotowe (błędy: ${loadErrors.length}).`
                 : 'Dane gotowe.';
@@ -704,20 +945,88 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
             performSearch(lastQuery.trim());
         }
     } catch (error) {
-        statusIndicator.textContent = 'Błąd ładowania.';
-        if (showProgress) showLoadingError('Błąd ładowania danych.');
-        logAction('load', { message: error?.message ? String(error.message) : 'Błąd ładowania' }, 'ERROR');
+        handleLoadError(error, showProgress);
         if (showProgress) throw error;
     } finally {
-        isLoading = false;
-        if (showProgress) {
-            const label = loadErrors.length > 0 ? `Gotowe (błędy: ${loadErrors.length}).` : 'Gotowe.';
-            setLoadingStatusText(label);
-            if (total > 0 && done >= total) setLoadingProgressPercent(100);
-        }
-        const loadTime = Math.round(performance.now() - loadStart);
-        logAction('load', { fullReload: Boolean(fullReload), ms: loadTime, files: total, errors: loadErrors.length });
+        finalizeLoad(loadStart, showProgress);
     }
+}
+
+async function getSpreadsheetFiles() {
+    statusIndicator.textContent = 'Sprawdzanie plików...';
+    const files = await docsListFiles();
+    const spreadsheetFiles = Array.isArray(files)
+        ? files.map(f => String(f?.name ?? '')).filter(f => {
+            const lower = f.toLowerCase();
+            return lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
+        })
+        : [];
+    spreadsheetFiles.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+    return spreadsheetFiles;
+}
+
+function resetAppData() {
+    allData = [];
+    currentResults = [];
+    selectedResultIndex = -1;
+    lastQuery = '';
+    loadedFiles = new Set();
+    fullFileData = {};
+    loadErrors = [];
+}
+
+function updateLoadingProgressStart(total) {
+    setLoadingStatusText(total === 0 ? 'Brak plików .xlsx/.csv. Zaimportuj dane.' : 'Wczytywanie plików...');
+    setLoadingProgressPercent(total === 0 ? 100 : 0, { force: true });
+}
+
+async function processFilesWithConcurrency(filesToLoad, showProgress) {
+    let done = 0;
+    const total = filesToLoad.length;
+    const concurrency = Math.max(1, Math.min(6, (navigator?.hardwareConcurrency ? Math.floor(navigator.hardwareConcurrency / 2) : 4)));
+    let cursor = 0;
+    
+    const workers = new Array(Math.min(concurrency, total)).fill(0).map(async () => {
+        while (true) {
+            const i = cursor++;
+            if (i >= total) break;
+            const file = filesToLoad[i];
+            const displayName = formatFileName(file);
+            if (showProgress) setLoadingStatusText(`Wczytuję: ${displayName}`);
+
+            try {
+                await processFile(file);
+                loadedFiles.add(file);
+            } catch (err) {
+                loadErrors.push({ fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' });
+                logAction('load_file', { fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' }, 'WARN');
+            } finally {
+                done += 1;
+                if (showProgress) {
+                    const percent = total > 0 ? (done / total) * 100 : 100;
+                    setLoadingProgressPercent(percent);
+                }
+            }
+        }
+    });
+    await Promise.all(workers);
+}
+
+function handleLoadError(error, showProgress) {
+    statusIndicator.textContent = 'Błąd ładowania.';
+    if (showProgress) showLoadingError('Błąd ładowania danych.');
+    logAction('load', { message: error?.message ? String(error.message) : 'Błąd ładowania' }, 'ERROR');
+}
+
+function finalizeLoad(loadStart, showProgress) {
+    isLoading = false;
+    if (showProgress) {
+        const label = loadErrors.length > 0 ? `Gotowe (błędy: ${loadErrors.length}).` : 'Gotowe.';
+        setLoadingStatusText(label);
+        setLoadingProgressPercent(100);
+    }
+    const loadTime = Math.round(performance.now() - loadStart);
+    logAction('load', { ms: loadTime, errors: loadErrors.length });
 }
 
 async function processFile(fileName) {
@@ -728,23 +1037,7 @@ async function processFile(fileName) {
 
 async function parseSpreadsheet(source, fileName) {
     try {
-        const lower = String(fileName || '').toLowerCase();
-        const workbook = lower.endsWith('.csv')
-            ? XLSX.read(
-                typeof source === 'string'
-                    ? source
-                    : (source && typeof source.text === 'function' ? await source.text() : ''),
-                { type: 'string' }
-            )
-            : XLSX.read(await (async () => {
-                if (source instanceof ArrayBuffer) return source;
-                if (ArrayBuffer.isView(source)) {
-                    const view = source;
-                    return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
-                }
-                if (source && typeof source.arrayBuffer === 'function') return await source.arrayBuffer();
-                throw new Error('Nieprawidłowe dane wejściowe do parsowania');
-            })());
+        const workbook = await readWorkbook(source, fileName);
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
@@ -758,45 +1051,72 @@ async function parseSpreadsheet(source, fileName) {
     }
 }
 
+async function readWorkbook(source, fileName) {
+    const lower = String(fileName || '').toLowerCase();
+    if (lower.endsWith('.csv')) {
+        const csvContent = typeof source === 'string' 
+            ? source 
+            : (source && typeof source.text === 'function' ? await source.text() : '');
+        return XLSX.read(csvContent, { type: 'string' });
+    }
+    
+    const buffer = await getArrayBufferFromSource(source);
+    return XLSX.read(buffer);
+}
+
+async function getArrayBufferFromSource(source) {
+    if (source instanceof ArrayBuffer) return source;
+    if (ArrayBuffer.isView(source)) {
+        const view = source;
+        return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
+    }
+    if (source && typeof source.arrayBuffer === 'function') return await source.arrayBuffer();
+    throw new Error('Nieprawidłowe dane wejściowe do parsowania');
+}
+
 function addTableRows(tableModel, fileName) {
     if (!tableModel || !Array.isArray(tableModel.rows)) return 0;
     const existingKeys = new Set(allData.map(d => `${d.fileName}:${d.rowIndex}`));
 
     const normalizedRows = [];
-    const isComplete = tableModel.isCompleteStructure;
-
     for (const row of tableModel.rows) {
         const key = `${fileName}:${row.originalRowIndex}`;
         if (existingKeys.has(key)) continue;
 
-        let displayText = '';
-        if (isComplete) {
-            const h = tableModel.headerMap;
-            const time = row.cells[h.GODZ] || '-';
-            const address = row.cells[h.ADRES] || '';
-            const facility = row.cells[h.NAZWA_PLACOWKI] || '';
-            displayText = `${time} | ${address} | ${facility}`;
-        } else {
-            displayText = row.cells.filter(c => !isEmptyCell(c)).join(' | ');
-        }
-
-        if (!displayText.trim()) continue;
-
-        const searchableText = `${displayText} ${fileName} ${row.cells.join(' ')}`;
-        normalizedRows.push({
-            fileName: fileName,
-            rowIndex: row.originalRowIndex,
-            displayText: displayText,
-            searchable: normalizeText(searchableText),
-            searchableFuzzy: fuzzyNormalizeText(searchableText),
-            isComplete: isComplete,
-            headerMap: tableModel.headerMap, // Dodajemy mapę nagłówków do każdego wiersza
-            cells: row.cells
-        });
+        const normalizedRow = createNormalizedRow(row, tableModel, fileName);
+        if (normalizedRow) normalizedRows.push(normalizedRow);
     }
 
     allData = allData.concat(normalizedRows);
     return normalizedRows.length;
+}
+
+function createNormalizedRow(row, tableModel, fileName) {
+    const displayText = getRowDisplayText(row, tableModel);
+    if (!displayText.trim()) return null;
+
+    const searchableText = `${displayText} ${fileName} ${row.cells.join(' ')}`;
+    return {
+        fileName: fileName,
+        rowIndex: row.originalRowIndex,
+        displayText: displayText,
+        searchable: normalizeText(searchableText),
+        searchableFuzzy: fuzzyNormalizeText(searchableText),
+        isComplete: tableModel.isCompleteStructure,
+        headerMap: tableModel.headerMap,
+        cells: row.cells
+    };
+}
+
+function getRowDisplayText(row, tableModel) {
+    if (tableModel.isCompleteStructure) {
+        const h = tableModel.headerMap;
+        const time = row.cells[h.GODZ] || '-';
+        const address = row.cells[h.ADRES] || '';
+        const facility = row.cells[h.NAZWA_PLACOWKI] || '';
+        return `${time} | ${address} | ${facility}`;
+    }
+    return row.cells.filter(c => !isEmptyCell(c)).join(' | ');
 }
 
 function removeFileData(fileName) {
@@ -1109,82 +1429,74 @@ function buildTableModel(matrix) {
 
     const headerRowRel = findHeaderRowIndex(cropped);
     const rawHeaders = cropped[headerRowRel].map(cellToHeaderText);
+    const headerMap = mapRequiredHeaders(rawHeaders);
+    const isCompleteStructure = Object.keys(headerMap).length === 5; // Liczba wymaganych nagłówków
 
-    // Weryfikacja wymaganych nagłówków
+    const metaLines = extractMetaLines(cropped, headerRowRel);
+    const dataRelRows = cropped.slice(headerRowRel + 1);
+    const rawDataRows = processDataRows(dataRelRows, headerMap, bounds.minRow + headerRowRel + 1);
+
+    return { headers: rawHeaders, rows: rawDataRows, metaLines, isCompleteStructure, headerMap };
+}
+
+function mapRequiredHeaders(rawHeaders) {
     const requiredHeaders = {
         'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA'],
         'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
         'ADRES': ['ADRES', 'ULICA'],
-        'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
+        'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
         'UWAGI': ['UWAGI']
     };
 
     const headerMap = {};
-    let foundRequiredCount = 0;
-
     Object.entries(requiredHeaders).forEach(([key, aliases]) => {
         const index = rawHeaders.findIndex(h => {
             const normH = fuzzyNormalizeText(h).toUpperCase();
             return aliases.some(alias => fuzzyNormalizeText(alias).toUpperCase() === normH);
         });
-        if (index >= 0) {
-            headerMap[key] = index;
-            foundRequiredCount++;
-        }
+        if (index >= 0) headerMap[key] = index;
     });
+    return headerMap;
+}
 
-    const isCompleteStructure = foundRequiredCount === Object.keys(requiredHeaders).length;
-
+function extractMetaLines(cropped, headerRowRel) {
     const metaLines = [];
     for (let r = 0; r < headerRowRel; r++) {
-        const row = cropped[r];
-        const parts = row
+        const parts = cropped[r]
             .filter(v => !isEmptyCell(v))
-            .map(v => formatCellValue(v))
-            .map(v => String(v).trim())
+            .map(v => String(formatCellValue(v)).trim())
             .filter(v => v.length > 0);
-
         if (parts.length > 0) metaLines.push(parts.join(' | '));
     }
+    return metaLines;
+}
 
-    const dataRelRows = cropped.slice(headerRowRel + 1);
-    const numCols = rawHeaders.length;
-
+function processDataRows(dataRelRows, headerMap, startRowIndex) {
     const rawDataRows = [];
     for (let r = 0; r < dataRelRows.length; r++) {
         const row = dataRelRows[r];
         if (row.every(isEmptyCell)) continue;
         
-        // Czyszczenie i formatowanie danych zgodnie z wymaganiami
-        const cleanedCells = row.map((cell, idx) => {
-            if (idx === headerMap['NR_POL']) {
-                const val = parseInt(cell);
-                return isNaN(val) ? '' : val;
-            }
-            
-            // Stosujemy formatowanie wartości (w tym konwersję czasu Excela) dla wszystkich komórek
-            const formatted = formatCellValue(cell);
-            
-            if (idx === headerMap['GODZ']) {
-                return (formatted === '' || formatted === '-') ? '-' : formatted;
-            }
-            
-            return formatted;
-        });
-
+        const cleanedCells = row.map((cell, idx) => formatCellContent(cell, idx, headerMap));
         rawDataRows.push({ 
-            originalRowIndex: bounds.minRow + headerRowRel + 1 + r, 
+            originalRowIndex: startRowIndex + r, 
             cells: cleanedCells 
         });
     }
+    return rawDataRows;
+}
 
-    return { 
-        headers: rawHeaders, 
-        rows: rawDataRows, 
-        metaLines, 
-        isCompleteStructure, 
-        headerMap 
-    };
+function formatCellContent(cell, idx, headerMap) {
+    if (idx === headerMap['NR_POL']) {
+        const val = parseInt(cell);
+        return isNaN(val) ? '' : val;
+    }
+    
+    const formatted = formatCellValue(cell);
+    if (idx === headerMap['GODZ']) {
+        return (formatted === '' || formatted === '-') ? '-' : formatted;
+    }
+    return formatted;
 }
 
 function normalizeMatrix(matrix) {
@@ -1229,70 +1541,7 @@ function findHeaderRowIndex(cropped) {
     return 0;
 }
 
-function detectTimeColumn(rawDataRows, numCols) {
-    let bestIdx = -1;
-    let bestScore = 0;
-
-    for (let c = 0; c < numCols; c++) {
-        let nonEmpty = 0;
-        let timeLike = 0;
-
-        for (const row of rawDataRows) {
-            const v = row.cells[c];
-            if (isEmptyCell(v)) continue;
-            nonEmpty += 1;
-            if (isTimeValue(v)) timeLike += 1;
-        }
-
-        if (nonEmpty < 2) continue;
-        const score = timeLike / nonEmpty;
-        if (score > bestScore) {
-            bestScore = score;
-            bestIdx = c;
-        }
-    }
-
-    if (bestScore >= 0.55) return bestIdx;
-    return -1;
-}
-
-function detectNotesColumn(rawHeaders, rawDataRows, numCols, timeCol) {
-    const headerIdx = rawHeaders.findIndex(h => normalizeText(String(h)).includes('uwagi'));
-    if (headerIdx >= 0) return headerIdx;
-
-    let bestIdx = -1;
-    let bestScore = 0;
-
-    for (let c = 0; c < numCols; c++) {
-        if (c === timeCol) continue;
-        let nonEmpty = 0;
-        let textLike = 0;
-        let avgLenTotal = 0;
-
-        for (const row of rawDataRows) {
-            const v = row.cells[c];
-            if (isEmptyCell(v)) continue;
-            nonEmpty += 1;
-            const s = String(v).trim();
-            if (s.length > 0) {
-                textLike += 1;
-                avgLenTotal += s.length;
-            }
-        }
-
-        if (nonEmpty < 2) continue;
-        const avgLen = avgLenTotal / Math.max(1, textLike);
-        const score = (textLike / nonEmpty) * Math.min(1, avgLen / 22);
-        if (score > bestScore) {
-            bestScore = score;
-            bestIdx = c;
-        }
-    }
-
-    if (bestScore >= 0.35) return bestIdx;
-    return -1;
-}
-
+// Pomocnicze funkcje tekstowe i walidacyjne
 function countNonEmpty(row) {
     if (!Array.isArray(row)) return 0;
     let n = 0;
@@ -1337,11 +1586,8 @@ let activeSearchSeq = 0;
 
 async function performSearch(query) {
     const trimmedQuery = query.trim();
-    
     if (trimmedQuery.length < 3) {
-        statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
-        statusIndicator.classList.add('status--hint');
-        clearResults();
+        handleSearchShortQuery();
         return;
     }
 
@@ -1352,136 +1598,154 @@ async function performSearch(query) {
     selectedResultIndex = -1;
 
     try {
-        // Sprawdzenie cache
-        if (searchCache.has(trimmedQuery)) {
-            matchedResults = searchCache.get(trimmedQuery);
-        } else {
-            const lowerQuery = normalizeText(trimmedQuery);
-            const fuzzyQuery = fuzzyNormalizeText(trimmedQuery);
-
-            const filtered = allData.filter(item => {
-                // Podstawowe dopasowanie (tekstowe)
-                const matches = item.searchable.includes(lowerQuery) || 
-                               item.searchableFuzzy.includes(fuzzyQuery);
-                
-                if (!matches) return false;
-
-                // Filtrowanie dla plików standardowych
-                if (item.isComplete) {
-                    const h = item.headerMap;
-                    const cells = item.cells;
-                    
-                    if (!h) return true; // Bezpiecznik
-
-                    // Sprawdzamy czy fraza występuje w innych kolumnach niż "NR_POL" i "UWAGI"
-                    const otherColumnsMatch = cells.some((cell, idx) => {
-                        if (idx === h.NR_POL || idx === h.UWAGI) return false;
-                        const cellText = String(cell ?? '');
-                        const cellNorm = normalizeText(cellText);
-                        const cellFuzzy = fuzzyNormalizeText(cellText);
-                        return cellNorm.includes(lowerQuery) || cellFuzzy.includes(fuzzyQuery);
-                    });
-
-                    return otherColumnsMatch;
-                }
-
-                return true;
-            });
-
-            // Grupowanie wyników po pliku
-            const groups = new Map();
-            for (const item of filtered) {
-                if (!groups.has(item.fileName)) {
-                    groups.set(item.fileName, {
-                        fileName: item.fileName,
-                        isComplete: item.isComplete,
-                        items: []
-                    });
-                }
-                groups.get(item.fileName).items.push(item);
-            }
-            matchedResults = Array.from(groups.values());
-            
-            // Limitowanie rozmiaru cache
-            if (searchCache.size > 50) {
-                const firstKey = searchCache.keys().next().value;
-                searchCache.delete(firstKey);
-            }
-            searchCache.set(trimmedQuery, matchedResults);
-        }
-
+        matchedResults = await executeSearch(trimmedQuery);
+        
         currentResults = [];
         clearElement(resultsList);
         setShowMoreErrorMessage('');
 
         if (matchedResults.length === 0) {
-            resultsInfo.textContent = 'Brak wyników.';
-            statusIndicator.textContent = 'Dane gotowe.';
-            updateResultsFooter();
+            handleNoSearchResults();
             return;
         }
 
         statusIndicator.textContent = 'Dane gotowe.';
         await loadMoreResults({ reset: true, seq: activeSearchSeq });
     } catch (err) {
-        console.error('Search error:', err);
-        logAction('search_error', { message: err.message }, 'ERROR');
-        statusIndicator.textContent = 'Błąd wyszukiwania.';
-        resultsInfo.textContent = 'Wystąpił błąd podczas przeszukiwania danych.';
+        handleSearchError(err);
     }
+}
+
+function handleSearchShortQuery() {
+    statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
+    statusIndicator.classList.add('status--hint');
+    clearResults();
+}
+
+async function executeSearch(query) {
+    if (searchCache.has(query)) return searchCache.get(query);
+
+    const lowerQuery = normalizeText(query);
+    const fuzzyQuery = fuzzyNormalizeText(query);
+
+    const filtered = allData.filter(item => matchItem(item, lowerQuery, fuzzyQuery));
+    const grouped = groupSearchResults(filtered);
+    
+    updateSearchCache(query, grouped);
+    return grouped;
+}
+
+function matchItem(item, lowerQuery, fuzzyQuery) {
+    const matches = item.searchable.includes(lowerQuery) || item.searchableFuzzy.includes(fuzzyQuery);
+    if (!matches) return false;
+
+    if (item.isComplete) {
+        const h = item.headerMap;
+        if (!h) return true;
+        return item.cells.some((cell, idx) => {
+            if (idx === h.NR_POL || idx === h.UWAGI) return false;
+            const cellText = String(cell ?? '');
+            return normalizeText(cellText).includes(lowerQuery) || fuzzyNormalizeText(cellText).includes(fuzzyQuery);
+        });
+    }
+    return true;
+}
+
+function groupSearchResults(filtered) {
+    const groups = new Map();
+    for (const item of filtered) {
+        if (!groups.has(item.fileName)) {
+            groups.set(item.fileName, {
+                fileName: item.fileName,
+                isComplete: item.isComplete,
+                items: []
+            });
+        }
+        groups.get(item.fileName).items.push(item);
+    }
+    return Array.from(groups.values());
+}
+
+function updateSearchCache(query, results) {
+    if (searchCache.size > 50) {
+        const firstKey = searchCache.keys().next().value;
+        searchCache.delete(firstKey);
+    }
+    searchCache.set(query, results);
+}
+
+function handleNoSearchResults() {
+    resultsInfo.textContent = 'Brak wyników.';
+    statusIndicator.textContent = 'Dane gotowe.';
+    updateResultsFooter();
+}
+
+function handleSearchError(err) {
+    console.error('Search error:', err);
+    logAction('search_error', { message: err.message }, 'ERROR');
+    statusIndicator.textContent = 'Błąd wyszukiwania.';
+    resultsInfo.textContent = 'Wystąpił błąd podczas przeszukiwania danych.';
 }
 
 function renderResults(query, { append = false, startIndex = 0 } = {}) {
     if (!append) clearElement(resultsList);
 
     if (currentResults.length === 0) {
-        resultsInfo.textContent = 'Brak wyników.';
-        updateResultsFooter();
+        handleNoResultsToRender();
         return;
     }
 
-    const totalRoutes = loadedFiles.size;
-    const matchedRoutesCount = matchedResults.length;
-    
-    resultsInfo.innerHTML = `Trasy: ${matchedRoutesCount} / ${totalRoutes}`;
+    updateResultsCountInfo();
 
     const fragment = document.createDocumentFragment();
     for (let index = startIndex; index < currentResults.length; index++) {
         const group = currentResults[index];
-        const routeName = formatRouteNameForResults(group.fileName);
-
-        const groupDiv = document.createElement('div');
-        groupDiv.className = 'result-group';
-        groupDiv.dataset.index = index;
-        if (index === selectedResultIndex) groupDiv.classList.add('selected');
-
-        let rowsHtml = '';
-        for (const item of group.items) {
-            const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
-            const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
-            const summaryHtml = buildResultSummaryHtml(item, query, { isLab });
-            
-            rowsHtml += `
-                <div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
-                    <div class="result-content">${summaryHtml}</div>
-                </div>
-            `;
-        }
-
-        setElementHtml(groupDiv, `
-            <div class="result-group-header">
-                <span class="result-filename"><span class="result-route-name">${routeName}</span></span>
-            </div>
-            <div class="result-group-body">
-                ${rowsHtml}
-            </div>
-        `);
-
+        const groupDiv = createResultGroupElement(group, index, query);
         fragment.appendChild(groupDiv);
     }
     resultsList.appendChild(fragment);
 
     updateResultsFooter();
+}
+
+function handleNoResultsToRender() {
+    resultsInfo.textContent = 'Brak wyników.';
+    updateResultsFooter();
+}
+
+function updateResultsCountInfo() {
+    const totalRoutes = loadedFiles.size;
+    const matchedRoutesCount = matchedResults.length;
+    resultsInfo.innerHTML = `Trasy: ${matchedRoutesCount} / ${totalRoutes}`;
+}
+
+function createResultGroupElement(group, index, query) {
+    const routeName = formatRouteNameForResults(group.fileName);
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'result-group';
+    groupDiv.dataset.index = index;
+    if (index === selectedResultIndex) groupDiv.classList.add('selected');
+
+    const rowsHtml = group.items.map(item => {
+        const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
+        const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
+        const summaryHtml = buildResultSummaryHtml(item, query, { isLab });
+        return `
+            <div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
+                <div class="result-content">${summaryHtml}</div>
+            </div>
+        `;
+    }).join('');
+
+    setElementHtml(groupDiv, `
+        <div class="result-group-header">
+            <span class="result-filename"><span class="result-route-name">${routeName}</span></span>
+        </div>
+        <div class="result-group-body">
+            ${rowsHtml}
+        </div>
+    `);
+    return groupDiv;
 }
 
 // Obsługa kliknięć w wyniki (delegacja zdarzeń)
@@ -1576,21 +1840,6 @@ function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
             .map(c => `<span class="result-cell-fragment">${highlightText(String(c), query)}</span>`)
             .join('<span class="result-sep">|</span>');
     }
-}
-
-function parseDisplayText(displayText) {
-    const raw = String(displayText || '');
-    const parts = raw.split('|').map(s => s.trim());
-    if (parts.length !== 3) return null;
-    const timePart = parts[0].replace(/\s+/g, ' ').trim();
-    const time = parseTimeString(timePart) || timePart;
-    const address = parts[1].replace(/\s+/g, ' ').trim();
-    const facility = parts[2].replace(/\s+/g, ' ').trim();
-    return { time, address, facility };
-}
-
-function isValidDisplayText(displayText) {
-    return Boolean(parseDisplayText(displayText));
 }
 
 function setShowMoreErrorMessage(message) {
@@ -1698,69 +1947,6 @@ function resetToInitialState({ source } = {}) {
 
     goHome();
     logClientEvent('home', { source: source || 'unknown' });
-}
-
-function isShelfToken(value) {
-    const s = String(value || '').trim();
-    if (!s) return false;
-    return /^\d{1,4}[.)]?$/.test(s) || /^\d{1,4}\.$/.test(s);
-}
-
-function buildDisplayTextFromRow(cells, headers, timeCol, notesCol) {
-    const safeCells = Array.isArray(cells) ? cells : [];
-    const safeHeaders = Array.isArray(headers) ? headers : [];
-    const headerNorms = safeHeaders.map(h => normalizeText(String(h ?? '')));
-
-    const findHeaderIndex = (predicate) => headerNorms.findIndex(predicate);
-    let detectedTimeCol = Number.isInteger(timeCol) ? timeCol : findHeaderIndex(h => h.includes('godzin'));
-    let detectedNotesCol = Number.isInteger(notesCol) ? notesCol : findHeaderIndex(h => h.includes('uwag'));
-    let shelfCol = findHeaderIndex(h => h.includes('pol'));
-    const addressCol = findHeaderIndex(h => h.includes('adres'));
-    const facilityCol = findHeaderIndex(h => h.includes('nazwa') || h.includes('placowk'));
-
-    if (shelfCol < 0 && safeCells.length >= 1) {
-        const first = String(safeCells[0] ?? '').trim();
-        if (isShelfToken(first)) shelfCol = 0;
-    }
-
-    if (!Number.isInteger(detectedNotesCol) || detectedNotesCol < 0) detectedNotesCol = -1;
-    if (!Number.isInteger(detectedTimeCol) || detectedTimeCol < 0) {
-        detectedTimeCol = safeCells.length >= 2 ? 1 : -1;
-    }
-
-    let timePart = '';
-    if (detectedTimeCol >= 0 && detectedTimeCol < safeCells.length) {
-        const raw = String(safeCells[detectedTimeCol] ?? '').replace(/\s+/g, ' ').trim();
-        timePart = parseTimeString(raw) || raw;
-    }
-
-    const addressFromColumns = addressCol >= 0 && addressCol < safeCells.length
-        ? String(safeCells[addressCol] ?? '').replace(/\s+/g, ' ').trim()
-        : '';
-    const facilityFromColumns = facilityCol >= 0 && facilityCol < safeCells.length
-        ? String(safeCells[facilityCol] ?? '').replace(/\s+/g, ' ').trim()
-        : '';
-
-    if (addressFromColumns.length > 0 || facilityFromColumns.length > 0) {
-        return `${timePart} | ${addressFromColumns} | ${facilityFromColumns}`;
-    }
-
-    const after = [];
-    const afterStart = detectedTimeCol >= 0 ? detectedTimeCol + 1 : 0;
-    for (let i = afterStart; i < safeCells.length; i++) {
-        if (i === detectedNotesCol) continue;
-        if (i === shelfCol) continue;
-        const s = String(safeCells[i] ?? '').replace(/\s+/g, ' ').trim();
-        if (!s) continue;
-        after.push(s);
-    }
-
-    if (after.length === 0) return null;
-    if (after.length === 1) return `${timePart} | ${after[0]} | `;
-
-    const facility = after[after.length - 1].replace(/\s*\|\s*/g, ' ').trim();
-    const address = after.slice(0, -1).join(', ').replace(/\s*\|\s*/g, ' ').trim();
-    return `${timePart} | ${address} | ${facility}`;
 }
 
 function queuePreviewReadyEvent(fileName) {
@@ -1890,38 +2076,59 @@ function showFilePreview(fileName, highlightRowIndex) {
     const tableModel = fullFileData[fileName];
     if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
 
-    // Zapisujemy stan akcentowania
     lastPreviewState = { fileName, rowIndex: highlightRowIndex };
-
-    searchView.classList.add('hidden');
-    filePreviewView.classList.remove('hidden');
-    document.getElementById('preview-filename').textContent = formatFileName(fileName);
-
-    if (previewMeta) {
-        const lines = Array.isArray(tableModel.metaLines) ? tableModel.metaLines : [];
-        if (lines.length > 0) {
-            previewMeta.textContent = lines.join('\n');
-            previewMeta.classList.remove('hidden');
-        } else {
-            previewMeta.textContent = '';
-            previewMeta.classList.add('hidden');
-        }
-    }
+    togglePreviewView(true, fileName, tableModel.metaLines);
 
     const thead = document.getElementById('table-header');
     const tbody = document.getElementById('table-body');
     clearElement(thead);
     clearElement(tbody);
+    
+    renderPreviewHeader(thead, tableModel.headers);
+    const highlightedRowEl = renderPreviewBody(tbody, tableModel, highlightRowIndex);
+
+    if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
+    queuePreviewReadyEvent(fileName);
+    logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
+}
+
+function togglePreviewView(show, fileName, metaLines) {
+    if (show) {
+        searchView.classList.add('hidden');
+        filePreviewView.classList.remove('hidden');
+        document.getElementById('preview-filename').textContent = formatFileName(fileName);
+        updatePreviewMeta(metaLines);
+    } else {
+        filePreviewView.classList.add('hidden');
+        searchView.classList.remove('hidden');
+    }
+}
+
+function updatePreviewMeta(metaLines) {
+    if (!previewMeta) return;
+    const lines = Array.isArray(metaLines) ? metaLines : [];
+    if (lines.length > 0) {
+        previewMeta.textContent = lines.join('\n');
+        previewMeta.classList.remove('hidden');
+    } else {
+        previewMeta.textContent = '';
+        previewMeta.classList.add('hidden');
+    }
+}
+
+function renderPreviewHeader(thead, headers) {
     const idxTh = document.createElement('th');
     idxTh.textContent = '#';
     thead.appendChild(idxTh);
 
-    tableModel.headers.forEach(h => {
+    headers.forEach(h => {
         const th = document.createElement('th');
         th.textContent = h || '';
         thead.appendChild(th);
     });
+}
 
+function renderPreviewBody(tbody, tableModel, highlightRowIndex) {
     let highlightedRowEl = null;
     tableModel.rows.forEach((rowObj) => {
         const tr = document.createElement('tr');
@@ -1938,23 +2145,15 @@ function showFilePreview(fileName, highlightRowIndex) {
         rowObj.cells.forEach((cell, cellIdx) => {
             const td = document.createElement('td');
             td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
-            
-            // Dodajemy klasę identyfikującą kolumnę placówki
             if (tableModel.headers[cellIdx]) {
                 const h = normalizeText(String(tableModel.headers[cellIdx]));
-                if (h.includes('nazwa') || h.includes('placowk')) {
-                    td.classList.add('facility-column');
-                }
+                if (h.includes('nazwa') || h.includes('placowk')) td.classList.add('facility-column');
             }
-            
             tr.appendChild(td);
         });
         tbody.appendChild(tr);
     });
-
-    if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
-    queuePreviewReadyEvent(fileName);
-    logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
+    return highlightedRowEl;
 }
 
 function formatTimeFromDayFraction(fraction) {
@@ -2043,116 +2242,152 @@ async function runWithConcurrency(items, limit, worker) {
 
 async function handleImportGoogleDrive() {
     const api = window.GoogleDriveImport;
-    if (!api || typeof api.pickExcelFiles !== 'function' || typeof api.downloadFileArrayBuffer !== 'function') {
-        const msg = 'Import z Google Drive jest niedostępny (brak modułu).';
-        console.error(msg);
-        logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
-        uploadProgressContainer.classList.remove('hidden');
-        if (uploadProgress) uploadProgress.value = 0;
-        uploadStatus.textContent = msg;
-        window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1500);
+    if (!api) {
+        handleGoogleDriveUnavailable();
         return;
     }
 
-    importGoogleDriveButton?.setAttribute('aria-busy', 'true');
-    if (importGoogleDriveButton) importGoogleDriveButton.disabled = true;
-
-    uploadProgressContainer.classList.remove('hidden');
-    if (uploadProgress) uploadProgress.value = 0;
-    uploadStatus.textContent = 'Google Drive: inicjalizacja...';
-
+    setGoogleDriveLoadingState(true);
     const summary = { files: [], records: 0, errors: 0, rejected: 0 };
     const before = allData.length;
 
     try {
-        uploadStatus.textContent = 'Google Drive: otwieram wybór plików...';
         const picked = await api.pickExcelFiles();
         const pickedFiles = Array.isArray(picked?.files) ? picked.files : [];
-        const token = String(picked?.accessToken || '');
-
         if (pickedFiles.length === 0) {
-            uploadStatus.textContent = 'Google Drive: anulowano.';
-            logAction('import', { source: 'google_drive', phase: 'cancel' }, 'INFO');
+            handleGoogleDriveCancel();
             return;
         }
 
-        const accepted = [];
-        for (const f of pickedFiles) {
-            const name = String(f?.name || '');
-            const ok = typeof api.validateExcelFileName === 'function'
-                ? api.validateExcelFileName(name)
-                : (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.xls'));
-            if (!ok) {
-                summary.rejected += 1;
-                logAction('import', { source: 'google_drive', fileName: name, reason: 'extension' }, 'WARN');
-                continue;
-            }
-            accepted.push({ id: String(f?.id || ''), name, mimeType: String(f?.mimeType || '') });
-        }
+        const accepted = filterGoogleDriveFiles(pickedFiles, api);
+        summary.errors += (pickedFiles.length - accepted.length);
 
-        summary.errors += summary.rejected;
         if (accepted.length === 0) {
             uploadStatus.textContent = 'Google Drive: brak poprawnych plików (.xlsx/.xls).';
             return;
         }
 
-        let done = 0;
-        const total = accepted.length;
-        uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
-
-        await runWithConcurrency(accepted, 2, async (meta) => {
-            const name = String(meta?.name || '').trim();
-            try {
-                uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
-                const ab = await api.downloadFileArrayBuffer(meta.id, token);
-                if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) {
-                    throw new Error('Plik przekracza limit 5MB');
-                }
-                uploadStatus.textContent = `Google Drive: przetwarzam ${formatFileName(name)}...`;
-                await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
-                summary.files.push(name);
-            } catch (err) {
-                summary.errors += 1;
-                console.error(err);
-                logAction('import', { source: 'google_drive', fileName: name, message: err?.message ? String(err.message) : 'Błąd importu' }, 'ERROR');
-            } finally {
-                done += 1;
-                if (uploadProgress) uploadProgress.value = Math.round((done / Math.max(1, total)) * 100);
-            }
-        });
-
-        summary.records = Math.max(0, allData.length - before);
-        uploadStatus.textContent = 'Google Drive: import zakończony.';
-        logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-
-        const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
-        setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
-
-        fileCountSpan.textContent = String((await docsListFiles()).length);
-        setSearchEnabled(allData.length > 0);
-
-        if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
-            performSearch(lastQuery.trim());
-        }
+        await importFilesFromGoogleDrive(accepted, api, summary);
+        finalizeGoogleDriveImport(summary, before);
     } catch (err) {
-        const msg = err?.message ? String(err.message) : 'Błąd importu z Google Drive';
-        console.error(err);
-        logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
-        uploadStatus.textContent = `Google Drive: ${msg}`;
+        handleGoogleDriveError(err);
     } finally {
-        importGoogleDriveButton?.setAttribute('aria-busy', 'false');
-        if (importGoogleDriveButton) importGoogleDriveButton.disabled = false;
+        setGoogleDriveLoadingState(false);
+    }
+}
+
+function handleGoogleDriveUnavailable() {
+    const msg = 'Import z Google Drive jest niedostępny (brak modułu).';
+    console.error(msg);
+    logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
+    uploadProgressContainer.classList.remove('hidden');
+    uploadStatus.textContent = msg;
+    window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1500);
+}
+
+function setGoogleDriveLoadingState(loading) {
+    if (importGoogleDriveButton) {
+        importGoogleDriveButton.setAttribute('aria-busy', String(loading));
+        importGoogleDriveButton.disabled = loading;
+    }
+    if (loading) {
+        uploadProgressContainer.classList.remove('hidden');
+        if (uploadProgress) uploadProgress.value = 0;
+        uploadStatus.textContent = 'Google Drive: inicjalizacja...';
+    } else {
         window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
     }
+}
+
+function handleGoogleDriveCancel() {
+    uploadStatus.textContent = 'Google Drive: anulowano.';
+    logAction('import', { source: 'google_drive', phase: 'cancel' }, 'INFO');
+}
+
+function filterGoogleDriveFiles(pickedFiles, api) {
+    return pickedFiles.filter(f => {
+        const name = String(f?.name || '');
+        const ok = typeof api.validateExcelFileName === 'function' 
+            ? api.validateExcelFileName(name) 
+            : (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.xls'));
+        if (!ok) logAction('import', { source: 'google_drive', fileName: name, reason: 'extension' }, 'WARN');
+        return ok;
+    }).map(f => ({ id: String(f.id), name: String(f.name), mimeType: String(f.mimeType) }));
+}
+
+async function importFilesFromGoogleDrive(accepted, api, summary) {
+    let done = 0;
+    const total = accepted.length;
+    uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
+
+    await runWithConcurrency(accepted, 2, async (meta) => {
+        const name = String(meta.name).trim();
+        try {
+            uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
+            const ab = await api.downloadFileArrayBuffer(meta.id, ''); // Access token is managed inside api
+            if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
+            
+            await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
+            summary.files.push(name);
+        } catch (err) {
+            summary.errors += 1;
+            logAction('import', { source: 'google_drive', fileName: name, message: err.message }, 'ERROR');
+        } finally {
+            done += 1;
+            if (uploadProgress) uploadProgress.value = Math.round((done / total) * 100);
+        }
+    });
+}
+
+async function finalizeGoogleDriveImport(summary, before) {
+    summary.records = Math.max(0, allData.length - before);
+    uploadStatus.textContent = 'Google Drive: import zakończony.';
+    logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
+
+    displayImportSummary(summary);
+    fileCountSpan.textContent = String((await docsListFiles()).length);
+    setSearchEnabled(allData.length > 0);
+
+    if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
+        performSearch(lastQuery.trim());
+    }
+}
+
+function displayImportSummary(summary) {
+    const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
+    setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
+}
+
+function handleGoogleDriveError(err) {
+    const msg = err?.message ? String(err.message) : 'Błąd importu z Google Drive';
+    console.error(err);
+    logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
+    uploadStatus.textContent = `Google Drive: ${msg}`;
 }
 
 async function handleImportFiles(files) {
     const list = Array.isArray(files) ? files : [];
     if (list.length === 0) return;
 
+    const { accepted, rejected } = filterImportFiles(list);
+    rejected.forEach(r => logAction('import', { fileName: r.name, reason: r.reason }, 'WARN'));
+
+    setImportLoadingState(true, accepted.length);
+    const summary = { files: [], records: 0, errors: rejected.length };
+
+    try {
+        const before = allData.length;
+        await processImportFiles(accepted, summary);
+        finalizeFileImport(summary, before);
+    } finally {
+        setImportLoadingState(false);
+    }
+}
+
+function filterImportFiles(files) {
     const accepted = [];
     const rejected = [];
-    for (const f of list) {
+    for (const f of files) {
         const name = String(f?.name || '');
         const lower = name.toLowerCase();
         const okExt = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
@@ -2161,59 +2396,56 @@ async function handleImportFiles(files) {
         else if (!okSize) rejected.push({ name, reason: 'size' });
         else accepted.push(f);
     }
+    return { accepted, rejected };
+}
 
-    for (const r of rejected) logAction('import', { fileName: r.name, reason: r.reason }, 'WARN');
-
-    uploadProgressContainer.classList.remove('hidden');
-    if (uploadProgress) uploadProgress.value = 0;
-    uploadStatus.textContent = `Import: ${accepted.length} plik(ów)...`;
-
-    const summary = { files: [], records: 0, errors: rejected.length };
-
-    try {
-        const before = allData.length;
-        let processed = 0;
-
-        for (const file of accepted) {
-            const name = String(file.name || '').trim();
-            if (!name) continue;
-
-            uploadStatus.textContent = `Importuję: ${formatFileName(name)}`;
-            const percent = Math.max(0, Math.min(95, (processed / Math.max(1, accepted.length)) * 100));
-            if (uploadProgress) uploadProgress.value = percent;
-
-            try {
-                await docsPutBlob(name, file);
-                removeFileData(name);
-                loadedFiles.delete(name);
-                await processFile(name);
-                loadedFiles.add(name);
-                summary.files.push(name);
-            } catch (err) {
-                summary.errors += 1;
-                logAction('import', { fileName: name, message: err?.message ? String(err.message) : 'Błąd importu' }, 'ERROR');
-            } finally {
-                processed += 1;
-            }
-        }
-
-        summary.records = Math.max(0, allData.length - before);
-        if (uploadProgress) uploadProgress.value = 100;
-        uploadStatus.textContent = 'Import zakończony.';
-
-        logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-
-        const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
-        setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
-
-        fileCountSpan.textContent = String((await docsListFiles()).length);
-        setSearchEnabled(allData.length > 0);
-
-        if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
-            performSearch(lastQuery.trim());
-        }
-    } finally {
+function setImportLoadingState(loading, total = 0) {
+    if (loading) {
+        uploadProgressContainer.classList.remove('hidden');
+        if (uploadProgress) uploadProgress.value = 0;
+        uploadStatus.textContent = `Import: ${total} plik(ów)...`;
+    } else {
         window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
+    }
+}
+
+async function processImportFiles(accepted, summary) {
+    let processed = 0;
+    for (const file of accepted) {
+        const name = String(file.name || '').trim();
+        if (!name) continue;
+
+        uploadStatus.textContent = `Importuję: ${formatFileName(name)}`;
+        if (uploadProgress) uploadProgress.value = Math.max(0, Math.min(95, (processed / accepted.length) * 100));
+
+        try {
+            await docsPutBlob(name, file);
+            removeFileData(name);
+            loadedFiles.delete(name);
+            await processFile(name);
+            loadedFiles.add(name);
+            summary.files.push(name);
+        } catch (err) {
+            summary.errors += 1;
+            logAction('import', { fileName: name, message: err.message }, 'ERROR');
+        } finally {
+            processed += 1;
+        }
+    }
+}
+
+async function finalizeFileImport(summary, before) {
+    summary.records = Math.max(0, allData.length - before);
+    if (uploadProgress) uploadProgress.value = 100;
+    uploadStatus.textContent = 'Import zakończony.';
+    logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
+
+    displayImportSummary(summary);
+    fileCountSpan.textContent = String((await docsListFiles()).length);
+    setSearchEnabled(allData.length > 0);
+
+    if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
+        performSearch(lastQuery.trim());
     }
 }
 
