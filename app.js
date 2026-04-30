@@ -493,6 +493,15 @@ function setupEventListeners() {
         } else {
             debouncedSearch.cancel();
             debouncedLogSearch.cancel();
+            
+            if (query.length > 0) {
+                statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
+                statusIndicator.classList.add('status--hint');
+            } else {
+                statusIndicator.textContent = 'Dane gotowe.';
+                statusIndicator.classList.remove('status--hint');
+            }
+            
             clearResults();
         }
     });
@@ -751,21 +760,38 @@ async function parseSpreadsheet(source, fileName) {
 
 function addTableRows(tableModel, fileName) {
     if (!tableModel || !Array.isArray(tableModel.rows)) return 0;
-    const existingTexts = new Set(allData.map(d => `${d.fileName}:${d.rowIndex}`));
+    const existingKeys = new Set(allData.map(d => `${d.fileName}:${d.rowIndex}`));
 
     const normalizedRows = [];
+    const isComplete = tableModel.isCompleteStructure;
+
     for (const row of tableModel.rows) {
         const key = `${fileName}:${row.originalRowIndex}`;
-        if (existingTexts.has(key)) continue;
+        if (existingKeys.has(key)) continue;
 
-        const displayText = buildDisplayTextFromRow(row.cells, tableModel?.headers, tableModel?.timeCol, tableModel?.notesCol);
-        if (!displayText) continue;
+        let displayText = '';
+        if (isComplete) {
+            const h = tableModel.headerMap;
+            const time = row.cells[h.GODZ] || '-';
+            const address = row.cells[h.ADRES] || '';
+            const facility = row.cells[h.NAZWA_PLACOWKI] || '';
+            displayText = `${time} | ${address} | ${facility}`;
+        } else {
+            displayText = row.cells.filter(c => !isEmptyCell(c)).join(' | ');
+        }
 
+        if (!displayText.trim()) continue;
+
+        const searchableText = `${displayText} ${fileName} ${row.cells.join(' ')}`;
         normalizedRows.push({
             fileName: fileName,
             rowIndex: row.originalRowIndex,
             displayText: displayText,
-            searchable: normalizeText(`${displayText} ${fileName}`)
+            searchable: normalizeText(searchableText),
+            searchableFuzzy: fuzzyNormalizeText(searchableText),
+            isComplete: isComplete,
+            headerMap: tableModel.headerMap, // Dodajemy mapę nagłówków do każdego wiersza
+            cells: row.cells
         });
     }
 
@@ -1075,7 +1101,7 @@ function debounce(fn, delayMs) {
 function buildTableModel(matrix) {
     const rect = normalizeMatrix(matrix);
     const bounds = computeNonEmptyBounds(rect);
-    if (!bounds) return { headers: [], rows: [], metaLines: [] };
+    if (!bounds) return { headers: [], rows: [], metaLines: [], isCompleteStructure: false };
 
     const cropped = rect
         .slice(bounds.minRow, bounds.maxRow + 1)
@@ -1083,6 +1109,31 @@ function buildTableModel(matrix) {
 
     const headerRowRel = findHeaderRowIndex(cropped);
     const rawHeaders = cropped[headerRowRel].map(cellToHeaderText);
+
+    // Weryfikacja wymaganych nagłówków
+    const requiredHeaders = {
+        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA'],
+        'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
+        'ADRES': ['ADRES', 'ULICA'],
+        'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
+        'UWAGI': ['UWAGI']
+    };
+
+    const headerMap = {};
+    let foundRequiredCount = 0;
+
+    Object.entries(requiredHeaders).forEach(([key, aliases]) => {
+        const index = rawHeaders.findIndex(h => {
+            const normH = fuzzyNormalizeText(h).toUpperCase();
+            return aliases.some(alias => fuzzyNormalizeText(alias).toUpperCase() === normH);
+        });
+        if (index >= 0) {
+            headerMap[key] = index;
+            foundRequiredCount++;
+        }
+    });
+
+    const isCompleteStructure = foundRequiredCount === Object.keys(requiredHeaders).length;
 
     const metaLines = [];
     for (let r = 0; r < headerRowRel; r++) {
@@ -1103,25 +1154,37 @@ function buildTableModel(matrix) {
     for (let r = 0; r < dataRelRows.length; r++) {
         const row = dataRelRows[r];
         if (row.every(isEmptyCell)) continue;
-        rawDataRows.push({ originalRowIndex: bounds.minRow + headerRowRel + 1 + r, cells: row });
+        
+        // Czyszczenie i formatowanie danych zgodnie z wymaganiami
+        const cleanedCells = row.map((cell, idx) => {
+            if (idx === headerMap['NR_POL']) {
+                const val = parseInt(cell);
+                return isNaN(val) ? '' : val;
+            }
+            
+            // Stosujemy formatowanie wartości (w tym konwersję czasu Excela) dla wszystkich komórek
+            const formatted = formatCellValue(cell);
+            
+            if (idx === headerMap['GODZ']) {
+                return (formatted === '' || formatted === '-') ? '-' : formatted;
+            }
+            
+            return formatted;
+        });
+
+        rawDataRows.push({ 
+            originalRowIndex: bounds.minRow + headerRowRel + 1 + r, 
+            cells: cleanedCells 
+        });
     }
 
-    const timeCol = detectTimeColumn(rawDataRows, numCols);
-    const notesCol = detectNotesColumn(rawHeaders, rawDataRows, numCols, timeCol);
-
-    const headers = rawHeaders.map((h, idx) => {
-        if (idx === timeCol) return 'Godziny';
-        if (idx === notesCol) return 'Uwagi';
-        const clean = String(h || '').trim();
-        return clean.length ? clean : `Kolumna ${idx + 1}`;
-    });
-
-    const rows = rawDataRows.map(r => ({
-        originalRowIndex: r.originalRowIndex,
-        cells: Array.from({ length: numCols }, (_, idx) => formatCellValue(r.cells[idx]))
-    }));
-
-    return { headers, rows, metaLines, timeCol, notesCol };
+    return { 
+        headers: rawHeaders, 
+        rows: rawDataRows, 
+        metaLines, 
+        isCompleteStructure, 
+        headerMap 
+    };
 }
 
 function normalizeMatrix(matrix) {
@@ -1273,26 +1336,99 @@ let searchSeq = 0;
 let activeSearchSeq = 0;
 
 async function performSearch(query) {
-    lastQuery = query;
-    activeSearchSeq = ++searchSeq;
-    selectedResultIndex = -1;
-
-    const lowerQuery = normalizeText(query);
-    matchedResults = allData
-        .filter(item => item.searchable.includes(lowerQuery))
-        .filter(item => isValidDisplayText(item.displayText));
-
-    currentResults = [];
-    clearElement(resultsList);
-    setShowMoreErrorMessage('');
-
-    if (matchedResults.length === 0) {
-        resultsInfo.textContent = 'Brak wyników.';
-        updateResultsFooter();
+    const trimmedQuery = query.trim();
+    
+    if (trimmedQuery.length < 3) {
+        statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
+        statusIndicator.classList.add('status--hint');
+        clearResults();
         return;
     }
 
-    await loadMoreResults({ reset: true, seq: activeSearchSeq });
+    statusIndicator.textContent = 'Szukanie...';
+    statusIndicator.classList.remove('status--hint');
+    lastQuery = trimmedQuery;
+    activeSearchSeq = ++searchSeq;
+    selectedResultIndex = -1;
+
+    try {
+        // Sprawdzenie cache
+        if (searchCache.has(trimmedQuery)) {
+            matchedResults = searchCache.get(trimmedQuery);
+        } else {
+            const lowerQuery = normalizeText(trimmedQuery);
+            const fuzzyQuery = fuzzyNormalizeText(trimmedQuery);
+
+            const filtered = allData.filter(item => {
+                // Podstawowe dopasowanie (tekstowe)
+                const matches = item.searchable.includes(lowerQuery) || 
+                               item.searchableFuzzy.includes(fuzzyQuery);
+                
+                if (!matches) return false;
+
+                // Filtrowanie dla plików standardowych
+                if (item.isComplete) {
+                    const h = item.headerMap;
+                    const cells = item.cells;
+                    
+                    if (!h) return true; // Bezpiecznik
+
+                    // Sprawdzamy czy fraza występuje w innych kolumnach niż "NR_POL" i "UWAGI"
+                    const otherColumnsMatch = cells.some((cell, idx) => {
+                        if (idx === h.NR_POL || idx === h.UWAGI) return false;
+                        const cellText = String(cell ?? '');
+                        const cellNorm = normalizeText(cellText);
+                        const cellFuzzy = fuzzyNormalizeText(cellText);
+                        return cellNorm.includes(lowerQuery) || cellFuzzy.includes(fuzzyQuery);
+                    });
+
+                    return otherColumnsMatch;
+                }
+
+                return true;
+            });
+
+            // Grupowanie wyników po pliku
+            const groups = new Map();
+            for (const item of filtered) {
+                if (!groups.has(item.fileName)) {
+                    groups.set(item.fileName, {
+                        fileName: item.fileName,
+                        isComplete: item.isComplete,
+                        items: []
+                    });
+                }
+                groups.get(item.fileName).items.push(item);
+            }
+            matchedResults = Array.from(groups.values());
+            
+            // Limitowanie rozmiaru cache
+            if (searchCache.size > 50) {
+                const firstKey = searchCache.keys().next().value;
+                searchCache.delete(firstKey);
+            }
+            searchCache.set(trimmedQuery, matchedResults);
+        }
+
+        currentResults = [];
+        clearElement(resultsList);
+        setShowMoreErrorMessage('');
+
+        if (matchedResults.length === 0) {
+            resultsInfo.textContent = 'Brak wyników.';
+            statusIndicator.textContent = 'Dane gotowe.';
+            updateResultsFooter();
+            return;
+        }
+
+        statusIndicator.textContent = 'Dane gotowe.';
+        await loadMoreResults({ reset: true, seq: activeSearchSeq });
+    } catch (err) {
+        console.error('Search error:', err);
+        logAction('search_error', { message: err.message }, 'ERROR');
+        statusIndicator.textContent = 'Błąd wyszukiwania.';
+        resultsInfo.textContent = 'Wystąpił błąd podczas przeszukiwania danych.';
+    }
 }
 
 function renderResults(query, { append = false, startIndex = 0 } = {}) {
@@ -1304,35 +1440,71 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
         return;
     }
 
-    resultsInfo.textContent = `Wyniki: ${currentResults.length} / ${matchedResults.length}`;
+    const totalRoutes = loadedFiles.size;
+    const matchedRoutesCount = matchedResults.length;
+    
+    resultsInfo.innerHTML = `Trasy: ${matchedRoutesCount} / ${totalRoutes}`;
 
     const fragment = document.createDocumentFragment();
     for (let index = startIndex; index < currentResults.length; index++) {
-        const result = currentResults[index];
-        if (!isValidDisplayText(result.displayText)) continue;
-        const parsed = parseDisplayText(result.displayText);
-        const isLab = parsed ? rowMatchesKeyLab(parsed.facility) : false;
+        const group = currentResults[index];
+        const routeName = formatRouteNameForResults(group.fileName);
 
-        const div = document.createElement('div');
-        div.className = 'result-item';
-        if (index === selectedResultIndex) div.classList.add('selected');
-        if (isLab) div.classList.add('result-item--lab');
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'result-group';
+        groupDiv.dataset.index = index;
+        if (index === selectedResultIndex) groupDiv.classList.add('selected');
 
-        const routeName = formatRouteNameForResults(result.fileName);
-        const summaryHtml = buildResultSummaryHtml(result.displayText, query, { isLab });
+        let rowsHtml = '';
+        for (const item of group.items) {
+            const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
+            const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
+            const summaryHtml = buildResultSummaryHtml(item, query, { isLab });
+            
+            rowsHtml += `
+                <div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
+                    <div class="result-content">${summaryHtml}</div>
+                </div>
+            `;
+        }
 
-        setElementHtml(div, `
-            <span class="result-filename"><span class="result-route-name">${routeName}</span></span>
-            <div class="result-content">${summaryHtml}</div>
+        setElementHtml(groupDiv, `
+            <div class="result-group-header">
+                <span class="result-filename"><span class="result-route-name">${routeName}</span></span>
+            </div>
+            <div class="result-group-body">
+                ${rowsHtml}
+            </div>
         `);
 
-        div.onclick = () => showFilePreview(result.fileName, result.rowIndex);
-        fragment.appendChild(div);
+        fragment.appendChild(groupDiv);
     }
     resultsList.appendChild(fragment);
 
     updateResultsFooter();
 }
+
+// Obsługa kliknięć w wyniki (delegacja zdarzeń)
+resultsList.addEventListener('click', (e) => {
+    const row = e.target.closest('.result-row');
+    if (row) {
+        const fileName = row.dataset.fileName;
+        const rowIndex = parseInt(row.dataset.rowIndex);
+        if (fileName && !isNaN(rowIndex)) {
+            showFilePreview(fileName, rowIndex);
+        }
+        return;
+    }
+
+    const group = e.target.closest('.result-group');
+    if (group) {
+        const index = parseInt(group.dataset.index);
+        const groupData = currentResults[index];
+        if (groupData) {
+            showFilePreview(groupData.fileName, groupData.items[0].rowIndex);
+        }
+    }
+});
 
 /**
  * Czyści nazwę pliku z fragmentów w nawiasach okrągłych
@@ -1384,18 +1556,26 @@ function formatRouteNameForResults(fileName) {
  * - pomija 1. kolumnę z numerem półki
  * - pokazuje tylko 3 pola: godzina, adres, placówka
  */
-function buildResultSummaryHtml(displayText, query, { isLab = false } = {}) {
-    const parsed = parseDisplayText(displayText);
-    if (!parsed) return '';
-
-    const time = parsed.time && parsed.time.length > 0 ? parsed.time : '—';
-    const { address, facility } = parsed;
-    const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
-    return [
-        `<span class="result-col result-time">${highlightText(time, query)}</span>`,
-        `<span class="result-col result-address">${highlightText(address, query)}</span>`,
-        `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
-    ].map((html, idx) => (idx === 0 ? html : `<span class="result-sep">|</span>${html}`)).join('');
+function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
+    if (result.isComplete) {
+        const parts = result.displayText.split('|').map(s => s.trim());
+        const time = parts[0] || '—';
+        const address = parts[1] || '';
+        const facility = parts[2] || '';
+        
+        const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
+        return [
+            `<span class="result-col result-time">${highlightText(time, query)}</span>`,
+            `<span class="result-col result-address">${highlightText(address, query)}</span>`,
+            `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
+        ].map((html, idx) => (idx === 0 ? html : `<span class="result-sep">|</span>${html}`)).join('');
+    } else {
+        // Dla niekompletnej struktury: wyświetl cały wiersz jako rozdzielone komórki
+        return result.cells
+            .filter(c => !isEmptyCell(c))
+            .map(c => `<span class="result-cell-fragment">${highlightText(String(c), query)}</span>`)
+            .join('<span class="result-sep">|</span>');
+    }
 }
 
 function parseDisplayText(displayText) {
@@ -1674,20 +1854,34 @@ function handleKeyNavigation(e) {
         e.preventDefault();
         selectedResultIndex = Math.min(selectedResultIndex + 1, currentResults.length - 1);
         renderResults(lastQuery);
+        scrollToSelected();
     } else if (e.key === 'ArrowUp') {
         e.preventDefault();
         selectedResultIndex = Math.max(selectedResultIndex - 1, 0);
         renderResults(lastQuery);
+        scrollToSelected();
     } else if (e.key === 'Enter' && selectedResultIndex >= 0) {
-        const result = currentResults[selectedResultIndex];
-        showFilePreview(result.fileName, result.rowIndex);
+        const group = currentResults[selectedResultIndex];
+        showFilePreview(group.fileName, group.items[0].rowIndex);
+    }
+}
+
+function scrollToSelected() {
+    const selected = resultsList.querySelector('.result-group.selected');
+    if (selected) {
+        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 }
 
 // Podgląd pliku
+let lastPreviewState = { fileName: null, rowIndex: null };
+
 function showFilePreview(fileName, highlightRowIndex) {
     const tableModel = fullFileData[fileName];
     if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
+
+    // Zapisujemy stan akcentowania
+    lastPreviewState = { fileName, rowIndex: highlightRowIndex };
 
     searchView.classList.add('hidden');
     filePreviewView.classList.remove('hidden');
@@ -1770,18 +1964,30 @@ function parseTimeString(value) {
 function formatCellValue(value) {
     if (value === null || value === undefined) return '';
 
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        if (value > 0 && value < 1) {
-            return formatTimeFromDayFraction(value);
+    // Obsługa wartości liczbowych oraz stringów, które są liczbami (np. z plików CSV)
+    let num = value;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        // Sprawdzamy czy to ułamek dziesiętny (format Excela dla czasu)
+        if (trimmed !== '' && /^-?\d*\.?\d+$/.test(trimmed)) {
+            num = parseFloat(trimmed);
+        }
+    }
+
+    if (typeof num === 'number' && Number.isFinite(num)) {
+        // Czas w Excelu to ułamek doby (0-1)
+        if (num > 0 && num < 1) {
+            return formatTimeFromDayFraction(num);
         }
 
-        if (value >= 1000 && value < 60000) {
-            const frac = value % 1;
+        // Czasem Excel przechowuje czas jako duże liczby z ułamkiem (np. data + czas)
+        if (num >= 1000 && num < 60000) {
+            const frac = num % 1;
             if (frac > 0 && frac < 1) return formatTimeFromDayFraction(frac);
         }
     }
 
-    const asString = String(value);
+    const asString = String(value).trim();
     const timeParsed = parseTimeString(asString);
     if (timeParsed) return timeParsed;
 
@@ -1993,9 +2199,14 @@ async function handleImportFiles(files) {
 }
 
 // Pomocnicze
+let searchCache = new Map(); // Cache dla wyników wyszukiwania
+
 function normalizeText(text) {
-    return String(text ?? '')
-        .toLowerCase()
+    return String(text ?? '').toLowerCase().trim();
+}
+
+function fuzzyNormalizeText(text) {
+    return normalizeText(text)
         .normalize("NFD")
         .replace(/[\u0300-\u036f]/g, "")
         .replace(/ł/g, "l");
@@ -2046,8 +2257,29 @@ function runSelfTests() {
 
 function highlightText(text, query) {
     if (!query) return text;
-    const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
-    return text.replace(regex, '<span class="highlight">$1</span>');
+    
+    // Normalizujemy tekst i zapytanie do formy bez diakrytyków na potrzeby wyszukiwania pozycji
+    const normText = fuzzyNormalizeText(text);
+    const normQuery = fuzzyNormalizeText(query);
+    
+    if (!normQuery) return text;
+
+    let result = '';
+    let lastIdx = 0;
+    let idx = normText.indexOf(normQuery);
+
+    while (idx !== -1) {
+        // Dodajemy tekst przed dopasowaniem
+        result += escapeHtml(text.slice(lastIdx, idx));
+        // Dodajemy podświetlone dopasowanie (z oryginalnymi znakami)
+        result += `<span class="highlight">${escapeHtml(text.slice(idx, idx + normQuery.length))}</span>`;
+        
+        lastIdx = idx + normQuery.length;
+        idx = normText.indexOf(normQuery, lastIdx);
+    }
+    
+    result += escapeHtml(text.slice(lastIdx));
+    return result;
 }
 
 function escapeRegExp(string) {

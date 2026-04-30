@@ -303,6 +303,19 @@ input:checked + .slider:before {
     color: var(--secondary-text);
     margin-top: 5px;
     text-align: right;
+    transition: color 0.2s;
+}
+
+.status--hint {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.results-filter-info {
+    font-size: 0.8rem;
+    font-weight: normal;
+    color: var(--secondary-text);
+    margin-left: 8px;
 }
 
 /* Upload Section */
@@ -378,11 +391,13 @@ input:checked + .slider:before {
 .results-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 15px;
+    position: relative;
+    z-index: 10;
 }
 
 .results-footer {
-    margin-top: 12px;
+    margin-top: 20px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -408,34 +423,74 @@ body.dark-theme .inline-error {
     color: #ff6b6b;
 }
 
-.result-item {
+.result-group {
     background: var(--card-gradient);
-    padding: 15px;
-    border-radius: 6px;
+    border-radius: 8px;
     border-left: 4px solid var(--primary-color);
     box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: transform 0.1s, border-left-color 0.15s ease, background-color 0.15s ease;
     cursor: pointer;
-    transition: transform 0.1s;
+    position: relative;
 }
 
-.result-item:hover, .result-item.selected {
-    transform: scale(1.01);
-    background: rgba(0, 102, 204, 0.05);
+.result-group:hover, .result-group.selected {
+    border-left-color: #ffc107 !important;
+    background-color: rgba(255, 193, 7, 0.02);
 }
 
-.result-item.selected {
-    border-color: #ffc107;
+.result-row:hover {
+    background-color: rgba(255, 193, 7, 0.08) !important;
+    border-left: 2px solid #ffc107;
+    margin-left: -2px; /* Kompensacja ramki */
+}
+
+.result-group:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.result-group-header {
+    padding: 10px 15px;
+    background: rgba(0, 102, 204, 0.04);
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+}
+
+.result-group-body {
+    display: flex;
+    flex-direction: column;
+}
+
+.result-row {
+    padding: 12px 15px;
+    cursor: pointer;
+    transition: background 0.1s;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.result-row:last-child {
+    border-bottom: none;
+}
+
+.result-row:hover {
+    background: rgba(0, 102, 204, 0.03);
+}
+
+.result-row--lab {
+    border-left: 3px solid rgba(255, 193, 7, 0.5);
+    background: rgba(255, 193, 7, 0.03);
 }
 
 .result-filename {
-    font-size: 0.8rem;
+    font-size: 0.85rem;
     font-weight: bold;
-    margin-bottom: 5px;
     display: block;
 }
 
 .result-route-name {
     color: var(--primary-color);
+    text-transform: uppercase;
 }
 
 .result-content {
@@ -443,8 +498,8 @@ body.dark-theme .inline-error {
     line-height: 1.4;
     display: grid;
     grid-template-columns: auto 1fr auto;
-    gap: 10px;
-    align-items: baseline;
+    gap: 15px;
+    align-items: center;
     word-break: break-word;
 }
 
@@ -493,13 +548,68 @@ body.dark-theme .result-facility--lab {
 }
 
 @media (max-width: 560px) {
+    .container {
+        padding: 10px;
+    }
+
+    header {
+        margin-bottom: 20px;
+    }
+
+    .header-top {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .toolbar {
+        width: 100%;
+        justify-content: flex-start;
+        margin-top: 10px;
+    }
+
+    #search-input {
+        padding: 12px 15px;
+        font-size: 1rem;
+    }
+
     .result-content {
         grid-template-columns: 1fr;
         gap: 6px;
     }
 
-    .result-facility {
-        white-space: normal;
+    .result-sep {
+        display: none;
+    }
+
+    .result-time, .result-address, .result-facility {
+        display: block;
+        width: 100%;
+    }
+
+    .result-cell-fragment {
+        display: block;
+        margin-bottom: 4px;
+        padding-bottom: 4px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .result-cell-fragment:last-child { 
+        border-bottom: none;
+    }
+}
+
+@media (max-width: 320px) {
+    html {
+        font-size: 14px;
+    }
+    
+    .container {
+        padding: 5px;
+    }
+    
+    .icon-button {
+        width: 36px;
+        height: 30px;
     }
 }
 
