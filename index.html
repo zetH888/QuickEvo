@@ -15,7 +15,7 @@
     <script src="tests.js"></script>
 </head>
 <body class="dark-theme">
-    <div id="loading-overlay" class="loading-overlay">
+    <div id="loading-overlay" class="loading-overlay" data-welcome-seq="init">
         <div class="loading-card" role="status" aria-live="polite" aria-busy="true">
             <div id="welcome-graphic" class="welcome-graphic" aria-hidden="true"></div>
             <div id="welcome-text" class="loading-title loading-title-welcome">Witamy w QuickEvo!</div>
@@ -136,29 +136,13 @@
             <div class="drop-zone-subtitle">Limit: 5MB na plik</div>
         </div>
     </div>
-    <div id="debug-tray" class="debug-tray" aria-label="DebugLog" aria-expanded="false">
-        <button id="debug-tray-toggle" class="debug-tray-toggle" type="button" aria-label="Otwórz/Zamknij DebugLog">
-            <span class="debug-tray-dot" aria-hidden="true"></span>
-        </button>
-        <div class="debug-panel">
-            <div class="debug-panel-header">
-                <div class="debug-panel-title">DebugLog</div>
-                <div class="debug-panel-actions">
-                    <input id="debug-search" class="debug-panel-search" type="search" placeholder="Szukaj w logach..." aria-label="Szukaj w logach">
-                    <button id="debug-copy" class="debug-panel-btn" type="button" aria-label="Kopiuj logi">Kopiuj</button>
-                    <button id="debug-minimize" class="debug-panel-btn" type="button" aria-label="Zwiń debugger">Zwiń</button>
-                    <button id="debug-clear" class="debug-panel-btn" type="button" aria-label="Wyczyść logi">Wyczyść</button>
-                </div>
-            </div>
-            <div id="debug-log" class="debug-panel-log" role="log" aria-live="polite"></div>
-        </div>
-    </div>
     <div id="scroll-indicator" class="scroll-indicator is-hidden" aria-hidden="true">
         <svg viewBox="0 0 24 24">
             <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
         </svg>
     </div>
     <!-- Logika aplikacji (bez parametrów wersji w URL) -->
+    <script src="qe-debugger.js"></script>
     <script src="googleDrive.js"></script>
     <script src="app.js"></script>
 </body>

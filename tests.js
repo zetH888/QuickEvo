@@ -11,6 +11,7 @@ const QuickEvoTests = {
         this.testUnifiedDeduplication();
         this.testTitleCase();
         this.testLegacySelfTests();
+        this.testDebuggerModule();
         console.log("%c--- Tests Completed ---", "color: #0066cc; font-weight: bold;");
     },
 
@@ -34,6 +35,21 @@ const QuickEvoTests = {
         if (typeof parseDisplayText === 'function') {
             this.assert(Boolean(parseDisplayText(' | Warszawa, Dzika 4 | Dzika Laboratorium')), 'Brak godziny nie blokuje wyniku');
             this.assert(Boolean(parseDisplayText('- | Warszawa, Dzika 4 | Dzika Laboratorium')), 'Niepoprawna godzina nie blokuje wyniku');
+        }
+    },
+
+    testDebuggerModule() {
+        console.log("\nTesting Debugger Module:");
+        this.assert(typeof window.logAction === 'function', "logAction jest dostępne globalnie");
+        this.assert(typeof window.QE_Debugger === 'object' && window.QE_Debugger !== null, "QE_Debugger jest dostępny globalnie");
+
+        try { window.logAction('test', { ok: true }, 'INFO'); this.assert(true, "logAction nie zgłasza wyjątku"); }
+        catch (e) { this.assert(false, "logAction nie powinno zgłaszać wyjątku"); }
+
+        if (window.QE_Debugger && typeof window.QE_Debugger.benchmark === 'function') {
+            const res = window.QE_Debugger.benchmark({ count: 1200 });
+            const ok = res && Number.isFinite(res.pushMs) && Number.isFinite(res.openMs) && res.count === 1200;
+            this.assert(ok, "benchmark zwraca wynik i nie zawiesza renderowania");
         }
     },
 

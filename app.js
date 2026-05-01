@@ -6,38 +6,9 @@
  * Wykorzystuje IndexedDB do przechowywania plików i Web Workers (opcjonalnie) do przetwarzania.
  */
 
-/** @type {Array<Object>} Znormalizowane wiersze ze wszystkich załadowanych plików. Każdy obiekt zawiera dane do wyszukiwania i wyświetlania. */
-let allData = []; 
-
-/** @type {Array<Object>} Aktualnie wyświetlana strona wyników wyszukiwania (paginacja). */
-let currentResults = []; 
-
-/** @type {Array<Object>} Wszystkie dopasowania dla bieżącego zapytania, pogrupowane według plików. */
-let matchedResults = []; 
-
-/** @type {number} Indeks zaznaczonego wyniku podczas nawigacji klawiaturą (-1 jeśli brak). Zakres: -1 do matchedResults.length - 1. */
-let selectedResultIndex = -1; 
-
-/** @type {string} Ostatnie zapytanie użyte do wyszukiwania. Służy do odświeżania wyników po imporcie nowych danych. */
-let lastQuery = ''; 
-
-/** @type {Set<string>} Zbiór nazw plików, które zostały już przetworzone i dodane do indeksu allData. */
-let loadedFiles = new Set(); 
-
-/** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli (używane w widoku podglądu). */
-let fullFileData = {}; 
-
-/** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna (wymaga załadowanych danych). */
-let isSearchEnabled = false; 
-
-/** @type {boolean} Flaga wskazująca, czy trwa obecnie proces ładowania plików z bazy danych. */
-let isLoading = false; 
-
-/** @type {boolean} Flaga wskazująca, czy trwa obecnie doczytywanie kolejnej strony wyników. */
-let isLoadingMoreResults = false; 
-
-/** @type {Array<Object>} Lista błędów napotkanych podczas wczytywania poszczególnych plików. */
-let loadErrors = []; 
+//////////////////////////////////////////////////
+// STAŁE GLOBALNE, KONFIGURACJA, IMPORTY
+//////////////////////////////////////////////////
 
 /** @const {number} Liczba grup wyników wyświetlanych na jednej stronie paginacji. */
 const PAGE_SIZE = 10; 
@@ -57,32 +28,111 @@ const KEY_LAB_TOKEN_SETS = [
 ];
 
 /**
- * Skompilowane zestawy tokenów do szybkich dopasowań.
- * @type {Array<Array<string>>}
+ * Nazwa i wersja bazy danych IndexedDB.
  */
-let compiledKeyLabTokenSets = []; 
+const DOCS_DB_NAME = 'quickevo_docs_v2';
+const DOCS_DB_VERSION = 2;
+const DOCS_DB_STORE = 'files';
 
 /**
- * Timestamp ostatniego kliknięcia przycisku Home.
- * @type {number}
+ * Limit rozmiaru pliku podczas importu (5MB).
  */
-let lastHomeResetTs = 0; 
+const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 /**
- * Referencja do debounce dla wyszukiwania.
- * @type {Function|null}
+ * Globalne instancje parserów DOM dla HTML i SVG.
  */
-let debouncedSearchRef = null; 
+const htmlDomParser = new DOMParser();
+const svgDomParser = new DOMParser();
 
 /**
- * Referencja do debounce dla logowania wyszukiwań.
- * @type {Function|null}
+ * Rezerwowy magazyn danych w pamięci.
+ * @type {Map<string, string>}
  */
-let debouncedLogSearchRef = null; 
+const memoryStorage = new Map();
+
+const DOM_READY_TS = performance.now();
+
+const WELCOME_LOGO_ENTER_DELAY_MS = 420;
+const WELCOME_SEQUENCE_UNLOCK_AFTER_MS = 1750;
+const WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS = 650;
+const BOOT_WATCHDOG_MS = 8000;
+const DOCS_DB_OPEN_TIMEOUT_MS = 6000;
 
 /**
- * Referencje do kluczowych elementów interfejsu użytkownika (DOM).
+ * Konfiguracja „premium” dla ekranu ładowania:
+ * - ograniczenie prędkości wypełniania paska postępu, aby animacja nie „migała” (domyślnie 3s na 0→100),
+ * - rotacja losowych komunikatów w tytule (z płynnymi przejściami) zsynchronizowana z postępem.
  */
+const LOADING_PROGRESS_RAMP_DURATION_MS = 3000;
+const LOADING_TITLE_INTERVAL_MIN_MS = 500;
+const LOADING_TITLE_INTERVAL_MAX_MS = 800;
+const LOADING_TITLE_FADE_OUT_MS = 200;
+const LOADING_TITLE_FADE_IN_MS = 300;
+
+const LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH = 97;
+const LOADING_PROGRESS_MICROSTOP_MIN_MS = 200;
+const LOADING_PROGRESS_MICROSTOP_MAX_MS = 500;
+const LOADING_PROGRESS_JUMP_MIN = 1;
+const LOADING_PROGRESS_JUMP_MAX = 5;
+
+/**
+ * Komunikaty wyświetlane w tytule podczas ładowania (zsynchronizowane z zakresem postępu).
+ * @type {{startowe: string[], techniczne: string[], absurdalne: string[], finalizujace: string[]}}
+ */
+const LOADING_TITLE_MESSAGES = {
+    startowe: [
+        'Budzenie serwera...',
+        'Rozgrzewanie tranzystorów...',
+        'Wciąganie internetu...',
+        'Inicjalizacja chaosu...',
+        'Parzenie kawy dla backendu...'
+    ],
+    techniczne: [
+        'Kalibracja pikseli...',
+        'Analiza błędów użytkownika...',
+        'Defragmentacja rzeczywistości...',
+        'Synchronizacja z alternatywnym wszechświatem...',
+        'Hiperkompresja danych...',
+        'Rekurencyjna walidacja zasobów...',
+        'Odczyt sygnału z kosmosu...'
+    ],
+    absurdalne: [
+        'Ustalanie IQ użytkownika...',
+        'Koszenie trawnika...',
+        'Głaskanie algorytmu...',
+        'Prostowanie kabli bezprzewodowych...',
+        'Przeglądanie konstelacji NGC 772...',
+        "Kończenie połączenia z Trump'em...",
+        'Karmienie elektronicznych gołębi...',
+        'Resetowanie praw fizyki...'
+    ],
+    finalizujace: [
+        'Finalizacja magii...',
+        'Dopięcie ostatnich bitów...',
+        'Udawanie ciężkiej pracy...',
+        'Nakładanie warstwy premium...',
+        'Polerowanie wyniku...',
+        'Symulacja profesjonalizmu...'
+    ]
+};
+
+/**
+ * Cache dla wyników wyszukiwania.
+ * @type {Map<string, Array>}
+ */
+let searchCache = new Map();
+
+/**
+ * Kontrolery animacji orbit logo.
+ * @type {WeakMap<SVGElement, Object>}
+ */
+const logoOrbitControllers = new WeakMap();
+
+//////////////////////////////////////////////////
+// CACHE ELEMENTÓW DOM
+//////////////////////////////////////////////////
+
 const searchInput = document.getElementById('search-input');
 const resultsList = document.getElementById('results-list');
 const resultsInfo = document.getElementById('results-info');
@@ -101,6 +151,7 @@ const filePreviewView = document.getElementById('file-preview-view');
 const backToSearchBtn = document.getElementById('back-to-search');
 const previewMeta = document.getElementById('preview-meta');
 const loadingOverlay = document.getElementById('loading-overlay');
+const loadingTitleText = document.getElementById('welcome-text');
 const loadingStatusText = document.getElementById('loading-status-text');
 const loadingProgressBar = document.getElementById('loading-progress-bar');
 const loadingProgressMeta = document.getElementById('loading-progress-meta');
@@ -114,631 +165,589 @@ const showMoreButton = document.getElementById('show-more-button');
 const showMoreLoading = document.getElementById('show-more-loading');
 const showMoreError = document.getElementById('show-more-error');
 const dropZone = document.getElementById('drop-zone');
-const debugTray = document.getElementById('debug-tray');
-const debugTrayToggle = document.getElementById('debug-tray-toggle');
-const debugSearchInput = document.getElementById('debug-search');
-const debugCopyButton = document.getElementById('debug-copy');
-const debugMinimizeButton = document.getElementById('debug-minimize');
-const debugLogEl = document.getElementById('debug-log');
-const debugClearButton = document.getElementById('debug-clear');
 const syncGDriveButton = document.getElementById('sync-gdrive-button');
 const modalOverlay = document.getElementById('modal-overlay');
 const modalTitle = document.getElementById('modal-title');
 const modalContent = document.getElementById('modal-content');
 const modalActions = document.getElementById('modal-actions');
 const welcomeImportProgress = document.getElementById('welcome-import-progress');
-const welcomeImportStatus = document.getElementById('welcome-import-status');
 const welcomeProgressList = document.getElementById('welcome-progress-list');
 const scrollIndicator = document.getElementById('scroll-indicator');
 
-/**
- * Timestamp referencyjny do wyliczenia opóźnienia wejścia aplikacji.
- * @type {number}
- */
-const DOM_READY_TS = performance.now();
+//////////////////////////////////////////////////
+// KLUCZOWY STAN APLIKACJI
+//////////////////////////////////////////////////
 
-/**
- * Aktualna wartość paska postępu w ekranie ładowania.
- * @type {number}
- */
+/** @type {Array<Object>} Znormalizowane wiersze ze wszystkich załadowanych plików. */
+let allData = []; 
+
+/** @type {Array<Object>} Aktualnie wyświetlana strona wyników wyszukiwania. */
+let currentResults = []; 
+
+/** @type {Array<Object>} Wszystkie dopasowania dla bieżącego zapytania. */
+let matchedResults = []; 
+
+/** @type {number} Indeks zaznaczonego wyniku podczas nawigacji klawiaturą. */
+let selectedResultIndex = -1; 
+
+/** @type {string} Ostatnie zapytanie użyte do wyszukiwania. */
+let lastQuery = ''; 
+
+/** @type {Set<string>} Zbiór nazw plików, które zostały już przetworzone. */
+let loadedFiles = new Set(); 
+
+/** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli. */
+let fullFileData = {}; 
+
+/** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna. */
+let isSearchEnabled = false; 
+
+/** @type {boolean} Flaga wskazująca, czy trwa obecnie proces ładowania plików. */
+let isLoading = false; 
+
+/** @type {boolean} Flaga wskazująca, czy trwa obecnie doczytywanie kolejnej strony wyników. */
+let isLoadingMoreResults = false; 
+
+/** @type {Array<Object>} Lista błędów napotkanych podczas wczytywania plików. */
+let loadErrors = []; 
+
+/** @type {Array<Array<string>>} Skompilowane zestawy tokenów do szybkich dopasowań. */
+let compiledKeyLabTokenSets = []; 
+
+/** @type {number} Timestamp ostatniego kliknięcia przycisku Home. */
+let lastHomeResetTs = 0; 
+
+/** @type {Function|null} Referencja do debounce dla wyszukiwania. */
+let debouncedSearchRef = null; 
+
+/** @type {Function|null} Referencja do debounce dla logowania wyszukiwań. */
+let debouncedLogSearchRef = null; 
+
+/** @type {number} Aktualna wartość paska postępu w ekranie ładowania. */
 let loadingProgressValue = 0;
 
+/** @type {number} Wartość wyświetlana (wygładzona) paska postępu w ekranie ładowania. */
+let loadingProgressDisplayValue = 0;
+
+/** @type {number} ID animacji requestAnimationFrame dla paska postępu. */
+let loadingProgressRaf = 0;
+
+/** @type {number} Timestamp ostatniej klatki animacji paska postępu. */
+let loadingProgressLastFrameTs = 0;
+
 /**
- * Flaga zakończenia animacji ładowania.
- * @type {boolean}
+ * Stan „systemowej” symulacji progresu (celowo nieregularny, aby wyglądał naturalnie).
+ * @type {{
+ *   runId: number,
+ *   pauseUntilTs: number,
+ *   pauseTimerId: number | null,
+ *   nextMicroStopAtTs: number,
+ *   nextJumpAtTs: number,
+ *   speedDriftUntilTs: number,
+ *   speedMultiplier: number,
+ *   boostUntilTs: number,
+ *   lastTargetValue: number,
+ *   profile: {
+ *     fastPps: number,
+ *     midPps: number,
+ *     cruisePps: number,
+ *     tailPps: number,
+ *     finalPps: number
+ *   } | null
+ * } }
  */
+let loadingProgressSim = {
+    runId: 0,
+    pauseUntilTs: 0,
+    pauseTimerId: null,
+    nextMicroStopAtTs: 0,
+    nextJumpAtTs: 0,
+    speedDriftUntilTs: 0,
+    speedMultiplier: 1,
+    boostUntilTs: 0,
+    lastTargetValue: 0,
+    profile: null
+};
+
+/** @type {boolean} Flaga zakończenia animacji ładowania. */
 let loadingProgressDone = false;
 
-/**
- * Flaga gotowości danych aplikacji.
- * @type {boolean}
- */
+/** @type {boolean} Flaga gotowości danych aplikacji. */
 let loadingDataReady = false;
 
-/**
- * Flaga błędu ładowania.
- * @type {boolean}
- */
+/** @type {boolean} Flaga błędu ładowania. */
 let loadingFailed = false;
 
-/**
- * Czas rozpoczęcia procesu ładowania.
- * @type {number}
- */
+/** @type {number} Czas rozpoczęcia procesu ładowania. */
 let loadingStartedAt = 0;
 
-/**
- * Licznik instancji loga dla unikalnych ID SVG.
- * @type {number}
- */
+/** @type {number} Licznik instancji loga dla unikalnych ID SVG. */
 let logoInstanceCounter = 0;
 
-/**
- * Nazwa i wersja bazy danych IndexedDB.
- */
-const DOCS_DB_NAME = 'quickevo_docs_v2';
-const DOCS_DB_VERSION = 2;
-const DOCS_DB_STORE = 'files';
-
-/**
- * Obietnica otwarcia bazy danych.
- * @type {Promise|null}
- */
+/** @type {Promise|null} Obietnica otwarcia bazy danych. */
 let docsDbPromise = null;
 
-/**
- * Bufor wpisów w panelu debugowania.
- * @type {Array<Object>}
- */
-let debugEntries = [];
+/** @type {number} Licznik sekwencji wyszukiwania. */
+let searchSeq = 0;
 
-/**
- * Maksymalna liczba wpisów renderowanych w DebugLog.
- */
-const DEBUG_RENDER_LIMIT = 900;
+/** @type {number} ID aktywnej sekwencji wyszukiwania. */
+let activeSearchSeq = 0;
 
-/**
- * Flaga widoczności panelu debugowania.
- */
-let debugUiOpen = false;
+/** @type {Object} Ostatni stan podglądu pliku. */
+let lastPreviewState = { fileName: null, rowIndex: null };
 
-/**
- * Flaga planowania renderowania panelu debugowania.
- */
-let debugRenderQueued = false;
+let welcomeLogoDomContentLoadedTs = null;
+let welcomeLogoEnterTimer = null;
+let welcomeSeqUnlockTimer = null;
+let welcomeSeqFailSafeTimer = null;
 
-/**
- * Fraza wyszukiwania w logach debugowania.
- */
-let debugSearchTerm = '';
+let welcomeTextUpdatesLocked = true;
+let pendingLoadingStatusText = null;
+let pendingLoadingProgressValue = null;
+let pendingLoadingErrorMessage = null;
+let pendingLoadingErrorVisible = false;
 
-/**
- * Limit rozmiaru pliku podczas importu (5MB).
- */
-const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
+let welcomeParallaxRaf = 0;
+let welcomeParallaxTargetX = 0;
+let welcomeParallaxTargetY = 0;
+let welcomeParallaxCurrentX = 0;
+let welcomeParallaxCurrentY = 0;
+let welcomeOverlayStartedAt = 0;
+let bootWatchdogTimer = null;
 
-/**
- * Zapewnia polifill dla funkcji fetch, jeśli nie jest dostępna natywnie.
- * @complexity O(1)
- */
-function ensureFetchPolyfill() {
-    if (typeof window.fetch === 'function') return;
-    window.fetch = (url, opts = {}) => new Promise((resolve, reject) => {
+/** @type {LoadingTitleRotator|null} Kontroler rotacji komunikatów w tytule ekranu ładowania. */
+let loadingTitleRotator = null;
+
+/** @type {{ finalText: string, interimText: string, applied: boolean } | null} */
+let pendingLoadingStatusFinalization = null;
+
+function prefersReducedMotion() {
+    return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function clampNumber(v, min, max) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return min;
+    return Math.min(max, Math.max(min, n));
+}
+
+function getLoadingTitleCategoryForProgress(progressPercent) {
+    const p = clampNumber(progressPercent, 0, 100);
+    if (p <= 20) return 'startowe';
+    if (p <= 50) return 'techniczne';
+    if (p <= 80) return 'absurdalne';
+    return 'finalizujace';
+}
+
+function pickRandomNonRepeating(items, lastValue) {
+    if (!Array.isArray(items) || items.length === 0) return '';
+    if (items.length === 1) return items[0];
+    let next = items[Math.floor(Math.random() * items.length)];
+    if (typeof lastValue === 'string' && lastValue.length > 0) {
+        let guard = 0;
+        while (next === lastValue && guard < 12) {
+            next = items[Math.floor(Math.random() * items.length)];
+            guard += 1;
+        }
+    }
+    return next;
+}
+
+function randomIntInclusive(min, max) {
+    const a = Math.ceil(Number(min));
+    const b = Math.floor(Number(max));
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+    if (a > b) return a;
+    return Math.floor(a + Math.random() * (b - a + 1));
+}
+
+function randomFloat(min, max) {
+    const a = Number(min), b = Number(max);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+    if (a > b) return a;
+    return a + Math.random() * (b - a);
+}
+
+function isLoadingVisualFinishAllowed() {
+    return Boolean(loadingProgressDone && (loadingDataReady || loadingFailed));
+}
+
+function getSoftCapLeadAllowance(displayPercent) {
+    const p = clampNumber(displayPercent, 0, 100);
+    if (p < 25) return 10;
+    if (p < 60) return 7;
+    if (p < 85) return 5;
+    if (p < 95) return 3;
+    return 1.5;
+}
+
+function setPendingFinalLoadingStatusText(finalText, interimText) {
+    const finalT = String(finalText || '').trim();
+    const interimT = String(interimText || '').trim();
+    if (!finalT) { pendingLoadingStatusFinalization = null; return; }
+    pendingLoadingStatusFinalization = { finalText: finalT, interimText: interimT || 'Finalizowanie...', applied: false };
+}
+
+function syncPendingFinalLoadingStatusText() {
+    if (!pendingLoadingStatusFinalization) return;
+    if (!loadingProgressDone) return;
+    const canFinalizeVisual = prefersReducedMotion() ? (loadingProgressValue >= 100) : (loadingProgressDisplayValue >= 100);
+    if (canFinalizeVisual) {
+        if (!pendingLoadingStatusFinalization.applied) {
+            pendingLoadingStatusFinalization.applied = true;
+            setLoadingStatusText(pendingLoadingStatusFinalization.finalText);
+        }
+        return;
+    }
+    if (!pendingLoadingStatusFinalization.applied) setLoadingStatusText(pendingLoadingStatusFinalization.interimText);
+}
+
+async function animateLoadingTitleSwap(el, nextText, { reducedMotion } = {}) {
+    if (!el) return;
+    const text = String(nextText || '').trim();
+    if (text.length === 0) return;
+    if (reducedMotion) { el.textContent = text; el.style.opacity = '1'; return; }
+
+    const fade = (from, to, durationMs) => new Promise((resolve) => {
         try {
-            const method = String(opts.method || 'GET').toUpperCase();
-            const xhr = new XMLHttpRequest();
-            xhr.open(method, url, true);
-            xhr.responseType = 'arraybuffer';
-            const headers = opts.headers && typeof opts.headers === 'object' ? opts.headers : {};
-            for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, String(v));
-            xhr.onload = () => {
-                const status = xhr.status;
-                const ok = status >= 200 && status < 300;
-                const ab = xhr.response || new ArrayBuffer(0);
-                const response = {
-                    ok,
-                    status,
-                    arrayBuffer: async () => ab,
-                    text: async () => new TextDecoder('utf-8').decode(new Uint8Array(ab)),
-                    json: async () => JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(ab))),
-                    blob: async () => new Blob([ab])
-                };
-                resolve(response);
-            };
-            xhr.onerror = () => reject(new Error('fetch() polyfill: network error'));
-            xhr.send(opts.body || null);
-        } catch (err) {
-            reject(err);
+            if (typeof el.animate === 'function') {
+                const anim = el.animate(
+                    [{ opacity: from }, { opacity: to }],
+                    { duration: durationMs, easing: 'ease', fill: 'forwards' }
+                );
+                anim.addEventListener('finish', () => resolve(), { once: true });
+                anim.addEventListener('cancel', () => resolve(), { once: true });
+            } else {
+                el.style.transition = `opacity ${durationMs}ms ease`;
+                el.style.opacity = String(to);
+                window.setTimeout(() => resolve(), durationMs);
+            }
+        } catch {
+            el.style.opacity = String(to);
+            window.setTimeout(() => resolve(), durationMs);
         }
     });
+
+    await fade(1, 0, LOADING_TITLE_FADE_OUT_MS);
+    el.textContent = text;
+    await fade(0, 1, LOADING_TITLE_FADE_IN_MS);
+    el.style.opacity = '1';
 }
 
 /**
- * Rezerwowy magazyn danych w pamięci.
- * @type {Map<string, string>}
+ * Rotuje losowe komunikaty w tytule ekranu ładowania, synchronizując pulę komunikatów z postępem.
  */
-const memoryStorage = new Map();
-
-/**
- * Pobiera wartość z magazynu lokalnego (localStorage) z fallbackiem do pamięci.
- * @param {string} key Klucz danych.
- * @returns {string|null} Pobrana wartość.
- * @complexity O(1)
- */
-function storageGet(key) {
-    try { return window.localStorage.getItem(key); } catch { }
-    return memoryStorage.has(key) ? memoryStorage.get(key) : null;
-}
-
-/**
- * Zapisuje wartość w magazynie lokalnym (localStorage) z fallbackiem do pamięci.
- * @param {string} key Klucz danych.
- * @param {string} value Wartość do zapisu.
- * @complexity O(1)
- */
-function storageSet(key, value) {
-    try { window.localStorage.setItem(key, value); return; } catch { }
-    memoryStorage.set(key, String(value));
-}
-
-/**
- * Zabezpiecza ciąg znaków przed atakami XSS poprzez zamianę znaków specjalnych HTML.
- * @param {any} value Wartość wejściowa.
- * @returns {string} Ciąg zabezpieczony.
- * @complexity O(N)
- */
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#39;');
-}
-
-/**
- * Globalne instancje parserów DOM dla HTML i SVG.
- */
-const htmlDomParser = new DOMParser();
-const svgDomParser = new DOMParser();
-
-/**
- * Czyści zawartość elementu DOM.
- * @param {HTMLElement} el Element do wyczyszczenia.
- * @complexity O(N)
- */
-function clearElement(el) {
-    if (!el) return;
-    el.replaceChildren();
-}
-
-/**
- * Bezpiecznie ustawia zawartość HTML elementu.
- * @param {HTMLElement} el Element docelowy.
- * @param {string} html Kod HTML.
- * @complexity O(N)
- */
-function setElementHtml(el, html) {
-    if (!el) return;
-    const source = String(html ?? '');
-    const doc = htmlDomParser.parseFromString(`<div>${source}</div>`, 'text/html');
-    const wrapper = doc.body?.firstElementChild;
-    if (!wrapper) {
-        clearElement(el);
-        return;
+class LoadingTitleRotator {
+    /**
+     * @param {{ el: HTMLElement|null, getProgress: () => number }} cfg
+     */
+    constructor(cfg) {
+        this._el = cfg?.el || null;
+        this._getProgress = typeof cfg?.getProgress === 'function' ? cfg.getProgress : (() => 0);
+        this._reducedMotion = prefersReducedMotion();
+        this._timer = null;
+        this._running = false;
+        this._lastMessage = '';
+        this._animSeq = 0;
     }
-    el.replaceChildren(...Array.from(wrapper.childNodes));
-}
 
-/**
- * Bezpiecznie wstrzykuje kod SVG do elementu.
- * @param {HTMLElement} el Element docelowy.
- * @param {string} svgSource Kod SVG.
- * @complexity O(N)
- */
-function setElementSvg(el, svgSource) {
-    if (!el) return;
-    const source = String(svgSource ?? '').trim();
-    if (!source) {
-        clearElement(el);
-        return;
+    start() {
+        if (this._running) return;
+        if (!this._el) return;
+        this._running = true;
+        this._reducedMotion = prefersReducedMotion();
+        this._scheduleNext({ immediate: true });
     }
-    const doc = svgDomParser.parseFromString(source, 'image/svg+xml');
-    const root = doc.documentElement;
-    if (!root || String(root.nodeName || '').toLowerCase() !== 'svg') {
-        clearElement(el);
-        return;
-    }
-    el.replaceChildren(document.importNode(root, true));
-}
 
-/**
- * Formatuje liczbę do dwóch cyfr.
- * @param {number|string} value Wartość.
- * @returns {string} Sformatowany ciąg.
- * @complexity O(1)
- */
-function pad2(value) {
-    return String(value).padStart(2, '0');
-}
-
-/**
- * Formatuje znacznik czasu na czytelną datę i czas.
- * @param {number} ts Znacznik czasu (ms).
- * @returns {string} Sformatowana data.
- * @complexity O(1)
- */
-function formatTimestamp(ts) {
-    const d = new Date(ts);
-    const yyyy = d.getFullYear();
-    const mm = pad2(d.getMonth() + 1);
-    const dd = pad2(d.getDate());
-    const hh = pad2(d.getHours());
-    const mi = pad2(d.getMinutes());
-    const ss = pad2(d.getSeconds());
-    const ms = String(d.getMilliseconds()).padStart(3, '0');
-    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}.${ms}`;
-}
-
-/**
- * Przełącza widoczność strefy upuszczania plików.
- * @param {boolean} visible Czy widoczna.
- * @complexity O(1)
- */
-function setDropZoneVisible(visible) {
-    if (!dropZone) return;
-    dropZone.classList.toggle('hidden', !visible);
-    dropZone.setAttribute('aria-hidden', visible ? 'false' : 'true');
-}
-
-/**
- * Formatuje dane do wyświetlenia w panelu debugowania.
- * @param {string} action Typ akcji.
- * @param {any} payload Dane akcji.
- * @returns {string} Sformatowany HTML.
- * @complexity O(N)
- */
-function formatDebugPayload(action, payload) {
-    const a = String(action || '').toLowerCase();
-    if (a === 'search') {
-        const q = payload && typeof payload === 'object' ? payload.query : '';
-        return `Query: "<strong>${escapeHtml(q)}</strong>"`;
-    }
-    if (a === 'preview') {
-        const fn = payload && typeof payload === 'object' ? payload.fileName : '';
-        const ri = payload && typeof payload === 'object' ? payload.rowIndex : null;
-        const rowLabel = Number.isInteger(ri) ? `<strong>${escapeHtml(String(ri))}</strong>` : '<strong>?</strong>';
-        return `Found in: "<u>${escapeHtml(fn)}</u>" row: ${rowLabel}`;
-    }
-    if (a === 'navigate') {
-        const to = payload && typeof payload === 'object' ? payload.to : '';
-        return `Navigate: <strong>${escapeHtml(to)}</strong>`;
-    }
-    if (a === 'import') {
-        const files = payload && typeof payload === 'object' ? payload.files : null;
-        const records = payload && typeof payload === 'object' ? payload.records : null;
-        const errors = payload && typeof payload === 'object' ? payload.errors : null;
-        return `Import: files=<strong>${escapeHtml(files ?? '')}</strong> records=<strong>${escapeHtml(records ?? '')}</strong> errors=<strong>${escapeHtml(errors ?? '')}</strong>`;
-    }
-    if (payload && typeof payload === 'object') return '';
-    if (payload != null) return `<strong>${escapeHtml(String(payload))}</strong>`;
-    return '';
-}
-
-/**
- * Otwiera lub zamyka panel debugowania.
- * @param {boolean} open Czy otworzyć.
- * @complexity O(1)
- */
-function setDebugUiOpen(open) {
-    debugUiOpen = Boolean(open);
-    if (!debugTray) return;
-    debugTray.classList.toggle('debug-tray--open', debugUiOpen);
-    debugTray.setAttribute('aria-expanded', debugUiOpen ? 'true' : 'false');
-    if (debugUiOpen) scheduleDebugRender();
-}
-
-/**
- * Bezpiecznie konwertuje obiekt na ciąg JSON do celów wyszukiwania.
- * @param {any} value Obiekt.
- * @returns {string} JSON.
- * @complexity O(N)
- */
-function safeStringifyForSearch(value) {
-    try {
-        if (value == null) return '';
-        if (typeof value === 'string') return value;
-        return JSON.stringify(value);
-    } catch {
-        return '';
-    }
-}
-
-/**
- * Renderuje szczegóły obiektu payload w panelu debugowania.
- * @param {any} payload Dane.
- * @param {number} depth Głębokość rekurencji.
- * @param {Object} budget Limit węzłów.
- * @returns {string} HTML.
- * @complexity O(N)
- */
-function renderPayloadDetails(payload, depth = 0, budget = { nodes: 0 }) {
-    if (!payload || typeof payload !== 'object') return '';
-    if (depth > 3) return '';
-    if (budget.nodes > 120) return '';
-
-    const entries = Array.isArray(payload) ? payload.entries() : Object.entries(payload);
-    const rows = [];
-    let count = 0;
-    for (const [k, v] of entries) {
-        if (count >= 40) break;
-        budget.nodes += 1;
-        count += 1;
-        const keyLabel = Array.isArray(payload) ? `[${k}]` : String(k);
-        const safeKey = escapeHtml(keyLabel);
-
-        if (v && typeof v === 'object') {
-            rows.push(`<div class="debug-kv" data-depth="${depth}"><div class="debug-k">${safeKey}</div><div class="debug-v">{…}</div></div>`);
-            const nested = renderPayloadDetails(v, depth + 1, budget);
-            if (nested) rows.push(nested);
-        } else {
-            const safeVal = escapeHtml(v == null ? '' : String(v));
-            rows.push(`<div class="debug-kv" data-depth="${depth}"><div class="debug-k">${safeKey}</div><div class="debug-v">${safeVal}</div></div>`);
+    stop() {
+        this._running = false;
+        this._animSeq += 1;
+        if (this._timer !== null) {
+            window.clearTimeout(this._timer);
+            this._timer = null;
+        }
+        if (this._el) {
+            this._el.style.opacity = '1';
         }
     }
-    if (rows.length === 0) return '';
-    return `<div class="debug-payload">${rows.join('')}</div>`;
-}
 
-/**
- * Pobiera listę widocznych wpisów w panelu debugowania.
- * @returns {Array<Object>} Lista wpisów.
- * @complexity O(N)
- */
-function getVisibleDebugEntries() {
-    const total = debugEntries.length;
-    const startIdx = Math.max(0, total - DEBUG_RENDER_LIMIT);
-    const slice = debugEntries.slice(startIdx);
-    const term = String(debugSearchTerm || '').trim().toLowerCase();
-    return term ? slice.filter(e => String(e?.searchText || '').includes(term)) : slice;
-}
-
-/**
- * Renderuje listę logów w panelu debugowania.
- * @complexity O(N)
- */
-function renderDebugLog() {
-    if (!debugLogEl) return;
-    if (!debugUiOpen) return;
-    const entries = getVisibleDebugEntries();
-    const shouldStickToBottom = (debugLogEl.scrollHeight - debugLogEl.scrollTop - debugLogEl.clientHeight) < 36;
-    setElementHtml(debugLogEl, `<div class="debug-rows">${entries.map((e) => {
-        const ts = formatTimestamp(e.ts);
-        const level = String(e.level || 'INFO').toUpperCase();
-        const action = String(e.action || '');
-        const rowClass = level === 'ERROR' ? 'debug-row--error' : (level === 'WARN' ? 'debug-row--warn' : 'debug-row--info');
-        const accentClass = ['search', 'preview', 'navigate', 'import'].includes(action) ? 'debug-row--accent' : '';
-        const summary = formatDebugPayload(action, e.payload);
-        const details = (e.payload && typeof e.payload === 'object' && !['search', 'preview', 'navigate', 'import'].includes(String(action).toLowerCase()))
-            ? renderPayloadDetails(e.payload)
-            : '';
-        const message = summary || details ? `${summary}${details}` : '';
-        const safeMessage = message || '';
-        const rowClasses = ['debug-row', rowClass, accentClass].filter(Boolean).join(' ');
-        return `<div class="${rowClasses}">
-            <div class="debug-cell debug-ts">${escapeHtml(ts)}</div>
-            <div class="debug-cell debug-level">${escapeHtml(level)}</div>
-            <div class="debug-cell debug-action">${escapeHtml(action)}</div>
-            <div class="debug-cell debug-msg">${safeMessage}</div>
-        </div>`;
-    }).join('')}</div>`);
-    if (shouldStickToBottom) debugLogEl.scrollTop = debugLogEl.scrollHeight;
-}
-
-/**
- * Planuje renderowanie logów debugowania.
- * @complexity O(1)
- */
-function scheduleDebugRender() {
-    if (debugRenderQueued) return;
-    debugRenderQueued = true;
-    window.requestAnimationFrame(() => {
-        debugRenderQueued = false;
-        renderDebugLog();
-    });
-}
-
-/**
- * Kopiuje tekst do schowka systemowego.
- * @param {string} text Tekst do skopiowania.
- * @returns {Promise<boolean>} Czy sukces.
- * @complexity O(N)
- */
-async function copyTextToClipboard(text) {
-    const value = String(text || '');
-    try {
-        await navigator.clipboard.writeText(value);
-        return true;
-    } catch {
+    setProgress(_progressPercent) {
+        if (!this._running) return;
+        const p = clampNumber(this._getProgress(), 0, 100);
+        if (p >= 100) this.stop();
     }
-    try {
-        const ta = document.createElement('textarea');
-        ta.value = value;
-        ta.setAttribute('readonly', 'true');
-        ta.className = 'qe-clipboard-ta';
-        document.body.appendChild(ta);
-        ta.select();
-        const ok = document.execCommand('copy');
-        ta.remove();
-        return ok;
-    } catch {
-        return false;
+
+    _scheduleNext({ immediate } = {}) {
+        if (!this._running) return;
+        if (!this._el) return;
+
+        const p = clampNumber(this._getProgress(), 0, 100);
+        if (p >= 100) { this.stop(); return; }
+
+        const delay = immediate
+            ? 0
+            : Math.floor(LOADING_TITLE_INTERVAL_MIN_MS + Math.random() * (LOADING_TITLE_INTERVAL_MAX_MS - LOADING_TITLE_INTERVAL_MIN_MS));
+
+        if (this._timer !== null) window.clearTimeout(this._timer);
+        this._timer = window.setTimeout(() => {
+            this._timer = null;
+            void this._tick();
+        }, delay);
+    }
+
+    async _tick() {
+        if (!this._running) return;
+        if (!this._el) return;
+
+        const progress = clampNumber(this._getProgress(), 0, 100);
+        if (progress >= 100) { this.stop(); return; }
+
+        const category = getLoadingTitleCategoryForProgress(progress);
+        const pool = LOADING_TITLE_MESSAGES[category] || [];
+        const next = pickRandomNonRepeating(pool, this._lastMessage);
+        if (!next) { this._scheduleNext(); return; }
+
+        const seq = (this._animSeq += 1);
+        await animateLoadingTitleSwap(this._el, next, { reducedMotion: this._reducedMotion });
+        if (!this._running) return;
+        if (seq !== this._animSeq) return;
+        this._lastMessage = next;
+        this._scheduleNext();
     }
 }
 
-/**
- * Rejestruje akcję w panelu debugowania.
- * @param {string} action Akcja.
- * @param {any} payload Dane.
- * @param {string} level Poziom logowania.
- * @complexity O(N)
- */
-function logAction(action, payload, level = 'INFO') {
-    const act = String(action || '');
-    const lvl = String(level || 'INFO').toUpperCase();
-    const entry = { ts: Date.now(), action: act, payload: payload ?? null, level: lvl };
-    entry.searchText = `${act} ${lvl} ${safeStringifyForSearch(payload)}`.toLowerCase();
-    debugEntries.push(entry);
-    scheduleDebugRender();
+function setLoadingProgressDisplayPercent(percent) {
+    const next = clampNumber(percent, 0, 100);
+    loadingProgressDisplayValue = next;
+    if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(next)}%`;
+    if (loadingProgressBar) loadingProgressBar.value = next;
+    if (loadingTitleRotator) loadingTitleRotator.setProgress(next);
+    updateLoadingContinueAvailability();
+    syncPendingFinalLoadingStatusText();
 }
 
-/**
- * Otwiera połączenie z bazą IndexedDB.
- * @returns {Promise<IDBDatabase>} Połączenie.
- * @complexity O(1)
- */
-function openDocsDb() {
-    if (docsDbPromise) return docsDbPromise;
-    docsDbPromise = new Promise((resolve, reject) => {
-        try {
-            const req = indexedDB.open(DOCS_DB_NAME, DOCS_DB_VERSION);
-            req.onblocked = () => {
-                alert('Proszę zamknąć inne karty z tą aplikacją, aby umożliwić aktualizację bazy danych.');
-            };
-            req.onupgradeneeded = (e) => {
-                const db = req.result;
-                if (!db.objectStoreNames.contains(DOCS_DB_STORE)) {
-                    db.createObjectStore(DOCS_DB_STORE, { keyPath: 'name' });
-                }
-            };
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error || new Error('Nie można otworzyć IndexedDB'));
-        } catch (err) {
-            reject(err);
-        }
-    });
-    return docsDbPromise;
+function stopLoadingProgressAnimation() {
+    if (!loadingProgressRaf) return;
+    window.cancelAnimationFrame(loadingProgressRaf);
+    loadingProgressRaf = 0;
+    loadingProgressLastFrameTs = 0;
+    if (loadingProgressSim.pauseTimerId !== null) {
+        window.clearTimeout(loadingProgressSim.pauseTimerId);
+        loadingProgressSim.pauseTimerId = null;
+    }
 }
 
-/**
- * Pobiera listę plików z bazy danych.
- * @returns {Promise<Array<Object>>} Lista plików.
- * @complexity O(F)
- */
-async function docsListFiles() {
-    const db = await openDocsDb();
-    return await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readonly');
-        const store = tx.objectStore(DOCS_DB_STORE);
-        const req = store.getAll();
-        req.onsuccess = () => {
-            const rows = Array.isArray(req.result) ? req.result : [];
-            resolve(rows.map(r => ({
-                name: String(r?.name ?? ''),
-                size: Number(r?.size ?? (r?.blob?.size ?? 0)),
-                updatedAt: Number(r?.updatedAt ?? 0)
-            })).filter(r => r.name));
+function kickLoadingProgressAnimation() {
+    if (loadingProgressRaf) return;
+    loadingProgressLastFrameTs = performance.now();
+    loadingProgressRaf = window.requestAnimationFrame(stepLoadingProgressAnimation);
+}
+
+function stepLoadingProgressAnimation(ts) {
+    loadingProgressRaf = 0;
+    if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
+
+    const display = clampNumber(loadingProgressDisplayValue, 0, 100);
+    if (prefersReducedMotion()) {
+        const target = clampNumber(loadingProgressValue, 0, 100);
+        setLoadingProgressDisplayPercent(target);
+        return;
+    }
+
+    const dt = Math.max(0, ts - (loadingProgressLastFrameTs || ts));
+    loadingProgressLastFrameTs = ts;
+
+    const rawTarget = clampNumber(loadingProgressValue, 0, 100);
+    const finishAllowed = isLoadingVisualFinishAllowed();
+    const hardCap = finishAllowed ? 100 : LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH;
+    const lead = getSoftCapLeadAllowance(display);
+    const cap = clampNumber(Math.min(hardCap, Math.max(display, rawTarget + lead)), 0, 100);
+
+    const sim = loadingProgressSim;
+    const now = ts;
+
+    if (sim.profile === null) {
+        sim.profile = {
+            fastPps: randomFloat(22, 34),
+            midPps: randomFloat(10, 18),
+            cruisePps: randomFloat(6, 12),
+            tailPps: randomFloat(1.2, 3.6),
+            finalPps: randomFloat(18, 34)
         };
-        req.onerror = () => reject(req.error || new Error('Błąd odczytu /docs'));
-    });
+    }
+
+    if (rawTarget > sim.lastTargetValue) {
+        const delta = rawTarget - sim.lastTargetValue;
+        if (delta >= 6) {
+            sim.boostUntilTs = Math.max(sim.boostUntilTs, now + randomIntInclusive(450, 1100));
+        }
+        sim.lastTargetValue = rawTarget;
+    }
+
+    if (sim.pauseUntilTs > 0 && now < sim.pauseUntilTs) {
+        if (sim.pauseTimerId === null) {
+            const remaining = Math.max(0, sim.pauseUntilTs - now);
+            sim.pauseTimerId = window.setTimeout(() => {
+                sim.pauseTimerId = null;
+                kickLoadingProgressAnimation();
+            }, Math.min(remaining + 12, 220));
+        }
+        return;
+    }
+
+    if (sim.pauseTimerId !== null) {
+        window.clearTimeout(sim.pauseTimerId);
+        sim.pauseTimerId = null;
+    }
+
+    if (now >= sim.speedDriftUntilTs) {
+        sim.speedMultiplier = randomFloat(0.82, 1.22);
+        sim.speedDriftUntilTs = now + randomIntInclusive(260, 720);
+        if (display < 85 && Math.random() < 0.22) {
+            sim.boostUntilTs = Math.max(sim.boostUntilTs, now + randomIntInclusive(280, 720));
+        }
+    }
+
+    if (now >= sim.nextMicroStopAtTs) {
+        sim.nextMicroStopAtTs = now + randomIntInclusive(420, 1350);
+        const p = display;
+        const stopChance = p < 20 ? 0.12 : (p < 60 ? 0.22 : (p < 85 ? 0.18 : 0.10));
+        const nearCap = (cap - display) < 1.2;
+        if (!nearCap && Math.random() < stopChance) {
+            sim.pauseUntilTs = now + randomIntInclusive(LOADING_PROGRESS_MICROSTOP_MIN_MS, LOADING_PROGRESS_MICROSTOP_MAX_MS);
+            kickLoadingProgressAnimation();
+            return;
+        }
+    }
+
+    let basePps;
+    if (display < 25) basePps = sim.profile.fastPps;
+    else if (display < 60) basePps = sim.profile.midPps;
+    else if (display < 85) basePps = sim.profile.cruisePps;
+    else if (display < 97) basePps = sim.profile.tailPps;
+    else basePps = sim.profile.tailPps * 0.75;
+
+    const boost = (now < sim.boostUntilTs) ? randomFloat(1.35, 1.95) : 1;
+    const requestedSpeedPps = basePps * sim.speedMultiplier * boost;
+
+    let next = display;
+
+    if (finishAllowed && rawTarget >= 100 && display >= 97) {
+        next = Math.min(100, display + (dt / 1000) * sim.profile.finalPps);
+    } else {
+        next = Math.min(cap, display + (dt / 1000) * requestedSpeedPps);
+    }
+
+    if (now >= sim.nextJumpAtTs) {
+        const minGap = display < 25 ? 260 : (display < 85 ? 340 : 520);
+        const maxGap = display < 25 ? 720 : (display < 85 ? 980 : 1320);
+        sim.nextJumpAtTs = now + randomIntInclusive(minGap, maxGap);
+
+        const room = cap - next;
+        if (room > 0.8 && Math.random() < 0.78) {
+            const maxJump = display >= 85 ? 2 : LOADING_PROGRESS_JUMP_MAX;
+            const jump = Math.min(room, randomIntInclusive(LOADING_PROGRESS_JUMP_MIN, maxJump));
+            if (jump >= 0.9) {
+                next = Math.min(cap, next + jump);
+            }
+        }
+    }
+
+    if (next !== display) setLoadingProgressDisplayPercent(next);
+    if (next < cap) kickLoadingProgressAnimation();
 }
+
+function applyLoadingProgressTargetPercent(percent) {
+    const target = clampNumber(percent, 0, 100);
+    loadingProgressValue = target;
+    if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
+    if (prefersReducedMotion()) {
+        setLoadingProgressDisplayPercent(target);
+        return;
+    }
+    kickLoadingProgressAnimation();
+}
+
+function updateLoadingContinueAvailability() {
+    if (!loadingContinueButton || !loadingOverlay) return;
+    const canContinue = Boolean(loadingProgressDone && (loadingDataReady || loadingFailed) && (loadingFailed || loadingProgressDisplayValue >= 100));
+    loadingContinueButton.disabled = !canContinue;
+    if (canContinue) loadingOverlay.setAttribute('aria-busy', 'false');
+}
+
+function ensureLoadingTitleRotator() {
+    if (loadingTitleRotator) return loadingTitleRotator;
+    loadingTitleRotator = new LoadingTitleRotator({
+        el: loadingTitleText,
+        getProgress: () => loadingProgressDisplayValue
+    });
+    return loadingTitleRotator;
+}
+
+function startLoadingOverlayDynamicEffects() {
+    if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
+    ensureLoadingTitleRotator().start();
+    applyLoadingProgressTargetPercent(loadingProgressValue);
+}
+
+function applyWelcomeElementsInitState() {
+    if (!loadingOverlay) return;
+    const welcomeText = document.getElementById('welcome-text');
+    const loadingActions = loadingOverlay.querySelector('.loading-actions');
+    const nodes = [welcomeText, loadingStatusText, loadingOverlay.querySelector('.loading-progress'), loadingActions, loadingError].filter(Boolean);
+    for (const el of nodes) {
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(12px) scale(0.992)';
+        el.style.filter = 'blur(12px)';
+    }
+    if (loadingActions) loadingActions.style.pointerEvents = 'none';
+}
+
+function clearWelcomeElementsInitState() {
+    if (!loadingOverlay) return;
+    const welcomeText = document.getElementById('welcome-text');
+    const loadingActions = loadingOverlay.querySelector('.loading-actions');
+    const nodes = [welcomeText, loadingStatusText, loadingOverlay.querySelector('.loading-progress'), loadingActions, loadingError].filter(Boolean);
+    for (const el of nodes) {
+        el.style.opacity = '';
+        el.style.transform = '';
+        el.style.filter = '';
+    }
+    if (loadingActions) loadingActions.style.pointerEvents = '';
+}
+
+function forceWelcomeSequenceDone() {
+    if (!loadingOverlay) return;
+    clearWelcomeElementsInitState();
+    loadingOverlay.dataset.welcomeSeq = 'done';
+    if (welcomeTextUpdatesLocked) {
+        welcomeTextUpdatesLocked = false;
+        flushPendingWelcomeTextUpdates();
+    }
+    startLoadingOverlayDynamicEffects();
+}
+
+//////////////////////////////////////////////////
+// FUNKCJE INICJALIZACYJNE
+//////////////////////////////////////////////////
+
+document.addEventListener('DOMContentLoaded', () => {
+    welcomeLogoDomContentLoadedTs = performance.now();
+    scheduleWelcomeLogoEntrance();
+}, { once: true });
 
 /**
- * Wyświetla systemowy modal z opcjami.
- * @param {string} title Tytuł modala.
- * @param {string} content Treść modala (HTML).
- * @param {Array<Object>} actions Lista przycisków { label, class, onClick }.
+ * Główna funkcja startowa aplikacji.
  */
-function showModal(title, content, actions = []) {
-    if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
-
-    modalTitle.textContent = title;
-    setElementHtml(modalContent, content);
-    clearElement(modalActions);
-
-    actions.forEach(action => {
-        const btn = document.createElement('button');
-        btn.className = `modal-btn ${action.class || ''}`;
-        btn.textContent = action.label;
-        btn.onclick = () => {
-            hideModal();
-            if (typeof action.onClick === 'function') action.onClick();
-        };
-        modalActions.appendChild(btn);
-    });
-
-    modalOverlay.classList.remove('hidden');
-    modalOverlay.setAttribute('aria-hidden', 'false');
-}
-
-function hideModal() {
-    if (!modalOverlay) return;
-    modalOverlay.classList.add('hidden');
-    modalOverlay.setAttribute('aria-hidden', 'true');
-}
-
-/**
- * Pobiera informację czy plik o danej nazwie istnieje w bazie.
- */
-async function docsFileExists(fileName) {
-    const db = await openDocsDb();
-    return await new Promise((resolve) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readonly');
-        const store = tx.objectStore(DOCS_DB_STORE);
-        const req = store.get(fileName);
-        req.onsuccess = () => resolve(!!req.result);
-        req.onerror = () => resolve(false);
-    });
-}
-
-/**
- * Pobiera Blob pliku z bazy danych.
- * @param {string} fileName Nazwa pliku.
- * @returns {Promise<Blob|null>} Blob.
- * @complexity O(log F)
- */
-async function docsGetBlob(fileName) {
-    const safe = String(fileName || '');
-    const db = await openDocsDb();
-    return await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readonly');
-        const store = tx.objectStore(DOCS_DB_STORE);
-        const req = store.get(safe);
-        req.onsuccess = () => resolve(req.result?.blob ?? null);
-        req.onerror = () => reject(req.error || new Error('Błąd odczytu pliku'));
-    });
-}
-
-/**
- * Zapisuje Blob pliku w bazie danych.
- * @param {string} fileName Nazwa pliku.
- * @param {Blob} blob Blob.
- * @complexity O(log F + S)
- */
-async function docsPutBlob(fileName, blob) {
-    const safe = String(fileName || '').trim();
-    if (!safe) throw new Error('Brak nazwy pliku');
-    
-    const db = await openDocsDb();
-    const record = { name: safe, blob, size: blob?.size ?? 0, updatedAt: Date.now() };
-    await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readwrite');
-        const store = tx.objectStore(DOCS_DB_STORE);
-        const req = store.put(record);
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error || new Error('Błąd zapisu pliku'));
-    });
-}
-
-// Inicjalizacja
 async function init() {
     ensureFetchPolyfill();
     setupTheme();
     setupEventListeners();
     setupLoadingContinueHandlers();
+    setupMutationObserver();
     compileKeyLabTokenSets();
+    setupWelcomeOverlayParallax();
 
-    // Grafika/logo są ładowane w idle, żeby nie blokować startu.
     lazyLoadWelcomeGraphic();
     renderHeaderLogo();
 
@@ -747,14 +756,32 @@ async function init() {
     loadingStartedAt = performance.now();
     logAction('boot', { phase: 'start' });
 
+    if (bootWatchdogTimer !== null) {
+        window.clearTimeout(bootWatchdogTimer);
+        bootWatchdogTimer = null;
+    }
+    bootWatchdogTimer = window.setTimeout(() => {
+        bootWatchdogTimer = null;
+        if (loadingProgressDone) return;
+        forceWelcomeSequenceDone();
+        loadingFailed = true;
+        setLoadingProgressPercent(100, { force: true });
+        showLoadingError('Ładowanie trwa zbyt długo. Możesz przejść dalej do aplikacji i zaimportować dane ręcznie.');
+        finalizeBoot();
+    }, BOOT_WATCHDOG_MS);
+
     await performInitialDataLoad();
 }
 
+/**
+ * Wykonuje wstępne ładowanie danych z bazy.
+ */
 async function performInitialDataLoad() {
     try {
         await openDocsDb();
         await loadAllFiles({ fullReload: true, showProgress: true });
         loadingDataReady = true;
+        loadingFailed = false;
         setSearchEnabled(allData.length > 0);
         if (allData.length === 0) {
             setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.xls/.csv.');
@@ -766,6 +793,9 @@ async function performInitialDataLoad() {
     }
 }
 
+/**
+ * Obsługuje błąd wstępnego ładowania danych.
+ */
 function handleInitialLoadError(err) {
     loadingFailed = true;
     setSearchEnabled(false);
@@ -773,14 +803,31 @@ function handleInitialLoadError(err) {
     logAction('boot', { phase: 'error', message: err?.message ? String(err.message) : 'error' }, 'ERROR');
 }
 
+/**
+ * Kończy proces startu aplikacji.
+ */
 function finalizeBoot() {
+    if (bootWatchdogTimer !== null) {
+        window.clearTimeout(bootWatchdogTimer);
+        bootWatchdogTimer = null;
+    }
     loadingProgressDone = true;
     prepareManualContinue();
     const totalMs = Math.round(performance.now() - loadingStartedAt);
     logAction('boot', { phase: 'done', ms: totalMs });
 }
 
-// Obsługa motywów
+/**
+ * Aktualizuje stan paska postępu na początku ładowania.
+ */
+function updateLoadingProgressStart(total) {
+    setLoadingStatusText(total === 0 ? 'Brak plików .xlsx/.csv. Zaimportuj dane.' : 'Wczytywanie plików...');
+    setLoadingProgressPercent(total === 0 ? 100 : 0, { force: true });
+}
+
+/**
+ * Konfiguruje motyw graficzny aplikacji.
+ */
 function setupTheme() {
     const savedTheme = storageGet('theme') || 'dark';
     applyTheme(savedTheme);
@@ -794,22 +841,23 @@ function setupTheme() {
     });
 }
 
+/**
+ * Aplikuje wybrany motyw graficzny.
+ */
 function applyTheme(theme) {
     document.body.classList.remove('light-theme', 'dark-theme');
     document.body.classList.add(theme + '-theme');
     themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
-
-    // Logo w headerze i grafika powitalna reagują na motyw:
-    // - w dark theme delikatnie jaśniejszy tekst dla czytelności
     renderHeaderLogo();
     refreshWelcomeGraphicIfPresent();
 }
 
-// Event Listeners
+/**
+ * Rejestruje globalne event listenery.
+ */
 function setupEventListeners() {
     setupSearchListeners();
     setupImportListeners();
-    setupDebugListeners();
     setupDragAndDropListeners();
     setupNavigationListeners();
     setupGlobalErrorListeners();
@@ -817,6 +865,9 @@ function setupEventListeners() {
     document.addEventListener('qe:preview-ready', () => highlightLabsInPreviewTable(), { passive: true });
 }
 
+/**
+ * Konfiguruje listenery wyszukiwarki.
+ */
 function setupSearchListeners() {
     const debouncedSearch = debounce((query) => performSearch(query), 180);
     const debouncedLogSearch = debounce((query) => logClientEvent('search', { query }), 450);
@@ -832,50 +883,9 @@ function setupSearchListeners() {
     searchInput.addEventListener('keydown', handleKeyNavigation);
 }
 
-function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
-    const isSearchActive = query.length >= 3;
-    const currentHistoryState = history.state || {};
-    
-    if (isSearchActive) {
-        // Jeśli szukanie właśnie stało się aktywne (pierwsze 3 znaki), wypchnij nowy stan
-        if (!currentHistoryState.search) {
-            try {
-                history.pushState({ view: 'home', search: true, query }, '', '#search');
-            } catch (e) {
-                logAction('navigation', { error: 'pushState search failed', msg: e.message }, 'WARN');
-            }
-        } else {
-            // Jeśli już jesteśmy w stanie szukania, aktualizuj zapytanie w historii (bez dodawania wpisu)
-            try {
-                history.replaceState({ view: 'home', search: true, query }, '', '#search');
-            } catch (e) { }
-        }
-
-        debouncedSearch(query);
-        debouncedLogSearch(query);
-    } else {
-        debouncedSearch.cancel();
-        debouncedLogSearch.cancel();
-        
-        // Jeśli szukanie zostało wyczyszczone, a byliśmy w stanie szukania - wróć do czystego home
-        if (currentHistoryState.search) {
-            try {
-                history.replaceState({ view: 'home', search: false }, '', '#home');
-            } catch (e) { }
-        }
-
-        if (query.length > 0) {
-            statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
-            statusIndicator.classList.add('status--hint');
-        } else {
-            statusIndicator.textContent = 'Dane gotowe.';
-            statusIndicator.classList.remove('status--hint');
-        }
-        
-        clearResults();
-    }
-}
-
+/**
+ * Konfiguruje listenery importu plików.
+ */
 function setupImportListeners() {
     if (importButton) importButton.addEventListener('click', () => {
         logAction('import', { phase: 'open_dialog' }, 'INFO');
@@ -894,43 +904,9 @@ function setupImportListeners() {
     }
 }
 
-function setupDebugListeners() {
-    if (debugTrayToggle) {
-        debugTrayToggle.addEventListener('click', () => setDebugUiOpen(!debugUiOpen));
-    }
-    if (debugMinimizeButton) {
-        debugMinimizeButton.addEventListener('click', () => setDebugUiOpen(false));
-    }
-    if (debugSearchInput) {
-        debugSearchInput.addEventListener('input', () => {
-            debugSearchTerm = String(debugSearchInput.value || '');
-            scheduleDebugRender();
-        });
-    }
-    if (debugCopyButton) {
-        debugCopyButton.addEventListener('click', handleDebugCopy);
-    }
-    if (debugClearButton) {
-        debugClearButton.addEventListener('click', () => {
-            debugEntries = [];
-            scheduleDebugRender();
-        });
-    }
-}
-
-async function handleDebugCopy() {
-    const entries = getVisibleDebugEntries();
-    const text = entries.map((e) => {
-        const ts = formatTimestamp(e.ts);
-        const level = String(e.level || 'INFO').toUpperCase();
-        const action = String(e.action || '');
-        const payload = safeStringifyForSearch(e.payload);
-        return `[${ts}] [${level}] ${action}${payload ? ' ' + payload : ''}`;
-    }).join('\n');
-    const ok = await copyTextToClipboard(text);
-    logAction('debug', { action: 'copy', ok, lines: entries.length }, ok ? 'INFO' : 'WARN');
-}
-
+/**
+ * Konfiguruje obsługę przeciągania plików.
+ */
 function setupDragAndDropListeners() {
     let dragDepth = 0;
     document.addEventListener('dragenter', (e) => {
@@ -961,14 +937,14 @@ function setupDragAndDropListeners() {
     });
 }
 
+/**
+ * Konfiguruje obsługę nawigacji w aplikacji.
+ */
 function setupNavigationListeners() {
     backToSearchBtn.addEventListener('click', () => {
-        // Zamiast ręcznie przełączać widok, wywołujemy history.back()
-        // popstate zajmie się resztą
         if (history.state && history.state.view === 'preview') {
             history.back();
         } else {
-            // Fallback jeśli stan się nie zgadza
             filePreviewView.classList.add('view-hidden');
             searchView.classList.remove('view-hidden');
             logClientEvent('navigate', { to: 'search', fallback: true });
@@ -979,15 +955,11 @@ function setupNavigationListeners() {
         homeLink.addEventListener('click', (e) => {
             if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
             e.preventDefault();
-            
-            // Jeśli już jesteśmy na home i nie ma szukania, nic nie rób
             if (history.state && history.state.view === 'home' && !history.state.search && !searchInput.value) {
                 return;
             }
-
             resetToInitialState({ source: 'home' });
             logClientEvent('navigate', { to: 'home' });
-            
             try { 
                 history.pushState({ view: 'home', search: false }, '', '#home'); 
             } catch { }
@@ -1001,48 +973,23 @@ function setupNavigationListeners() {
         });
     }
 
-    // Obsługa wskaźnika przewijania
-    window.addEventListener('scroll', () => {
-        updateScrollIndicator();
-    }, { passive: true });
-
-    window.addEventListener('resize', debounce(() => updateScrollIndicator(), 200), { passive: true });
-
-    if (scrollIndicator) {
-        scrollIndicator.addEventListener('click', () => {
-            const scrollTarget = window.innerHeight * 0.8;
-            window.scrollBy({ top: scrollTarget, behavior: 'smooth' });
-        });
-    }
-
-    // Zaawansowana obsługa przycisku wstecz (History API)
-    // Zapewnia płynną nawigację na urządzeniach mobilnych zgodnie z hierarchią widoków.
     window.addEventListener('popstate', (event) => {
         const state = event.state;
         logAction('navigation', { phase: 'popstate', state }, 'INFO');
-
-        // Brak stanu może oznaczać wyjście z aplikacji lub nieoczekiwany stan przeglądarki.
         if (!state) {
             resetToInitialState({ source: 'popstate_empty' });
             return;
         }
-
-        // Przywracanie widoku podglądu trasy.
         if (state.view === 'preview') {
             if (state.fileName && fullFileData[state.fileName]) {
                 showFilePreview(state.fileName, state.rowIndex, { skipPush: true });
             } else if (state.fileName) {
-                // Jeśli dane nie są jeszcze załadowane (np. odświeżenie na podglądzie), wracamy do home.
                 resetToInitialState({ source: 'popstate_preview_missing_data' });
             }
-        } 
-        // Przywracanie widoku głównego (home).
-        else if (state.view === 'home') {
+        } else if (state.view === 'home') {
             if (!filePreviewView.classList.contains('view-hidden')) {
                 togglePreviewView(false);
             }
-
-            // Obsługa stanu wyszukiwarki: czyścimy lub przywracamy zapytanie.
             if (!state.search) {
                 if (searchInput.value) {
                     searchInput.value = '';
@@ -1052,62 +999,15 @@ function setupNavigationListeners() {
                 }
             } else if (state.query && searchInput.value !== state.query) {
                 searchInput.value = state.query;
-                if (isSearchEnabled) {
-                    performSearch(state.query);
-                }
+                if (isSearchEnabled) performSearch(state.query);
             }
         }
     });
-
-    // Ciągłe monitorowanie zmian w DOM w celu aktualizacji strzałki
-    setupMutationObserver();
 }
 
 /**
- * Konfiguruje MutationObserver do monitorowania zmian w strukturze DOM.
- * Pozwala to na automatyczne wykrycie nowych wyników lub zmian widoku.
+ * Rejestruje globalne listenery błędów.
  */
-function setupMutationObserver() {
-    const observer = new MutationObserver(debounce(() => {
-        updateScrollIndicator();
-    }, 150));
-
-    // Monitorujemy zmiany w głównym kontenerze aplikacji
-    if (appShell) {
-        observer.observe(appShell, { 
-            childList: true, 
-            subtree: true, 
-            attributes: true,
-            characterData: false 
-        });
-    }
-}
-
-/**
- * Aktualizuje widoczność wskaźnika przewijania (strzałki).
- * Pokazuje ją, gdy istnieje treść poniżej widoku, i ukrywa po osiągnięciu dołu.
- */
-function updateScrollIndicator() {
-    if (!scrollIndicator) return;
-
-    // Pobieramy aktualne wymiary i pozycję
-    const scrollHeight = document.documentElement.scrollHeight;
-    const clientHeight = window.innerHeight;
-    const scrollTop = window.scrollY || document.documentElement.scrollTop;
-    
-    // Sprawdzamy czy użytkownik dotarł do dołu strony (z marginesem 40px)
-    const isAtBottom = (scrollTop + clientHeight) >= (scrollHeight - 40);
-    
-    // Sprawdzamy czy w ogóle jest co przewijać
-    const hasScrollableContent = scrollHeight > clientHeight + 50;
-
-    if (hasScrollableContent && !isAtBottom) {
-        scrollIndicator.classList.remove('is-hidden');
-    } else {
-        scrollIndicator.classList.add('is-hidden');
-    }
-}
-
 function setupGlobalErrorListeners() {
     window.addEventListener('error', (e) => {
         const msg = e?.message ? String(e.message) : 'window.error';
@@ -1120,7 +1020,37 @@ function setupGlobalErrorListeners() {
     });
 }
 
-// Ładowanie i procesowanie plików
+/**
+ * Konfiguruje MutationObserver do monitorowania zmian DOM.
+ */
+function setupMutationObserver() {
+    const observer = new MutationObserver(debounce(() => {
+        updateScrollIndicator();
+    }, 150));
+    if (appShell) {
+        observer.observe(appShell, { childList: true, subtree: true, attributes: true });
+    }
+}
+
+/**
+ * Konfiguruje obsługę przycisków kontynuacji na ekranie ładowania.
+ */
+function setupLoadingContinueHandlers() {
+    if (loadingContinueButton) {
+        loadingContinueButton.addEventListener('click', continueToApp);
+    }
+    if (syncGDriveButton) {
+        syncGDriveButton.addEventListener('click', handleGoogleDriveSync);
+    }
+}
+
+//////////////////////////////////////////////////
+// OBSŁUGA ŁADOWANIA I PARSOWANIA ARKUSZY (SheetJS)
+//////////////////////////////////////////////////
+
+/**
+ * Ładuje wszystkie pliki z bazy danych.
+ */
 async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, showProgress: false }) {
     if (isLoading) return;
     isLoading = true;
@@ -1129,20 +1059,13 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
     try {
         const spreadsheetFiles = await getSpreadsheetFiles();
         fileCountSpan.textContent = spreadsheetFiles.length;
-
         if (fullReload) resetAppData();
-
-        const filesToLoad = fullReload
-            ? spreadsheetFiles
-            : spreadsheetFiles.filter(f => !loadedFiles.has(f));
-
+        const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter(f => !loadedFiles.has(f));
         if (showProgress) updateLoadingProgressStart(filesToLoad.length);
 
         if (filesToLoad.length > 0) {
             await processFilesWithConcurrency(filesToLoad, showProgress);
-            statusIndicator.textContent = loadErrors.length > 0
-                ? `Dane gotowe (błędy: ${loadErrors.length}).`
-                : 'Dane gotowe.';
+            statusIndicator.textContent = loadErrors.length > 0 ? `Dane gotowe (błędy: ${loadErrors.length}).` : 'Dane gotowe.';
         } else {
             statusIndicator.textContent = 'Dane aktualne.';
         }
@@ -1158,6 +1081,9 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
     }
 }
 
+/**
+ * Pobiera listę plików arkuszy z bazy danych.
+ */
 async function getSpreadsheetFiles() {
     statusIndicator.textContent = 'Sprawdzanie plików...';
     const files = await docsListFiles();
@@ -1171,21 +1097,9 @@ async function getSpreadsheetFiles() {
     return spreadsheetFiles;
 }
 
-function resetAppData() {
-    allData = [];
-    currentResults = [];
-    selectedResultIndex = -1;
-    lastQuery = '';
-    loadedFiles = new Set();
-    fullFileData = {};
-    loadErrors = [];
-}
-
-function updateLoadingProgressStart(total) {
-    setLoadingStatusText(total === 0 ? 'Brak plików .xlsx/.csv. Zaimportuj dane.' : 'Wczytywanie plików...');
-    setLoadingProgressPercent(total === 0 ? 100 : 0, { force: true });
-}
-
+/**
+ * Przetwarza pliki z wykorzystaniem współbieżności.
+ */
 async function processFilesWithConcurrency(filesToLoad, showProgress) {
     let done = 0;
     const total = filesToLoad.length;
@@ -1199,7 +1113,6 @@ async function processFilesWithConcurrency(filesToLoad, showProgress) {
             const file = filesToLoad[i];
             const displayName = formatFileName(file);
             if (showProgress) setLoadingStatusText(`Wczytuję: ${displayName}`);
-
             try {
                 await processFile(file);
                 loadedFiles.add(file);
@@ -1208,46 +1121,31 @@ async function processFilesWithConcurrency(filesToLoad, showProgress) {
                 logAction('load_file', { fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' }, 'WARN');
             } finally {
                 done += 1;
-                if (showProgress) {
-                    const percent = total > 0 ? (done / total) * 100 : 100;
-                    setLoadingProgressPercent(percent);
-                }
+                if (showProgress) setLoadingProgressPercent((done / total) * 100);
             }
         }
     });
     await Promise.all(workers);
 }
 
-function handleLoadError(error, showProgress) {
-    statusIndicator.textContent = 'Błąd ładowania.';
-    if (showProgress) showLoadingError('Błąd ładowania danych.');
-    logAction('load', { message: error?.message ? String(error.message) : 'Błąd ładowania' }, 'ERROR');
-}
-
-function finalizeLoad(loadStart, showProgress) {
-    isLoading = false;
-    if (showProgress) {
-        const label = loadErrors.length > 0 ? `Gotowe (błędy: ${loadErrors.length}).` : 'Gotowe.';
-        setLoadingStatusText(label);
-        setLoadingProgressPercent(100);
-    }
-    const loadTime = Math.round(performance.now() - loadStart);
-    logAction('load', { ms: loadTime, errors: loadErrors.length });
-}
-
+/**
+ * Przetwarza pojedynczy plik.
+ */
 async function processFile(fileName) {
     const blob = await docsGetBlob(fileName);
     if (!blob) throw new Error('Nie można odczytać pliku z /docs');
     await parseSpreadsheet(blob, fileName);
 }
 
+/**
+ * Parsuje arkusz kalkulacyjny przy użyciu SheetJS.
+ */
 async function parseSpreadsheet(source, fileName) {
     try {
         const workbook = await readWorkbook(source, fileName);
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
-
         const tableModel = buildTableModel(matrix);
         fullFileData[fileName] = tableModel;
         addTableRows(tableModel, fileName);
@@ -1257,1363 +1155,36 @@ async function parseSpreadsheet(source, fileName) {
     }
 }
 
+/**
+ * Odczytuje skoroszyt z różnych źródeł danych.
+ */
 async function readWorkbook(source, fileName) {
     const lower = String(fileName || '').toLowerCase();
     if (lower.endsWith('.csv')) {
-        const csvContent = typeof source === 'string' 
-            ? source 
-            : (source && typeof source.text === 'function' ? await source.text() : '');
+        const csvContent = typeof source === 'string' ? source : (source && typeof source.text === 'function' ? await source.text() : '');
         return XLSX.read(csvContent, { type: 'string' });
     }
-    
     const buffer = await getArrayBufferFromSource(source);
     return XLSX.read(buffer);
 }
 
+/**
+ * Konwertuje źródło danych na ArrayBuffer.
+ */
 async function getArrayBufferFromSource(source) {
     if (source instanceof ArrayBuffer) return source;
-    if (ArrayBuffer.isView(source)) {
-        const view = source;
-        return view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength);
-    }
+    if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
     if (source && typeof source.arrayBuffer === 'function') return await source.arrayBuffer();
     throw new Error('Nieprawidłowe dane wejściowe do parsowania');
 }
 
-function addTableRows(tableModel, fileName) {
-    if (!tableModel || !Array.isArray(tableModel.rows)) return 0;
-    const existingKeys = new Set(allData.map(d => `${d.fileName}:${d.rowIndex}`));
-
-    const normalizedRows = [];
-    for (const row of tableModel.rows) {
-        const key = `${fileName}:${row.originalRowIndex}`;
-        if (existingKeys.has(key)) continue;
-
-        const normalizedRow = createNormalizedRow(row, tableModel, fileName);
-        if (normalizedRow) normalizedRows.push(normalizedRow);
-    }
-
-    allData = allData.concat(normalizedRows);
-    return normalizedRows.length;
-}
-
-function createNormalizedRow(row, tableModel, fileName) {
-    const displayText = getRowDisplayText(row, tableModel);
-    if (!displayText.trim()) return null;
-
-    const searchableText = `${displayText} ${fileName} ${row.cells.join(' ')}`;
-    return {
-        fileName: fileName,
-        rowIndex: row.originalRowIndex,
-        displayText: displayText,
-        searchable: normalizeText(searchableText),
-        searchableFuzzy: fuzzyNormalizeText(searchableText),
-        isComplete: tableModel.isCompleteStructure,
-        headerMap: tableModel.headerMap,
-        cells: row.cells
-    };
-}
-
-function getRowDisplayText(row, tableModel) {
-    if (tableModel.isCompleteStructure) {
-        const h = tableModel.headerMap;
-        const time = row.cells[h.GODZ] || '-';
-        const address = row.cells[h.ADRES] || '';
-        const facility = row.cells[h.NAZWA_PLACOWKI] || '';
-        return `${time} | ${address} | ${facility}`;
-    }
-    return row.cells.filter(c => !isEmptyCell(c)).join(' | ');
-}
-
-function removeFileData(fileName) {
-    const safe = String(fileName || '');
-    if (!safe) return;
-    allData = allData.filter(d => d?.fileName !== safe);
-    delete fullFileData[safe];
-    loadErrors = loadErrors.filter(e => e?.fileName !== safe);
-}
-
-function setSearchEnabled(enabled) {
-    isSearchEnabled = enabled;
-    searchInput.disabled = !enabled;
-    searchInput.setAttribute('aria-disabled', (!enabled).toString());
-}
-
-function startLoadingScreen() {
-    if (!loadingOverlay) return;
-    loadingOverlay.classList.remove('hidden');
-    loadingOverlay.setAttribute('aria-hidden', 'false');
-    loadingOverlay.setAttribute('aria-busy', 'true');
-    if (loadingError) {
-        loadingError.textContent = '';
-        loadingError.classList.add('hidden');
-    }
-    if (loadingContinueButton) loadingContinueButton.disabled = true;
-    loadingProgressDone = false;
-    setLoadingProgressPercent(0, { force: true });
-    setLoadingStatusText('Inicjalizacja...');
-
-}
-
-function focusBodySafely() {
-    const body = document.body;
-    if (!body) return;
-    const prevTabIndex = body.getAttribute('tabindex');
-    body.setAttribute('tabindex', '-1');
-    try { body.focus({ preventScroll: true }); } catch { try { body.focus(); } catch { } }
-    if (prevTabIndex == null) body.removeAttribute('tabindex');
-    else body.setAttribute('tabindex', prevTabIndex);
-}
-
-function stopLoadingScreen() {
-    if (!loadingOverlay) return;
-
-    const active = document.activeElement;
-    if (active && loadingOverlay.contains(active)) {
-        try { active.blur(); } catch { }
-        focusBodySafely();
-    }
-
-    loadingOverlay.classList.add('loading-overlay-fade-out');
-    
-    // Usuwamy overlay całkowicie po zakończeniu animacji
-    setTimeout(() => {
-        loadingOverlay.classList.add('hidden');
-        loadingOverlay.classList.remove('loading-overlay-fade-out');
-    }, 600);
-
-    loadingOverlay.setAttribute('aria-hidden', 'true');
-}
-
-function setupLoadingContinueHandlers() {
-    if (loadingContinueButton) {
-        loadingContinueButton.addEventListener('click', continueToApp);
-    }
-    if (syncGDriveButton) {
-        syncGDriveButton.addEventListener('click', handleGoogleDriveSync);
-    }
-}
-
 /**
- * Obsługuje automatyczną synchronizację z Google Drive (folder stały).
+ * Importuje arkusz z ArrayBuffer.
  */
-async function handleGoogleDriveSync() {
-    const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
-    logAction('sync', { phase: 'start', folderId: FOLDER_ID });
-
-    try {
-        setLoadingStatusText('Łączenie z Google Drive...');
-        const token = await window.GoogleDriveImport.getAccessToken();
-        
-        setLoadingStatusText('Przeszukiwanie folderów...');
-        const files = await window.GoogleDriveImport.crawlFolder(FOLDER_ID, token);
-        
-        if (files.length === 0) {
-            showModal('Brak plików', 'Nie znaleziono żadnych plików .xlsx w wskazanym folderze Google Drive.');
-            return;
-        }
-
-        showModal(
-            'Potwierdź synchronizację',
-            `Znaleziono <strong>${files.length}</strong> plików .xlsx na Dysku Google. Czy chcesz rozpocząć import?`,
-            [
-                {
-                    label: 'Rozpocznij import',
-                    class: 'modal-btn--primary',
-                    onClick: () => startGoogleDriveSync(files, token)
-                },
-                {
-                    label: 'Anuluj',
-                    onClick: () => logAction('sync', { phase: 'cancelled' })
-                }
-            ]
-        );
-    } catch (err) {
-        logAction('sync', { phase: 'error', message: err.message }, 'ERROR');
-        showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${err.message}`);
-    }
-}
-
-async function startGoogleDriveSync(files, token) {
-    logAction('sync', { phase: 'process', count: files.length });
-    
-    // Rozwiąż konflikty przed rozpoczęciem
-    const toImport = await resolveImportConflicts(files);
-    if (toImport.length === 0) {
-        logAction('sync', { phase: 'skipped_by_user' });
-        return;
-    }
-
-    if (welcomeImportProgress) {
-        welcomeImportProgress.classList.remove('hidden');
-        clearElement(welcomeProgressList);
-    }
-
-    setImportLoadingState(true, toImport.length);
-    const summary = { files: [], records: 0, errors: 0 };
-
-    try {
-        const before = allData.length;
-        let processed = 0;
-
-        for (const file of toImport) {
-            const name = file.name;
-            const progressItem = createWelcomeProgressItem(name);
-            welcomeProgressList.appendChild(progressItem);
-            progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-
-            // Aktualizacja głównego paska progresu i statusu
-            setLoadingStatusText(`Pobieranie: ${formatFileName(name)}...`);
-            if (loadingProgressBar) {
-                loadingProgressBar.value = (processed / toImport.length) * 100;
-                if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(loadingProgressBar.value)}%`;
-            }
-
-            try {
-                const buffer = await window.GoogleDriveImport.downloadFileArrayBuffer(file.id, token);
-                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                
-                await docsPutBlob(name, blob);
-                removeFileData(name);
-                loadedFiles.delete(name);
-                await processFile(name);
-                loadedFiles.add(name);
-                summary.files.push(name);
-                updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
-            } catch (err) {
-                summary.errors += 1;
-                logAction('sync', { fileName: name, message: err.message }, 'ERROR');
-                updateWelcomeProgressItem(progressItem, 0, 'Błąd', true);
-            } finally {
-                processed += 1;
-            }
-        }
-        
-        finalizeFileImport(summary, before);
-        setLoadingStatusText('Synchronizacja zakończona');
-        if (loadingProgressBar) {
-            loadingProgressBar.value = 100;
-            if (loadingProgressMeta) loadingProgressMeta.textContent = '100%';
-        }
-    } catch (err) {
-        logAction('sync', { phase: 'fatal_error', message: err.message }, 'ERROR');
-        setLoadingStatusText('Błąd synchronizacji');
-    } finally {
-        setImportLoadingState(false);
-    }
-}
-
-/**
- * Tworzy element postępu dla listy na ekranie powitalnym.
- */
-function createWelcomeProgressItem(fileName) {
-    const item = document.createElement('div');
-    item.className = 'welcome-progress-item';
-    setElementHtml(item, `
-        <div class="welcome-progress-name">${escapeHtml(formatFileName(fileName))}</div>
-        <div class="welcome-progress-bar-wrap">
-            <div class="welcome-progress-bar-fill" style="width: 0%"></div>
-        </div>
-        <div class="welcome-progress-status">0%</div>
-    `);
-    return item;
-}
-
-/**
- * Aktualizuje stan elementu postępu na ekranie powitalnym.
- */
-function updateWelcomeProgressItem(item, percent, statusText, isError = false) {
-    const fill = item.querySelector('.welcome-progress-bar-fill');
-    const status = item.querySelector('.welcome-progress-status');
-    if (fill) fill.style.width = `${percent}%`;
-    if (status) {
-        status.textContent = statusText || `${Math.round(percent)}%`;
-    }
-    if (isError) item.classList.add('error');
-}
-
-function continueToApp() {
-    stopLoadingScreen();
-
-    // Zabezpieczenie przed powrotem do ekranu powitalnego - zastępujemy go w historii stanem home.
-    try {
-        history.replaceState({ view: 'home', search: false }, '', '#home');
-    } catch (e) {
-        logAction('navigation', { error: 'replaceState failed', msg: e.message }, 'WARN');
-    }
-
-    // Wymóg: wejście aplikacji ma mieć opóźnienie 0.3s od DOM ready.
-    const elapsedSinceDomReady = performance.now() - DOM_READY_TS;
-    const remainingDelay = Math.max(0, 300 - elapsedSinceDomReady);
-    window.setTimeout(() => {
-        if (appShell) {
-            appShell.classList.remove('app-shell-hidden');
-            appShell.setAttribute('aria-hidden', 'false');
-        }
-        if (isSearchEnabled) searchInput.focus();
-        window.requestAnimationFrame(() => updateScrollIndicator());
-    }, remainingDelay);
-}
-
-
-function getLogoPalette() {
-    // Uwaga: wartości CSS variables bierzemy z body, bo motyw jest ustawiany na body (.dark-theme/.light-theme).
-    const bodyStyle = getComputedStyle(document.body);
-    const primary = bodyStyle.getPropertyValue('--primary-color').trim() || '#0066CC';
-    const baseTextColor = bodyStyle.getPropertyValue('--text-color').trim() || '#333333';
-    const isDark = document.body.classList.contains('dark-theme');
-    const textStrong = isDark ? 'rgba(255, 255, 255, 0.92)' : baseTextColor;
-    const textSoft = isDark ? 'rgba(255, 255, 255, 0.78)' : baseTextColor;
-    return { primary, textStrong, textSoft };
-}
-
-function buildQuickEvoLogoSvg({ size }) {
-    const { primary, textStrong, textSoft } = getLogoPalette();
-    const fontSize = size === 'header' ? 40 : 56;
-    const lineY = size === 'header' ? 14 : 18;
-    const textY = size === 'header' ? 4 : 0;
-    const viewBox = '0 0 640 180';
-    const prefix = `qe${++logoInstanceCounter}`;
-
-    // SVG jest wstrzykiwany w 2 miejscach (splash + header). Prefix eliminuje konflikt id w <defs>.
-    return `
-        <svg viewBox="${viewBox}" role="img" aria-label="QuickEvo" xmlns="http://www.w3.org/2000/svg" data-qe-logo-size="${size}">
-            <defs>
-                <linearGradient id="${prefix}Grad" x1="0" y1="0" x2="1" y2="1">
-                    <stop offset="0" stop-color="${primary}" stop-opacity="0.95"></stop>
-                    <stop offset="1" stop-color="${primary}" stop-opacity="0.35"></stop>
-                </linearGradient>
-                <filter id="${prefix}Soft" x="-20%" y="-20%" width="140%" height="140%">
-                    <feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="blur"></feGaussianBlur>
-                    <feColorMatrix in="blur" type="matrix"
-                        values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.55 0" result="soft"></feColorMatrix>
-                    <feMerge>
-                        <feMergeNode in="soft"></feMergeNode>
-                        <feMergeNode in="SourceGraphic"></feMergeNode>
-                    </feMerge>
-                </filter>
-            </defs>
-
-            <g transform="translate(72 90)" filter="url(#${prefix}Soft)">
-                <circle class="qe-pulse" cx="0" cy="0" r="34" fill="url(#${prefix}Grad)"></circle>
-                <circle cx="0" cy="0" r="52" fill="none" stroke="${primary}" stroke-opacity="0.35" stroke-width="3"></circle>
-                <g class="qe-orbit" data-qe-orbit="1">
-                    <circle class="qe-orbit-dot qe-orbit-dot--a" data-qe-orbit-dot="a" cx="52" cy="0" r="6" fill="${primary}"></circle>
-                    <circle class="qe-orbit-dot qe-orbit-dot--b" data-qe-orbit-dot="b" cx="-26" cy="45" r="4" fill="${primary}" fill-opacity="0.75"></circle>
-                </g>
-            </g>
-
-            <g transform="translate(150 110)">
-                <text x="0" y="${textY}" font-family="Segoe UI, system-ui, -apple-system, Arial" font-size="${fontSize}" font-weight="800" fill="${textStrong}">
-                    Quick<tspan font-weight="300" fill="${textSoft}">Evo</tspan>
-                </text>
-                <path d="M0 ${lineY} H460" stroke="${primary}" stroke-opacity="0.30" stroke-width="3" stroke-linecap="round"></path>
-            </g>
-        </svg>
-    `;
-}
-
-const logoOrbitControllers = new WeakMap();
-
-function parseCssNumber(value, fallback) {
-    const n = parseFloat(String(value ?? '').trim());
-    return Number.isFinite(n) ? n : fallback;
-}
-
-function getLogoOrbitConfig(size) {
-    const rootStyle = getComputedStyle(document.documentElement);
-    const radius = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-radius-${size}`), 52);
-    const period = Math.max(0.2, parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-period-${size}`), size === 'header' ? 4.8 : 3.2));
-    const dirRaw = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-direction-${size}`), 1);
-    const dir = dirRaw >= 0 ? 1 : -1;
-    return { radius, period, dir };
-}
-
-function shouldReduceMotion() {
-    try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch { return false; }
-}
-
-function startLogoOrbit(svg, size) {
-    if (!svg || logoOrbitControllers.has(svg)) return;
-    if (shouldReduceMotion()) return;
-
-    const orbitGroup = svg.querySelector('g[data-qe-orbit="1"]');
-    if (!orbitGroup) return;
-    const dotA = orbitGroup.querySelector('[data-qe-orbit-dot="a"]');
-    const dotB = orbitGroup.querySelector('[data-qe-orbit-dot="b"]');
-    if (!dotA || !dotB) return;
-
-    let cfg = getLogoOrbitConfig(size);
-    let lastCfgTs = 0;
-    const startTs = performance.now();
-    const phaseB = 2.05;
-    const radiusBScale = 0.72;
-
-    const tick = (ts) => {
-        if (!svg.isConnected) {
-            logoOrbitControllers.delete(svg);
-            return;
-        }
-        if (shouldReduceMotion()) {
-            logoOrbitControllers.delete(svg);
-            return;
-        }
-        if ((ts - lastCfgTs) > 700) {
-            cfg = getLogoOrbitConfig(size);
-            lastCfgTs = ts;
-        }
-
-        const t = (ts - startTs) / 1000;
-        const theta = cfg.dir * (t / cfg.period) * Math.PI * 2;
-
-        const ax = cfg.radius * Math.cos(theta);
-        const ay = cfg.radius * Math.sin(theta);
-        dotA.setAttribute('cx', ax.toFixed(2));
-        dotA.setAttribute('cy', ay.toFixed(2));
-
-        const bx = (cfg.radius * radiusBScale) * Math.cos(theta + phaseB);
-        const by = (cfg.radius * radiusBScale) * Math.sin(theta + phaseB);
-        dotB.setAttribute('cx', bx.toFixed(2));
-        dotB.setAttribute('cy', by.toFixed(2));
-
-        const rafId = window.requestAnimationFrame(tick);
-        logoOrbitControllers.set(svg, { rafId });
-    };
-
-    const rafId = window.requestAnimationFrame(tick);
-    logoOrbitControllers.set(svg, { rafId });
-}
-
-function startLogoOrbitInContainer(container, size) {
-    if (!container) return;
-    const svg = container.querySelector('svg');
-    if (!svg) return;
-    startLogoOrbit(svg, size);
-}
-
-function renderHeaderLogo() {
-    if (!appHeaderLogo) return;
-    setElementSvg(appHeaderLogo, buildQuickEvoLogoSvg({ size: 'header' }));
-    startLogoOrbitInContainer(appHeaderLogo, 'header');
-}
-
-function refreshWelcomeGraphicIfPresent() {
-    const container = document.getElementById('welcome-graphic');
-    if (!container) return;
-    if (container.dataset.loaded !== '1') return;
-    setElementSvg(container, buildQuickEvoLogoSvg({ size: 'welcome' }));
-    startLogoOrbitInContainer(container, 'welcome');
-}
-
-function lazyLoadWelcomeGraphic() {
-    const container = document.getElementById('welcome-graphic');
-    if (!container) return;
-
-    const inject = () => {
-        if (container.dataset.loaded === '1') return;
-        container.dataset.loaded = '1';
-        setElementSvg(container, buildQuickEvoLogoSvg({ size: 'welcome' }));
-        startLogoOrbitInContainer(container, 'welcome');
-    };
-
-    if ('requestIdleCallback' in window) {
-        window.requestIdleCallback(inject, { timeout: 900 });
-    } else {
-        window.setTimeout(inject, 350);
-    }
-}
-
-/**
- * Aktualizuje pasek postępu loadera.
- * - Nie cofa paska (chyba że force=true), żeby uniknąć "szarpania" UI.
- * - Edge cases: Na błędach/timeoutach pasek zostaje na ostatniej znanej wartości.
- */
-function setLoadingProgressPercent(percent, { force = false } = {}) {
-    if (!loadingOverlay) return;
-    const safePercent = Math.min(100, Math.max(0, Number.isFinite(percent) ? percent : 0));
-    const next = force ? safePercent : Math.max(loadingProgressValue, safePercent);
-    loadingProgressValue = next;
-    const rounded = Math.round(next);
-    if (loadingProgressMeta) loadingProgressMeta.textContent = `${rounded}%`;
-    if (loadingProgressBar) loadingProgressBar.value = next;
-}
-
-function setLoadingStatusText(text) {
-    if (loadingStatusText) loadingStatusText.textContent = text || '';
-}
-
-function showLoadingError(message) {
-    setLoadingStatusText('Wystąpił problem podczas ładowania.');
-    if (!loadingError) return;
-    loadingError.textContent = message || 'Nieznany błąd ładowania.';
-    loadingError.classList.remove('hidden');
-}
-
-function prepareManualContinue() {
-    if (loadingFailed) {
-        showLoadingError('Nie udało się załadować wszystkich danych. Możesz kontynuować i spróbować ponownie później.');
-    } else if (loadErrors.length > 0) {
-        showLoadingError(`Załadowano aplikację z błędami plików: ${loadErrors.length}.`);
-        if (loadingStatusText) {
-            loadingStatusText.textContent = 'Podstawowe dane są gotowe.';
-        }
-    } else {
-        setLoadingStatusText('Ładowanie zakończone pomyślnie.');
-    }
-
-    if (loadingProgressDone && (loadingDataReady || loadingFailed)) {
-        if (loadingContinueButton) loadingContinueButton.disabled = false;
-        if (loadingOverlay) loadingOverlay.setAttribute('aria-busy', 'false');
-    }
-}
-
-function debounce(fn, delayMs) {
-    let timerId = null;
-    const debounced = (...args) => {
-        if (timerId) clearTimeout(timerId);
-        timerId = setTimeout(() => fn(...args), delayMs);
-    };
-    debounced.cancel = () => {
-        if (timerId) clearTimeout(timerId);
-        timerId = null;
-    };
-    return debounced;
-}
-
-function buildTableModel(matrix) {
-    const rect = normalizeMatrix(matrix);
-    const bounds = computeNonEmptyBounds(rect);
-    if (!bounds) return { headers: [], rows: [], metaLines: [], isCompleteStructure: false };
-
-    const cropped = rect
-        .slice(bounds.minRow, bounds.maxRow + 1)
-        .map(row => row.slice(bounds.minCol, bounds.maxCol + 1));
-
-    const headerRowRel = findHeaderRowIndex(cropped);
-    const rawHeaders = cropped[headerRowRel].map(cellToHeaderText);
-    const headerMap = mapRequiredHeaders(rawHeaders);
-    const isCompleteStructure = Object.keys(headerMap).length === 5; // Liczba wymaganych nagłówków
-
-    const metaLines = extractMetaLines(cropped, headerRowRel);
-    const dataRelRows = cropped.slice(headerRowRel + 1);
-    const rawDataRows = processDataRows(dataRelRows, headerMap, bounds.minRow + headerRowRel + 1);
-
-    return { headers: rawHeaders, rows: rawDataRows, metaLines, isCompleteStructure, headerMap };
-}
-
-function mapRequiredHeaders(rawHeaders) {
-    const requiredHeaders = {
-        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA', 'NR'],
-        'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
-        'ADRES': ['ADRES', 'ULICA'],
-        'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
-        'UWAGI': ['UWAGI']
-    };
-
-    const headerMap = {};
-    Object.entries(requiredHeaders).forEach(([key, aliases]) => {
-        const index = rawHeaders.findIndex(h => {
-            const normH = fuzzyNormalizeText(h).toUpperCase();
-            return aliases.some(alias => fuzzyNormalizeText(alias).toUpperCase() === normH);
-        });
-        if (index >= 0) headerMap[key] = index;
-    });
-    return headerMap;
-}
-
-function extractMetaLines(cropped, headerRowRel) {
-    const metaLines = [];
-    for (let r = 0; r < headerRowRel; r++) {
-        const parts = cropped[r]
-            .filter(v => !isEmptyCell(v))
-            .map(v => String(formatCellValue(v)).trim())
-            .filter(v => v.length > 0);
-        if (parts.length > 0) metaLines.push(parts.join(' | '));
-    }
-    return metaLines;
-}
-
-function processDataRows(dataRelRows, headerMap, startRowIndex) {
-    const rawDataRows = [];
-    for (let r = 0; r < dataRelRows.length; r++) {
-        const row = dataRelRows[r];
-        if (row.every(isEmptyCell)) continue;
-        
-        const cleanedCells = row.map((cell, idx) => formatCellContent(cell, idx, headerMap));
-        rawDataRows.push({ 
-            originalRowIndex: startRowIndex + r, 
-            cells: cleanedCells 
-        });
-    }
-    return rawDataRows;
-}
-
-function formatCellContent(cell, idx, headerMap) {
-    if (idx === headerMap['NR_POL']) {
-        const val = parseInt(cell);
-        return isNaN(val) ? '' : val;
-    }
-    
-    const formatted = formatCellValue(cell);
-    if (idx === headerMap['GODZ']) {
-        return (formatted === '' || formatted === '-') ? '-' : formatted;
-    }
-    return formatted;
-}
-
-function normalizeMatrix(matrix) {
-    const safe = Array.isArray(matrix) ? matrix : [];
-    const maxCols = safe.reduce((m, row) => Math.max(m, Array.isArray(row) ? row.length : 0), 0);
-    return safe.map((row) => {
-        const r = Array.isArray(row) ? row.slice() : [];
-        while (r.length < maxCols) r.push('');
-        return r;
-    });
-}
-
-function computeNonEmptyBounds(matrix) {
-    let minRow = Infinity;
-    let maxRow = -1;
-    let minCol = Infinity;
-    let maxCol = -1;
-
-    for (let r = 0; r < matrix.length; r++) {
-        const row = matrix[r];
-        for (let c = 0; c < row.length; c++) {
-            if (!isEmptyCell(row[c])) {
-                if (r < minRow) minRow = r;
-                if (r > maxRow) maxRow = r;
-                if (c < minCol) minCol = c;
-                if (c > maxCol) maxCol = c;
-            }
-        }
-    }
-
-    if (maxRow === -1) return null;
-    return { minRow, maxRow, minCol, maxCol };
-}
-
-function findHeaderRowIndex(cropped) {
-    const counts = cropped.map(countNonEmpty);
-    for (let i = 0; i < cropped.length; i++) {
-        if (counts[i] < 2) continue;
-        const laterHasData = counts.slice(i + 1).some(c => c >= 2);
-        if (laterHasData) return i;
-    }
-    return 0;
-}
-
-// Pomocnicze funkcje tekstowe i walidacyjne
-function countNonEmpty(row) {
-    if (!Array.isArray(row)) return 0;
-    let n = 0;
-    for (const cell of row) {
-        if (!isEmptyCell(cell)) n += 1;
-    }
-    return n;
-}
-
-function isEmptyCell(cell) {
-    if (cell === null || cell === undefined) return true;
-    if (typeof cell === 'string') return cell.trim() === '';
-    return false;
-}
-
-function cellToHeaderText(cell) {
-    if (cell === null || cell === undefined) return '';
-    if (typeof cell === 'string') return cell.trim();
-    const time = parseTimeString(String(cell));
-    if (time) return time;
-    return String(cell).trim();
-}
-
-let searchSeq = 0;
-let activeSearchSeq = 0;
-
-async function performSearch(query) {
-    const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 3) {
-        handleSearchShortQuery();
-        return;
-    }
-
-    statusIndicator.textContent = 'Szukanie...';
-    statusIndicator.classList.remove('status--hint');
-    lastQuery = trimmedQuery;
-    activeSearchSeq = ++searchSeq;
-    selectedResultIndex = -1;
-
-    try {
-        matchedResults = await executeSearch(trimmedQuery);
-        
-        currentResults = [];
-        clearElement(resultsList);
-        setShowMoreErrorMessage('');
-
-        if (matchedResults.length === 0) {
-            handleNoSearchResults();
-            return;
-        }
-
-        statusIndicator.textContent = 'Dane gotowe.';
-        await loadMoreResults({ reset: true, seq: activeSearchSeq });
-    } catch (err) {
-        handleSearchError(err);
-    }
-}
-
-function handleSearchShortQuery() {
-    statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
-    statusIndicator.classList.add('status--hint');
-    clearResults();
-}
-
-async function executeSearch(query) {
-    if (searchCache.has(query)) return searchCache.get(query);
-
-    const lowerQuery = normalizeText(query);
-    const fuzzyQuery = fuzzyNormalizeText(query);
-
-    const filtered = allData.filter(item => matchItem(item, lowerQuery, fuzzyQuery));
-    const grouped = groupSearchResults(filtered);
-    
-    updateSearchCache(query, grouped);
-    return grouped;
-}
-
-function matchItem(item, lowerQuery, fuzzyQuery) {
-    const matches = item.searchable.includes(lowerQuery) || item.searchableFuzzy.includes(fuzzyQuery);
-    if (!matches) return false;
-
-    if (item.isComplete) {
-        const h = item.headerMap;
-        if (!h) return true;
-        return item.cells.some((cell, idx) => {
-            if (idx === h.NR_POL || idx === h.UWAGI) return false;
-            const cellText = String(cell ?? '');
-            return normalizeText(cellText).includes(lowerQuery) || fuzzyNormalizeText(cellText).includes(fuzzyQuery);
-        });
-    }
-    return true;
-}
-
-function groupSearchResults(filtered) {
-    const groups = new Map();
-    for (const item of filtered) {
-        if (!groups.has(item.fileName)) {
-            groups.set(item.fileName, {
-                fileName: item.fileName,
-                isComplete: item.isComplete,
-                items: []
-            });
-        }
-        groups.get(item.fileName).items.push(item);
-    }
-    return Array.from(groups.values());
-}
-
-function updateSearchCache(query, results) {
-    if (searchCache.size > 50) {
-        const firstKey = searchCache.keys().next().value;
-        searchCache.delete(firstKey);
-    }
-    searchCache.set(query, results);
-}
-
-function handleNoSearchResults() {
-    resultsInfo.textContent = 'Brak wyników.';
-    statusIndicator.textContent = 'Dane gotowe.';
-    updateResultsFooter();
-}
-
-function handleSearchError(err) {
-    console.error('Search error:', err);
-    logAction('search_error', { message: err.message }, 'ERROR');
-    statusIndicator.textContent = 'Błąd wyszukiwania.';
-    resultsInfo.textContent = 'Wystąpił błąd podczas przeszukiwania danych.';
-}
-
-function renderResults(query, { append = false, startIndex = 0 } = {}) {
-    if (!append) clearElement(resultsList);
-
-    if (currentResults.length === 0) {
-        handleNoResultsToRender();
-        window.requestAnimationFrame(() => updateScrollIndicator());
-        return;
-    }
-
-    updateResultsCountInfo();
-
-    const fragment = document.createDocumentFragment();
-    for (let index = startIndex; index < currentResults.length; index++) {
-        const group = currentResults[index];
-        const groupDiv = createResultGroupElement(group, index, query);
-        fragment.appendChild(groupDiv);
-    }
-    resultsList.appendChild(fragment);
-
-    updateResultsFooter();
-    window.requestAnimationFrame(() => updateScrollIndicator());
-}
-
-function handleNoResultsToRender() {
-    resultsInfo.textContent = 'Brak wyników.';
-    updateResultsFooter();
-}
-
-function updateResultsCountInfo() {
-    const totalRoutes = loadedFiles.size;
-    const matchedRoutesCount = matchedResults.length;
-    resultsInfo.innerHTML = `Trasy: ${matchedRoutesCount} / ${totalRoutes}`;
-}
-
-function createResultGroupElement(group, index, query) {
-    const routeName = formatRouteNameForResults(group.fileName);
-    const groupDiv = document.createElement('div');
-    groupDiv.className = 'result-group';
-    groupDiv.dataset.index = index;
-    if (index === selectedResultIndex) groupDiv.classList.add('selected');
-
-    const rowsHtml = group.items.map(item => {
-        const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
-        const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
-        const summaryHtml = buildResultSummaryHtml(item, query, { isLab });
-        return `
-            <div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
-                <div class="result-content">${summaryHtml}</div>
-            </div>
-        `;
-    }).join('');
-
-    setElementHtml(groupDiv, `
-        <div class="result-group-header">
-            <span class="result-filename"><span class="result-route-name">${routeName}</span></span>
-        </div>
-        <div class="result-group-body">
-            ${rowsHtml}
-        </div>
-    `);
-    return groupDiv;
-}
-
-// Obsługa kliknięć w wyniki (delegacja zdarzeń)
-resultsList.addEventListener('click', (e) => {
-    const row = e.target.closest('.result-row');
-    if (row) {
-        const fileName = row.dataset.fileName;
-        const rowIndex = parseInt(row.dataset.rowIndex);
-        if (fileName && !isNaN(rowIndex)) {
-            showFilePreview(fileName, rowIndex);
-        }
-        return;
-    }
-
-    const group = e.target.closest('.result-group');
-    if (group) {
-        const index = parseInt(group.dataset.index);
-        const groupData = currentResults[index];
-        if (groupData) {
-            showFilePreview(groupData.fileName, groupData.items[0].rowIndex);
-        }
-    }
-});
-
-/**
- * Czyści nazwę pliku z fragmentów w nawiasach okrągłych
- */
-function formatFileName(fileName) {
-    // Usuwa zawartość w nawiasach okrągłych wraz z nawiasami
-    let name = fileName.replace(/\s*\([^)]*\)/g, '');
-    // Usuwa rozszerzenie .xlsx dla czystości widoku (opcjonalnie, ale poprawia estetykę)
-    name = name.replace(/\.xlsx$/i, '');
-    // Usuwa podwójne spacje powstałe po usunięciu nawiasów
-    return name.replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Parser nazwy trasy na potrzeby listy wyników.
- * Wymagania:
- * - ekstrakcja identyfikatora z nazwy pliku
- * - format: "TRASA X" (X = numer/litera, ewentualnie np. "S-1")
- * - usunięcie dat, nawiasów i znaków zbędnych z wyświetlanej nazwy trasy
- */
-function formatRouteNameForResults(fileName) {
-    const base = String(fileName || '')
-        .replace(/\.xlsx$/i, '')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-    const match = base.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
-    if (match && match[1]) {
-        const code = match[1]
-            .replace(/\s*[-–]\s*/g, '-')
-            .replace(/[^A-Za-zĄĆĘŁŃÓŚŹŻ0-9-]/g, '')
-            .toUpperCase();
-        if (code) return `TRASA ${code}`;
-    }
-
-    // Fallback: gdy plik nie jest trasą (np. grafik/inna lista), pokazujemy możliwie czystą nazwę.
-    return base
-        .replace(/[\[\]\{\}]/g, '')
-        .replace(/\([^)]*\)/g, '')
-        .replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, '')
-        .replace(/[^\p{L}\p{N}\s-]+/gu, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .toUpperCase();
-}
-
-/**
- * Formatuje tekst do postaci "Title Case" (każde słowo z wielkiej litery).
- * @param {string} text Tekst do sformatowania.
- * @returns {string} Sformatowany tekst.
- */
-function toTitleCase(text) {
-    if (!text) return '';
-    return text.toLowerCase().split(' ').map(word => {
-        return word.charAt(0).toUpperCase() + word.slice(1);
-    }).join(' ');
-}
-
-/**
- * Buduje podgląd wiersza w wynikach:
- * - pomija 1. kolumnę z numerem półki
- * - pokazuje tylko 3 pola: godzina, adres, placówka
- */
-function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
-    if (result.isComplete) {
-        const parts = result.displayText.split('|').map(s => s.trim());
-        const time = parts[0] || '—';
-        const address = parts[1] || '';
-        let facility = parts[2] || '';
-        
-        if (isLab) {
-            facility = toTitleCase(facility);
-        }
-        
-        const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
-        return [
-            `<span class="result-col result-time">${highlightText(time, query)}</span>`,
-            `<span class="result-col result-address">${highlightText(address, query)}</span>`,
-            `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
-        ].map((html, idx) => (idx === 0 ? html : `<span class="result-sep">|</span>${html}`)).join('');
-    } else {
-        // Dla niekompletnej struktury: wyświetl cały wiersz jako rozdzielone komórki
-        return result.cells
-            .filter(c => !isEmptyCell(c))
-            .map(c => {
-                let text = String(c);
-                if (isLab) {
-                    text = toTitleCase(text);
-                }
-                return `<span class="result-cell-fragment">${highlightText(text, query)}</span>`;
-            })
-            .join('<span class="result-sep">|</span>');
-    }
-}
-
-function setShowMoreErrorMessage(message) {
-    if (!showMoreError) return;
-    const text = String(message || '').trim();
-    showMoreError.textContent = text;
-    showMoreError.classList.toggle('hidden', text.length === 0);
-}
-
-function setShowMoreLoadingState(isLoading) {
-    isLoadingMoreResults = Boolean(isLoading);
-    if (showMoreLoading) showMoreLoading.classList.toggle('hidden', !isLoadingMoreResults);
-    if (showMoreButton) showMoreButton.disabled = isLoadingMoreResults;
-}
-
-function updateResultsFooter() {
-    if (!resultsFooter) return;
-
-    const hasResults = matchedResults.length > 0;
-    const hasMore = currentResults.length < matchedResults.length;
-    const hasError = Boolean(showMoreError && showMoreError.textContent && showMoreError.textContent.trim().length > 0);
-
-    if (showMoreButton) showMoreButton.classList.toggle('hidden', !hasMore);
-    if (showMoreLoading) showMoreLoading.classList.toggle('hidden', !isLoadingMoreResults);
-    if (showMoreError) showMoreError.classList.toggle('hidden', !hasError);
-
-    const shouldShowFooter = hasResults && (hasMore || isLoadingMoreResults || hasError) && matchedResults.length > PAGE_SIZE;
-    resultsFooter.classList.toggle('hidden', !shouldShowFooter);
-}
-
-function waitMs(ms) {
-    return new Promise(resolve => window.setTimeout(resolve, ms));
-}
-
-async function loadMoreResults({ reset = false, seq = activeSearchSeq } = {}) {
-    if (isLoadingMoreResults) return;
-    if (!lastQuery || lastQuery.trim().length < 3) return;
-
-    const localSeq = seq;
-    const offset = reset ? 0 : currentResults.length;
-    if (offset >= matchedResults.length) {
-        updateResultsFooter();
-        return;
-    }
-
-    if (reset) {
-        currentResults = [];
-        clearElement(resultsList);
-        selectedResultIndex = -1;
-    }
-
-    setShowMoreErrorMessage('');
-    setShowMoreLoadingState(true);
-    updateResultsFooter();
-
-    try {
-        await waitMs(160);
-        if (localSeq !== activeSearchSeq) return;
-
-        const next = matchedResults.slice(offset, offset + PAGE_SIZE);
-        const startIndex = currentResults.length;
-        currentResults = currentResults.concat(next);
-        renderResults(lastQuery, { append: !reset, startIndex });
-        window.requestAnimationFrame(() => updateScrollIndicator());
-    } catch (err) {
-        if (localSeq !== activeSearchSeq) return;
-        setShowMoreErrorMessage('Błąd sieci podczas pobierania kolejnych wyników. Spróbuj ponownie.');
-        updateResultsFooter();
-    } finally {
-        if (localSeq !== activeSearchSeq) return;
-        setShowMoreLoadingState(false);
-        updateResultsFooter();
-    }
-}
-
-function goHome() {
-    if (filePreviewView && !filePreviewView.classList.contains('view-hidden')) {
-        filePreviewView.classList.add('view-hidden');
-    }
-    if (searchView && searchView.classList.contains('view-hidden')) {
-        searchView.classList.remove('view-hidden');
-    }
-    if (isSearchEnabled) searchInput.focus();
-    window.requestAnimationFrame(() => updateScrollIndicator());
-}
-
-// Reset stanu aplikacji do formy identycznej jak po pierwszym wejściu do aplikacji po ekranie powitalnym.
-function resetToInitialState({ source } = {}) {
-    const now = Date.now();
-    if (now - lastHomeResetTs < 450) return;
-    lastHomeResetTs = now;
-
-    if (debouncedSearchRef && typeof debouncedSearchRef.cancel === 'function') debouncedSearchRef.cancel();
-    if (debouncedLogSearchRef && typeof debouncedLogSearchRef.cancel === 'function') debouncedLogSearchRef.cancel();
-
-    if (searchInput) {
-        searchInput.value = '';
-    }
-    clearResults();
-
-    const thead = document.getElementById('table-header');
-    const tbody = document.getElementById('table-body');
-    clearElement(thead);
-    clearElement(tbody);
-    if (previewMeta) {
-        previewMeta.textContent = '';
-        previewMeta.classList.add('hidden');
-    }
-    const previewFilename = document.getElementById('preview-filename');
-    if (previewFilename) previewFilename.textContent = '';
-
-    goHome();
-    logClientEvent('home', { source: source || 'unknown' });
-}
-
-function queuePreviewReadyEvent(fileName) {
-    const detail = { fileName: String(fileName || '') };
-    window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-            document.dispatchEvent(new CustomEvent('qe:preview-ready', { detail }));
-        });
-    });
-}
-
-function compileKeyLabTokenSets() {
-    const compiled = [];
-    for (const entry of KEY_LAB_TOKEN_SETS) {
-        const phrase = Array.isArray(entry) ? entry.join(' ') : String(entry ?? '');
-        const normalized = fuzzyNormalizeText(phrase).replace(/[^a-z0-9]+/g, ' ').trim();
-        if (!normalized) continue;
-        const tokens = normalized.split(/\s+/g).filter(Boolean);
-        if (tokens.length === 0) continue;
-
-        const collapsed = [];
-        for (let i = 0; i < tokens.length; i++) {
-            const cur = tokens[i];
-            const next = tokens[i + 1];
-            if (cur && next && cur.length === 1 && next.length === 1) {
-                collapsed.push(cur + next);
-                i += 1;
-                continue;
-            }
-            collapsed.push(cur);
-        }
-
-        const unique = Array.from(new Set(collapsed.filter(Boolean)));
-        if (unique.length > 0) compiled.push(unique);
-    }
-    compiledKeyLabTokenSets = compiled;
-}
-
-function rowMatchesKeyLab(text) {
-    const normalized = fuzzyNormalizeText(text).replace(/[^a-z0-9]+/g, ' ').trim();
-    if (!normalized) return false;
-    const tokens = normalized.split(/\s+/g).filter(Boolean);
-    if (tokens.length === 0) return false;
-    const tokenSet = new Set(tokens);
-    for (let i = 0; i < tokens.length - 1; i++) {
-        if (tokens[i].length === 1 && tokens[i + 1].length === 1) {
-            tokenSet.add(tokens[i] + tokens[i + 1]);
-        }
-    }
-
-    if (!Array.isArray(compiledKeyLabTokenSets) || compiledKeyLabTokenSets.length === 0) {
-        compileKeyLabTokenSets();
-    }
-
-    for (const requiredTokens of compiledKeyLabTokenSets) {
-        let ok = true;
-        for (const token of requiredTokens) {
-            if (!tokenSet.has(token)) {
-                ok = false;
-                break;
-            }
-        }
-        if (ok) return true;
-    }
-
-    return false;
-}
-
-function highlightLabsInPreviewTable() {
-    const tbody = document.getElementById('table-body');
-    if (!tbody || !tbody.rows) return;
-
-    const rows = tbody.rows;
-    for (let r = 0; r < rows.length; r++) {
-        const tr = rows[r];
-        const cells = tr.cells;
-        let rowText = '';
-        for (let c = 0; c < cells.length; c++) {
-            const td = cells[c];
-            const t = td?.textContent ? String(td.textContent) : '';
-            if (t) rowText += ` ${t}`;
-        }
-        
-        const isLab = rowMatchesKeyLab(rowText);
-        tr.classList.toggle('highlight-lab', isLab);
-
-        if (isLab) {
-            const facilityCell = tr.querySelector('.facility-column');
-            if (facilityCell && !facilityCell.querySelector('.lab-badge')) {
-                const originalText = facilityCell.textContent;
-                const formattedText = toTitleCase(originalText);
-                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(formattedText)}</span>`;
-            }
-        }
-    }
-}
-
-function handleKeyNavigation(e) {
-    if (currentResults.length === 0) return;
-
-    if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        selectedResultIndex = Math.min(selectedResultIndex + 1, currentResults.length - 1);
-        renderResults(lastQuery);
-        scrollToSelected();
-    } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        selectedResultIndex = Math.max(selectedResultIndex - 1, 0);
-        renderResults(lastQuery);
-        scrollToSelected();
-    } else if (e.key === 'Enter' && selectedResultIndex >= 0) {
-        const group = currentResults[selectedResultIndex];
-        showFilePreview(group.fileName, group.items[0].rowIndex);
-    }
-}
-
-function scrollToSelected() {
-    const selected = resultsList.querySelector('.result-group.selected');
-    if (selected) {
-        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    }
-}
-
-// Podgląd pliku
-let lastPreviewState = { fileName: null, rowIndex: null };
-
-/**
- * Wyświetla widok podglądu pliku (trasy).
- * @param {string} fileName Nazwa pliku.
- * @param {number} highlightRowIndex Indeks wiersza do podświetlenia.
- * @param {Object} options Opcje (np. skipPush: true przy obsłudze popstate).
- */
-function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false }) {
-    const tableModel = fullFileData[fileName];
-    if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
-
-    // Aktualizacja historii jeśli nie jesteśmy w trakcie popstate
-    if (!options.skipPush) {
-        try {
-            history.pushState(
-                { view: 'preview', fileName, rowIndex: highlightRowIndex }, 
-                '', 
-                `#preview/${encodeURIComponent(fileName)}`
-            );
-        } catch (e) {
-            logAction('navigation', { error: 'pushState preview failed', msg: e.message }, 'WARN');
-        }
-    }
-
-    lastPreviewState = { fileName, rowIndex: highlightRowIndex };
-    togglePreviewView(true, fileName, tableModel.metaLines);
-
-    const thead = document.getElementById('table-header');
-    const tbody = document.getElementById('table-body');
-    clearElement(thead);
-    clearElement(tbody);
-    
-    renderPreviewHeader(thead, tableModel.headers);
-    const highlightedRowEl = renderPreviewBody(tbody, tableModel, highlightRowIndex);
-
-    if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
-    queuePreviewReadyEvent(fileName);
-    logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
-    window.requestAnimationFrame(() => updateScrollIndicator());
-}
-
-function togglePreviewView(show, fileName, metaLines) {
-    if (show) {
-        searchView.classList.add('view-hidden');
-        filePreviewView.classList.remove('view-hidden');
-        document.getElementById('preview-filename').textContent = formatFileName(fileName);
-        updatePreviewMeta(metaLines);
-    } else {
-        filePreviewView.classList.add('view-hidden');
-        searchView.classList.remove('view-hidden');
-    }
-}
-
-function updatePreviewMeta(metaLines) {
-    if (!previewMeta) return;
-    const lines = Array.isArray(metaLines) ? metaLines : [];
-    if (lines.length > 0) {
-        previewMeta.textContent = lines.join('\n');
-        previewMeta.classList.remove('hidden');
-    } else {
-        previewMeta.textContent = '';
-        previewMeta.classList.add('hidden');
-    }
-}
-
-function renderPreviewHeader(thead, headers) {
-    const idxTh = document.createElement('th');
-    idxTh.textContent = '#';
-    thead.appendChild(idxTh);
-
-    headers.forEach(h => {
-        const th = document.createElement('th');
-        th.textContent = h || '';
-        thead.appendChild(th);
-    });
-}
-
-function renderPreviewBody(tbody, tableModel, highlightRowIndex) {
-    let highlightedRowEl = null;
-    tableModel.rows.forEach((rowObj) => {
-        const tr = document.createElement('tr');
-        if (rowObj.originalRowIndex === highlightRowIndex) {
-            tr.classList.add('highlighted-row');
-            highlightedRowEl = tr;
-        }
-
-        const tdNum = document.createElement('td');
-        tdNum.className = 'row-num';
-        tdNum.textContent = String(rowObj.originalRowIndex + 1);
-        tr.appendChild(tdNum);
-
-        rowObj.cells.forEach((cell, cellIdx) => {
-            const td = document.createElement('td');
-            td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
-            if (tableModel.headers[cellIdx]) {
-                const h = normalizeText(String(tableModel.headers[cellIdx]));
-                if (h.includes('nazwa') || h.includes('placowk')) td.classList.add('facility-column');
-            }
-            tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-    });
-    return highlightedRowEl;
-}
-
-function formatTimeFromDayFraction(fraction) {
-    const totalMinutes = Math.round(fraction * 24 * 60);
-    const normalized = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
-    const hours = Math.floor(normalized / 60);
-    const minutes = normalized % 60;
-    return `${pad2(hours)}:${pad2(minutes)}`;
-}
-
-function parseTimeString(value) {
-    const s = String(value).trim();
-    const match = s.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?(?:[.,]\d+)?$/);
-    if (!match) return null;
-    const hours = Number(match[1]);
-    const minutes = Number(match[2]);
-    if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return null;
-    if (hours < 0 || hours > 23) return null;
-    if (minutes < 0 || minutes > 59) return null;
-    return `${pad2(hours)}:${pad2(minutes)}`;
-}
-
-/**
- * Formatuje wartość komórki (szczególnie czas Excela)
- */
-function formatCellValue(value) {
-    if (value === null || value === undefined) return '';
-
-    // Obsługa wartości liczbowych oraz stringów, które są liczbami (np. z plików CSV)
-    let num = value;
-    if (typeof value === 'string') {
-        const trimmed = value.trim();
-        // Sprawdzamy czy to ułamek dziesiętny (format Excela dla czasu)
-        if (trimmed !== '' && /^-?\d*\.?\d+$/.test(trimmed)) {
-            num = parseFloat(trimmed);
-        }
-    }
-
-    if (typeof num === 'number' && Number.isFinite(num)) {
-        // Czas w Excelu to ułamek doby (0-1)
-        if (num > 0 && num < 1) {
-            return formatTimeFromDayFraction(num);
-        }
-
-        // Czasem Excel przechowuje czas jako duże liczby z ułamkiem (np. data + czas)
-        if (num >= 1000 && num < 60000) {
-            const frac = num % 1;
-            if (frac > 0 && frac < 1) return formatTimeFromDayFraction(frac);
-        }
-    }
-
-    const asString = String(value).trim();
-    const timeParsed = parseTimeString(asString);
-    if (timeParsed) return timeParsed;
-
-    return asString;
-}
-
 async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
     const safeName = String(fileName || '').trim();
     if (!safeName) throw new Error('Brak nazwy pliku');
     if (!(arrayBuffer instanceof ArrayBuffer)) throw new Error('Brak danych pliku (ArrayBuffer)');
-
     const blob = new Blob([arrayBuffer], { type: String(mimeType || '') || 'application/octet-stream' });
     await docsPutBlob(safeName, blob);
     removeFileData(safeName);
@@ -2622,170 +1193,19 @@ async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
     loadedFiles.add(safeName);
 }
 
-async function runWithConcurrency(items, limit, worker) {
-    const list = Array.isArray(items) ? items : [];
-    const max = Math.max(1, Number(limit || 1));
-    let idx = 0;
-    const workers = new Array(Math.min(max, list.length)).fill(null).map(async () => {
-        while (true) {
-            const i = idx;
-            idx += 1;
-            if (i >= list.length) break;
-            await worker(list[i], i);
-        }
-    });
-    await Promise.all(workers);
-}
-
-async function handleImportGoogleDrive() {
-    const api = window.GoogleDriveImport;
-    if (!api) {
-        handleGoogleDriveUnavailable();
-        return;
-    }
-
-    setGoogleDriveLoadingState(true);
-    const summary = { files: [], records: 0, errors: 0, rejected: 0 };
-    const before = allData.length;
-
-    try {
-        const picked = await api.pickExcelFiles();
-        const pickedFiles = Array.isArray(picked?.files) ? picked.files : [];
-        if (pickedFiles.length === 0) {
-            handleGoogleDriveCancel();
-            return;
-        }
-
-        const accessToken = picked.accessToken;
-        const accepted = filterGoogleDriveFiles(pickedFiles, api);
-        summary.errors += (pickedFiles.length - accepted.length);
-
-        if (accepted.length === 0) {
-            uploadStatus.textContent = 'Google Drive: brak poprawnych plików (.xlsx/.xls).';
-            return;
-        }
-
-        // Mechanizm deduplikacji przed importem z Google Drive
-        const toImport = await resolveImportConflicts(accepted);
-        if (toImport.length === 0) {
-            logAction('import', { source: 'google_drive', phase: 'skipped_by_user' });
-            return;
-        }
-
-        await importFilesFromGoogleDrive(toImport, api, accessToken, summary);
-        finalizeGoogleDriveImport(summary, before);
-    } catch (err) {
-        handleGoogleDriveError(err);
-    } finally {
-        setGoogleDriveLoadingState(false);
-    }
-}
-
-function handleGoogleDriveUnavailable() {
-    const msg = 'Import z Google Drive jest niedostępny (brak modułu).';
-    console.error(msg);
-    logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
-    uploadProgressContainer.classList.remove('hidden');
-    uploadStatus.textContent = msg;
-    window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1500);
-}
-
-function setGoogleDriveLoadingState(loading) {
-    if (importGoogleDriveButton) {
-        importGoogleDriveButton.setAttribute('aria-busy', String(loading));
-        importGoogleDriveButton.disabled = loading;
-    }
-    if (loading) {
-        uploadProgressContainer.classList.remove('hidden');
-        if (uploadProgress) uploadProgress.value = 0;
-        uploadStatus.textContent = 'Google Drive: inicjalizacja...';
-    } else {
-        window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
-    }
-}
-
-function handleGoogleDriveCancel() {
-    uploadStatus.textContent = 'Google Drive: anulowano.';
-    logAction('import', { source: 'google_drive', phase: 'cancel' }, 'INFO');
-}
-
-function filterGoogleDriveFiles(pickedFiles, api) {
-    return pickedFiles.filter(f => {
-        const name = String(f?.name || '');
-        const ok = typeof api.validateExcelFileName === 'function' 
-            ? api.validateExcelFileName(name) 
-            : (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.xls'));
-        if (!ok) logAction('import', { source: 'google_drive', fileName: name, reason: 'extension' }, 'WARN');
-        return ok;
-    }).map(f => ({ id: String(f.id), name: String(f.name), mimeType: String(f.mimeType) }));
-}
-
-async function importFilesFromGoogleDrive(accepted, api, accessToken, summary) {
-    let done = 0;
-    const total = accepted.length;
-    uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
-
-    await runWithConcurrency(accepted, 2, async (meta) => {
-        const name = String(meta.name).trim();
-        try {
-            uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
-            const ab = await api.downloadFileArrayBuffer(meta.id, accessToken);
-            if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
-            
-            await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
-            summary.files.push(name);
-        } catch (err) {
-            summary.errors += 1;
-            logAction('import', { source: 'google_drive', fileName: name, message: err.message }, 'ERROR');
-        } finally {
-            done += 1;
-            if (uploadProgress) uploadProgress.value = Math.round((done / total) * 100);
-        }
-    });
-}
-
-async function finalizeGoogleDriveImport(summary, before) {
-    summary.records = Math.max(0, allData.length - before);
-    uploadStatus.textContent = 'Google Drive: import zakończony.';
-    logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-
-    displayImportSummary(summary);
-    fileCountSpan.textContent = String((await docsListFiles()).length);
-    setSearchEnabled(allData.length > 0);
-
-    if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
-        performSearch(lastQuery.trim());
-    }
-}
-
-function displayImportSummary(summary) {
-    const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
-    setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
-}
-
-function handleGoogleDriveError(err) {
-    const msg = err?.message ? String(err.message) : 'Błąd importu z Google Drive';
-    console.error(err);
-    logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
-    uploadStatus.textContent = `Google Drive: ${msg}`;
-}
-
+/**
+ * Obsługuje import plików z dysku lokalnego.
+ */
 async function handleImportFiles(files) {
     const list = Array.isArray(files) ? files : [];
     if (list.length === 0) return;
-
     const { accepted, rejected } = filterImportFiles(list);
     rejected.forEach(r => logAction('import', { fileName: r.name, reason: r.reason }, 'WARN'));
-
     if (accepted.length === 0) return;
-
-    // Mechanizm deduplikacji
     const toImport = await resolveImportConflicts(accepted);
     if (toImport.length === 0) return;
-
     setImportLoadingState(true, toImport.length);
     const summary = { files: [], records: 0, errors: rejected.length };
-
     try {
         const before = allData.length;
         await processImportFiles(toImport, summary);
@@ -2796,101 +1216,15 @@ async function handleImportFiles(files) {
 }
 
 /**
- * Rozwiązuje konflikty nazw plików przed importem.
- * @param {Array<File|Object>} files Lista plików do importu.
- * @returns {Promise<Array<File|Object>>} Lista plików zatwierdzonych do importu.
+ * Przetwarza importowane pliki.
  */
-async function resolveImportConflicts(files) {
-    const conflicts = [];
-    for (const f of files) {
-        if (await docsFileExists(f.name)) {
-            conflicts.push(f);
-        }
-    }
-
-    if (conflicts.length === 0) return files;
-
-    return new Promise((resolve) => {
-        if (files.length === 1) {
-            // Pojedynczy plik
-            showModal(
-                'Konflikt nazw',
-                `Plik o nazwie <strong>${escapeHtml(files[0].name)}</strong> już istnieje. Czy chcesz go nadpisać?`,
-                [
-                    {
-                        label: `Nadpisz tylko ${files[0].name}`,
-                        class: 'modal-btn--primary',
-                        onClick: () => resolve(files)
-                    },
-                    {
-                        label: 'Anuluj',
-                        onClick: () => resolve([])
-                    }
-                ]
-            );
-        } else {
-            // Wiele plików
-            showModal(
-                'Konflikty nazw',
-                `Wykryto ${conflicts.length} plików, które już istnieją w bazie. Wybierz akcję dla importu zbiorczego.`,
-                [
-                    {
-                        label: 'Nadpisz wszystkie',
-                        class: 'modal-btn--danger',
-                        onClick: () => resolve(files)
-                    },
-                    {
-                        label: 'Pomiń istniejące',
-                        class: 'modal-btn--primary',
-                        onClick: () => {
-                            const conflictNames = new Set(conflicts.map(c => c.name));
-                            resolve(files.filter(f => !conflictNames.has(f.name)));
-                        }
-                    },
-                    {
-                        label: 'Anuluj',
-                        onClick: () => resolve([])
-                    }
-                ]
-            );
-        }
-    });
-}
-
-function filterImportFiles(files) {
-    const accepted = [];
-    const rejected = [];
-    for (const f of files) {
-        const name = String(f?.name || '');
-        const lower = name.toLowerCase();
-        const okExt = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
-        const okSize = Number(f?.size || 0) <= MAX_IMPORT_BYTES;
-        if (!okExt) rejected.push({ name, reason: 'extension' });
-        else if (!okSize) rejected.push({ name, reason: 'size' });
-        else accepted.push(f);
-    }
-    return { accepted, rejected };
-}
-
-function setImportLoadingState(loading, total = 0) {
-    if (loading) {
-        uploadProgressContainer.classList.remove('hidden');
-        if (uploadProgress) uploadProgress.value = 0;
-        uploadStatus.textContent = `Import: ${total} plik(ów)...`;
-    } else {
-        window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
-    }
-}
-
 async function processImportFiles(accepted, summary) {
     let processed = 0;
     for (const file of accepted) {
         const name = String(file.name || '').trim();
         if (!name) continue;
-
         uploadStatus.textContent = `Importuję: ${formatFileName(name)}`;
         if (uploadProgress) uploadProgress.value = Math.max(0, Math.min(95, (processed / accepted.length) * 100));
-
         try {
             await docsPutBlob(name, file);
             removeFileData(name);
@@ -2907,97 +1241,1760 @@ async function processImportFiles(accepted, summary) {
     }
 }
 
-async function finalizeFileImport(summary, before) {
-    summary.records = Math.max(0, allData.length - before);
-    if (uploadProgress) uploadProgress.value = 100;
-    uploadStatus.textContent = 'Import zakończony.';
-    logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-
-    displayImportSummary(summary);
-    fileCountSpan.textContent = String((await docsListFiles()).length);
-    setSearchEnabled(allData.length > 0);
-
-    if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) {
-        performSearch(lastQuery.trim());
+/**
+ * Obsługuje inicjalizację importu z Google Drive.
+ */
+async function handleImportGoogleDrive() {
+    const api = window.GoogleDriveImport;
+    if (!api) {
+        handleGoogleDriveUnavailable();
+        return;
+    }
+    setGoogleDriveLoadingState(true);
+    const summary = { files: [], records: 0, errors: 0, rejected: 0 };
+    const before = allData.length;
+    try {
+        const picked = await api.pickExcelFiles();
+        const pickedFiles = Array.isArray(picked?.files) ? picked.files : [];
+        if (pickedFiles.length === 0) {
+            handleGoogleDriveCancel();
+            return;
+        }
+        const accessToken = picked.accessToken;
+        const accepted = filterGoogleDriveFiles(pickedFiles, api);
+        summary.errors += (pickedFiles.length - accepted.length);
+        if (accepted.length === 0) {
+            uploadStatus.textContent = 'Google Drive: brak poprawnych plików (.xlsx/.xls).';
+            return;
+        }
+        const toImport = await resolveImportConflicts(accepted);
+        if (toImport.length === 0) {
+            logAction('import', { source: 'google_drive', phase: 'skipped_by_user' });
+            return;
+        }
+        await importFilesFromGoogleDrive(toImport, api, accessToken, summary);
+        finalizeGoogleDriveImport(summary, before);
+    } catch (err) {
+        handleGoogleDriveError(err);
+    } finally {
+        setGoogleDriveLoadingState(false);
     }
 }
 
-// Pomocnicze
-let searchCache = new Map(); // Cache dla wyników wyszukiwania
-
-function normalizeText(text) {
-    return String(text ?? '').toLowerCase().trim();
+/**
+ * Importuje pliki z Google Drive przy użyciu tokena.
+ */
+async function importFilesFromGoogleDrive(accepted, api, accessToken, summary) {
+    let done = 0;
+    const total = accepted.length;
+    uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
+    await runWithConcurrency(accepted, 2, async (meta) => {
+        const name = String(meta.name).trim();
+        try {
+            uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
+            const ab = await api.downloadFileArrayBuffer(meta.id, accessToken);
+            if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
+            await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
+            summary.files.push(name);
+        } catch (err) {
+            summary.errors += 1;
+            logAction('import', { source: 'google_drive', fileName: name, message: err.message }, 'ERROR');
+        } finally {
+            done += 1;
+            if (uploadProgress) uploadProgress.value = Math.round((done / total) * 100);
+        }
+    });
 }
 
-function fuzzyNormalizeText(text) {
-    return normalizeText(text)
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/ł/g, "l");
-}
-
-function highlightText(text, query) {
-    if (!query) return text;
-    
-    // Normalizujemy tekst i zapytanie do formy bez diakrytyków na potrzeby wyszukiwania pozycji
-    const normText = fuzzyNormalizeText(text);
-    const normQuery = fuzzyNormalizeText(query);
-    
-    if (!normQuery) return text;
-
-    let result = '';
-    let lastIdx = 0;
-    let idx = normText.indexOf(normQuery);
-
-    while (idx !== -1) {
-        // Dodajemy tekst przed dopasowaniem
-        result += escapeHtml(text.slice(lastIdx, idx));
-        // Dodajemy podświetlone dopasowanie (z oryginalnymi znakami)
-        result += `<span class="highlight">${escapeHtml(text.slice(idx, idx + normQuery.length))}</span>`;
-        
-        lastIdx = idx + normQuery.length;
-        idx = normText.indexOf(normQuery, lastIdx);
+/**
+ * Rozpoczyna synchronizację z Google Drive dla wskazanego folderu.
+ */
+async function startGoogleDriveSync(files, token) {
+    logAction('sync', { phase: 'process', count: files.length });
+    const toImport = await resolveImportConflicts(files);
+    if (toImport.length === 0) {
+        logAction('sync', { phase: 'skipped_by_user' });
+        return;
     }
-    
-    result += escapeHtml(text.slice(lastIdx));
-    return result;
+    if (welcomeImportProgress) {
+        welcomeImportProgress.classList.remove('hidden');
+        clearElement(welcomeProgressList);
+    }
+    setImportLoadingState(true, toImport.length);
+    const summary = { files: [], records: 0, errors: 0 };
+    try {
+        const before = allData.length;
+        let processed = 0;
+        for (const file of toImport) {
+            const name = file.name;
+            const progressItem = createWelcomeProgressItem(name);
+            welcomeProgressList.appendChild(progressItem);
+            progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            setLoadingStatusText(`Pobieranie: ${formatFileName(name)}...`);
+            if (loadingProgressBar) {
+                loadingProgressBar.value = (processed / toImport.length) * 100;
+                if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(loadingProgressBar.value)}%`;
+            }
+            try {
+                const buffer = await window.GoogleDriveImport.downloadFileArrayBuffer(file.id, token);
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                await docsPutBlob(name, blob);
+                removeFileData(name);
+                loadedFiles.delete(name);
+                await processFile(name);
+                loadedFiles.add(name);
+                summary.files.push(name);
+                updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
+            } catch (err) {
+                summary.errors += 1;
+                logAction('sync', { fileName: name, message: err.message }, 'ERROR');
+                updateWelcomeProgressItem(progressItem, 0, 'Błąd', true);
+            } finally {
+                processed += 1;
+            }
+        }
+        finalizeFileImport(summary, before);
+        setLoadingStatusText('Synchronizacja zakończona');
+        if (loadingProgressBar) {
+            loadingProgressBar.value = 100;
+            if (loadingProgressMeta) loadingProgressMeta.textContent = '100%';
+        }
+    } catch (err) {
+        logAction('sync', { phase: 'fatal_error', message: err.message }, 'ERROR');
+        setLoadingStatusText('Błąd synchronizacji');
+    } finally {
+        setImportLoadingState(false);
+    }
 }
 
-function escapeRegExp(string) {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Obsługuje synchronizację z Google Drive (folder stały).
+ */
+async function handleGoogleDriveSync() {
+    const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
+    logAction('sync', { phase: 'start', folderId: FOLDER_ID });
+    try {
+        setLoadingStatusText('Łączenie z Google Drive...');
+        const token = await window.GoogleDriveImport.getAccessToken();
+        setLoadingStatusText('Przeszukiwanie folderów...');
+        const files = await window.GoogleDriveImport.crawlFolder(FOLDER_ID, token);
+        if (files.length === 0) {
+            showModal('Brak plików', 'Nie znaleziono żadnych plików .xlsx w wskazanym folderze Google Drive.');
+            return;
+        }
+        showModal('Potwierdź synchronizację', `Znaleziono <strong>${files.length}</strong> plików .xlsx na Dysku Google. Czy chcesz rozpocząć import?`, [
+            { label: 'Rozpocznij import', class: 'modal-btn--primary', onClick: () => startGoogleDriveSync(files, token) },
+            { label: 'Anuluj', onClick: () => logAction('sync', { phase: 'cancelled' }) }
+        ]);
+    } catch (err) {
+        logAction('sync', { phase: 'error', message: err.message }, 'ERROR');
+        showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${err.message}`);
+    }
 }
 
-function clearResults() {
-    lastQuery = '';
-    matchedResults = [];
-    currentResults = [];
+//////////////////////////////////////////////////
+// GŁÓWNA LOGIKA PRZETWARZANIA DANYCH
+//////////////////////////////////////////////////
+
+/**
+ * Buduje model tabeli z surowej macierzy danych.
+ */
+function buildTableModel(matrix) {
+    const rect = normalizeMatrix(matrix);
+    const bounds = computeNonEmptyBounds(rect);
+    if (!bounds) return { headers: [], rows: [], metaLines: [], isCompleteStructure: false };
+    const cropped = rect.slice(bounds.minRow, bounds.maxRow + 1).map(row => row.slice(bounds.minCol, bounds.maxCol + 1));
+    const headerRowRel = findHeaderRowIndex(cropped);
+    const rawHeaders = cropped[headerRowRel].map(cellToHeaderText);
+    const headerMap = mapRequiredHeaders(rawHeaders);
+    const isCompleteStructure = Object.keys(headerMap).length === 5;
+    const metaLines = extractMetaLines(cropped, headerRowRel);
+    const dataRelRows = cropped.slice(headerRowRel + 1);
+    const rawDataRows = processDataRows(dataRelRows, headerMap, bounds.minRow + headerRowRel + 1);
+    return { headers: rawHeaders, rows: rawDataRows, metaLines, isCompleteStructure, headerMap };
+}
+
+/**
+ * Mapuje wymagane nagłówki na ich indeksy w tabeli.
+ */
+function mapRequiredHeaders(rawHeaders) {
+    const requiredHeaders = {
+        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA', 'NR'],
+        'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
+        'ADRES': ['ADRES', 'ULICA'],
+        'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
+        'UWAGI': ['UWAGI']
+    };
+    const headerMap = {};
+    Object.entries(requiredHeaders).forEach(([key, aliases]) => {
+        const index = rawHeaders.findIndex(h => {
+            const normH = fuzzyNormalizeText(h).toUpperCase();
+            return aliases.some(alias => fuzzyNormalizeText(alias).toUpperCase() === normH);
+        });
+        if (index >= 0) headerMap[key] = index;
+    });
+    return headerMap;
+}
+
+/**
+ * Wyodrębnia linie metadanych znajdujące się nad nagłówkiem.
+ */
+function extractMetaLines(cropped, headerRowRel) {
+    const metaLines = [];
+    for (let r = 0; r < headerRowRel; r++) {
+        const parts = cropped[r].filter(v => !isEmptyCell(v)).map(v => String(formatCellValue(v)).trim()).filter(v => v.length > 0);
+        if (parts.length > 0) metaLines.push(parts.join(' | '));
+    }
+    return metaLines;
+}
+
+/**
+ * Przetwarza wiersze danych.
+ */
+function processDataRows(dataRelRows, headerMap, startRowIndex) {
+    const rawDataRows = [];
+    for (let r = 0; r < dataRelRows.length; r++) {
+        const row = dataRelRows[r];
+        if (row.every(isEmptyCell)) continue;
+        const cleanedCells = row.map((cell, idx) => formatCellContent(cell, idx, headerMap));
+        rawDataRows.push({ originalRowIndex: startRowIndex + r, cells: cleanedCells });
+    }
+    return rawDataRows;
+}
+
+/**
+ * Normalizuje macierz danych do prostokąta.
+ */
+function normalizeMatrix(matrix) {
+    const safe = Array.isArray(matrix) ? matrix : [];
+    const maxCols = safe.reduce((m, row) => Math.max(m, Array.isArray(row) ? row.length : 0), 0);
+    return safe.map((row) => {
+        const r = Array.isArray(row) ? row.slice() : [];
+        while (r.length < maxCols) r.push('');
+        return r;
+    });
+}
+
+/**
+ * Oblicza granice niepustych komórek w macierzy.
+ */
+function computeNonEmptyBounds(matrix) {
+    let minRow = Infinity, maxRow = -1, minCol = Infinity, maxCol = -1;
+    for (let r = 0; r < matrix.length; r++) {
+        const row = matrix[r];
+        for (let c = 0; c < row.length; c++) {
+            if (!isEmptyCell(row[c])) {
+                if (r < minRow) minRow = r;
+                if (r > maxRow) maxRow = r;
+                if (c < minCol) minCol = c;
+                if (c > maxCol) maxCol = c;
+            }
+        }
+    }
+    return maxRow === -1 ? null : { minRow, maxRow, minCol, maxCol };
+}
+
+/**
+ * Znajduje indeks wiersza nagłówkowego.
+ */
+function findHeaderRowIndex(cropped) {
+    const counts = cropped.map(countNonEmpty);
+    for (let i = 0; i < cropped.length; i++) {
+        if (counts[i] < 2) continue;
+        if (counts.slice(i + 1).some(c => c >= 2)) return i;
+    }
+    return 0;
+}
+
+/**
+ * Dodaje wiersze tabeli do globalnego zbioru allData.
+ */
+function addTableRows(tableModel, fileName) {
+    if (!tableModel || !Array.isArray(tableModel.rows)) return 0;
+    const existingKeys = new Set(allData.map(d => `${d.fileName}:${d.rowIndex}`));
+    const normalizedRows = [];
+    for (const row of tableModel.rows) {
+        const key = `${fileName}:${row.originalRowIndex}`;
+        if (existingKeys.has(key)) continue;
+        const normalizedRow = createNormalizedRow(row, tableModel, fileName);
+        if (normalizedRow) normalizedRows.push(normalizedRow);
+    }
+    allData = allData.concat(normalizedRows);
+    return normalizedRows.length;
+}
+
+/**
+ * Tworzy znormalizowany obiekt wiersza do wyszukiwania.
+ */
+function createNormalizedRow(row, tableModel, fileName) {
+    const displayText = getRowDisplayText(row, tableModel);
+    if (!displayText.trim()) return null;
+    const searchableText = `${displayText} ${fileName} ${row.cells.join(' ')}`;
+    return {
+        fileName: fileName,
+        rowIndex: row.originalRowIndex,
+        displayText: displayText,
+        searchable: normalizeText(searchableText),
+        searchableFuzzy: fuzzyNormalizeText(searchableText),
+        isComplete: tableModel.isCompleteStructure,
+        headerMap: tableModel.headerMap,
+        cells: row.cells
+    };
+}
+
+/**
+ * Pobiera tekst reprezentujący wiersz do wyświetlenia.
+ */
+function getRowDisplayText(row, tableModel) {
+    if (tableModel.isCompleteStructure) {
+        const h = tableModel.headerMap;
+        const time = row.cells[h.GODZ] || '-';
+        const address = row.cells[h.ADRES] || '';
+        const facility = row.cells[h.NAZWA_PLACOWKI] || '';
+        return `${time} | ${address} | ${facility}`;
+    }
+    return row.cells.filter(c => !isEmptyCell(c)).join(' | ');
+}
+
+/**
+ * Wykonuje proces wyszukiwania.
+ */
+async function performSearch(query) {
+    const trimmedQuery = query.trim();
+    if (trimmedQuery.length < 3) {
+        handleSearchShortQuery();
+        return;
+    }
+    statusIndicator.textContent = 'Szukanie...';
+    statusIndicator.classList.remove('status--hint');
+    lastQuery = trimmedQuery;
+    activeSearchSeq = ++searchSeq;
     selectedResultIndex = -1;
-    setShowMoreErrorMessage('');
-    setShowMoreLoadingState(false);
-    clearElement(resultsList);
-    resultsInfo.textContent = '';
+    try {
+        matchedResults = await executeSearch(trimmedQuery);
+        currentResults = [];
+        clearElement(resultsList);
+        setShowMoreErrorMessage('');
+        if (matchedResults.length === 0) {
+            handleNoSearchResults();
+            return;
+        }
+        statusIndicator.textContent = 'Dane gotowe.';
+        await loadMoreResults({ reset: true, seq: activeSearchSeq });
+    } catch (err) {
+        handleSearchError(err);
+    }
+}
+
+/**
+ * Realizuje niskopoziomowe wyszukiwanie w danych.
+ */
+async function executeSearch(query) {
+    if (searchCache.has(query)) return searchCache.get(query);
+    const lowerQuery = normalizeText(query);
+    const fuzzyQuery = fuzzyNormalizeText(query);
+    const filtered = allData.filter(item => matchItem(item, lowerQuery, fuzzyQuery));
+    const grouped = groupSearchResults(filtered);
+    updateSearchCache(query, grouped);
+    return grouped;
+}
+
+/**
+ * Sprawdza, czy element danych pasuje do zapytania.
+ */
+function matchItem(item, lowerQuery, fuzzyQuery) {
+    const matches = item.searchable.includes(lowerQuery) || item.searchableFuzzy.includes(fuzzyQuery);
+    if (!matches) return false;
+    if (item.isComplete) {
+        const h = item.headerMap;
+        if (!h) return true;
+        return item.cells.some((cell, idx) => {
+            if (idx === h.NR_POL || idx === h.UWAGI) return false;
+            const cellText = String(cell ?? '');
+            return normalizeText(cellText).includes(lowerQuery) || fuzzyNormalizeText(cellText).includes(fuzzyQuery);
+        });
+    }
+    return true;
+}
+
+/**
+ * Grupuje wyniki wyszukiwania według nazw plików.
+ */
+function groupSearchResults(filtered) {
+    const groups = new Map();
+    for (const item of filtered) {
+        if (!groups.has(item.fileName)) {
+            groups.set(item.fileName, { fileName: item.fileName, isComplete: item.isComplete, items: [] });
+        }
+        groups.get(item.fileName).items.push(item);
+    }
+    return Array.from(groups.values());
+}
+
+/**
+ * Aktualizuje cache wyników wyszukiwania.
+ */
+function updateSearchCache(query, results) {
+    if (searchCache.size > 50) searchCache.delete(searchCache.keys().next().value);
+    searchCache.set(query, results);
+}
+
+//////////////////////////////////////////////////
+// FUNKCJE POMOCNICZE BIZNESOWE
+//////////////////////////////////////////////////
+
+/**
+ * Sprawdza, czy wiersz pasuje do reguł "laboratorium".
+ */
+function rowMatchesKeyLab(text) {
+    const normalized = fuzzyNormalizeText(text).replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!normalized) return false;
+    const tokens = normalized.split(/\s+/g).filter(Boolean);
+    if (tokens.length === 0) return false;
+    const tokenSet = new Set(tokens);
+    for (let i = 0; i < tokens.length - 1; i++) {
+        if (tokens[i].length === 1 && tokens[i + 1].length === 1) tokenSet.add(tokens[i] + tokens[i + 1]);
+    }
+    if (!Array.isArray(compiledKeyLabTokenSets) || compiledKeyLabTokenSets.length === 0) compileKeyLabTokenSets();
+    for (const requiredTokens of compiledKeyLabTokenSets) {
+        let ok = true;
+        for (const token of requiredTokens) {
+            if (!tokenSet.has(token)) { ok = false; break; }
+        }
+        if (ok) return true;
+    }
+    return false;
+}
+
+/**
+ * Kompiluje zestawy tokenów dla laboratoriów.
+ */
+function compileKeyLabTokenSets() {
+    const compiled = [];
+    for (const entry of KEY_LAB_TOKEN_SETS) {
+        const phrase = Array.isArray(entry) ? entry.join(' ') : String(entry ?? '');
+        const normalized = fuzzyNormalizeText(phrase).replace(/[^a-z0-9]+/g, ' ').trim();
+        if (!normalized) continue;
+        const tokens = normalized.split(/\s+/g).filter(Boolean);
+        const collapsed = [];
+        for (let i = 0; i < tokens.length; i++) {
+            if (tokens[i] && tokens[i + 1] && tokens[i].length === 1 && tokens[i + 1].length === 1) {
+                collapsed.push(tokens[i] + tokens[i + 1]); i += 1; continue;
+            }
+            collapsed.push(tokens[i]);
+        }
+        const unique = Array.from(new Set(collapsed.filter(Boolean)));
+        if (unique.length > 0) compiled.push(unique);
+    }
+    compiledKeyLabTokenSets = compiled;
+}
+
+/**
+ * Rozwiązuje konflikty nazw plików przed importem.
+ */
+async function resolveImportConflicts(files) {
+    const conflicts = [];
+    for (const f of files) { if (await docsFileExists(f.name)) conflicts.push(f); }
+    if (conflicts.length === 0) return files;
+    return new Promise((resolve) => {
+        if (files.length === 1) {
+            showModal('Konflikt nazw', `Plik o nazwie <strong>${escapeHtml(files[0].name)}</strong> już istnieje. Czy chcesz go nadpisać?`, [
+                { label: `Nadpisz tylko ${files[0].name}`, class: 'modal-btn--primary', onClick: () => resolve(files) },
+                { label: 'Anuluj', onClick: () => resolve([]) }
+            ]);
+        } else {
+            showModal('Konflikty nazw', `Wykryto ${conflicts.length} plików, które już istnieją w bazie. Wybierz akcję dla importu zbiorczego.`, [
+                { label: 'Nadpisz wszystkie', class: 'modal-btn--danger', onClick: () => resolve(files) },
+                { label: 'Pomiń istniejące', class: 'modal-btn--primary', onClick: () => {
+                    const conflictNames = new Set(conflicts.map(c => c.name));
+                    resolve(files.filter(f => !conflictNames.has(f.name)));
+                }},
+                { label: 'Anuluj', onClick: () => resolve([]) }
+            ]);
+        }
+    });
+}
+
+/**
+ * Filtruje pliki przeznaczone do importu.
+ */
+function filterImportFiles(files) {
+    const accepted = [], rejected = [];
+    for (const f of files) {
+        const name = String(f?.name || ''), lower = name.toLowerCase();
+        const okExt = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
+        const okSize = Number(f?.size || 0) <= MAX_IMPORT_BYTES;
+        if (!okExt) rejected.push({ name, reason: 'extension' });
+        else if (!okSize) rejected.push({ name, reason: 'size' });
+        else accepted.push(f);
+    }
+    return { accepted, rejected };
+}
+
+/**
+ * Filtruje pliki z Google Drive.
+ */
+function filterGoogleDriveFiles(pickedFiles, api) {
+    return pickedFiles.filter(f => {
+        const name = String(f?.name || '');
+        const ok = typeof api.validateExcelFileName === 'function' ? api.validateExcelFileName(name) : (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.xls'));
+        if (!ok) logAction('import', { source: 'google_drive', fileName: name, reason: 'extension' }, 'WARN');
+        return ok;
+    }).map(f => ({ id: String(f.id), name: String(f.name), mimeType: String(f.mimeType) }));
+}
+
+/**
+ * Usuwa dane powiązane z konkretnym plikiem.
+ */
+function removeFileData(fileName) {
+    const safe = String(fileName || '');
+    if (!safe) return;
+    allData = allData.filter(d => d?.fileName !== safe);
+    delete fullFileData[safe];
+    loadErrors = loadErrors.filter(e => e?.fileName !== safe);
+}
+
+/**
+ * Resetuje kluczowe dane aplikacji.
+ */
+function resetAppData() {
+    allData = []; currentResults = []; selectedResultIndex = -1; lastQuery = '';
+    loadedFiles = new Set(); fullFileData = {}; loadErrors = [];
+}
+
+//////////////////////////////////////////////////
+// FUNKCJE RENDERUJĄCE UI
+//////////////////////////////////////////////////
+
+/**
+ * Renderuje listę wyników wyszukiwania.
+ */
+function renderResults(query, { append = false, startIndex = 0 } = {}) {
+    if (!append) clearElement(resultsList);
+    if (currentResults.length === 0) {
+        handleNoResultsToRender(); window.requestAnimationFrame(() => updateScrollIndicator()); return;
+    }
+    updateResultsCountInfo();
+    const fragment = document.createDocumentFragment();
+    for (let index = startIndex; index < currentResults.length; index++) {
+        fragment.appendChild(createResultGroupElement(currentResults[index], index, query));
+    }
+    resultsList.appendChild(fragment);
     updateResultsFooter();
     window.requestAnimationFrame(() => updateScrollIndicator());
 }
 
-// Rejestruje zdarzenia użytkownika do DebugLog (np. wyszukiwania, nawigacja, kliknięcia).
-function logClientEvent(type, payload) {
-    const safeType = String(type || '').slice(0, 64);
-    if (!safeType) return;
+/**
+ * Tworzy element grupy wyników (plik/trasa).
+ */
+function createResultGroupElement(group, index, query) {
+    const routeName = formatRouteNameForResults(group.fileName);
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'result-group'; groupDiv.dataset.index = index;
+    if (index === selectedResultIndex) groupDiv.classList.add('selected');
+    const rowsHtml = group.items.map(item => {
+        const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
+        const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
+        return `<div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
+            <div class="result-content">${buildResultSummaryHtml(item, query, { isLab })}</div>
+        </div>`;
+    }).join('');
+    setElementHtml(groupDiv, `<div class="result-group-header"><span class="result-filename"><span class="result-route-name">${routeName}</span></span></div><div class="result-group-body">${rowsHtml}</div>`);
+    return groupDiv;
+}
 
-    const normalizeForLog = (value) => {
-        if (typeof value === 'string') return normalizeText(value);
-        if (!value || typeof value !== 'object') return value;
-        if (Array.isArray(value)) return value.map(normalizeForLog);
-        const out = {};
-        for (const key of Object.keys(value)) {
-            out[key] = normalizeForLog(value[key]);
+/**
+ * Buduje kod HTML dla podglądu wiersza w wynikach.
+ */
+function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
+    if (result.isComplete) {
+        const parts = result.displayText.split('|').map(s => s.trim());
+        const time = parts[0] || '—', address = parts[1] || '';
+        let facility = parts[2] || '';
+        if (isLab) facility = toTitleCase(facility);
+        const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
+        return [
+            `<span class="result-col result-time">${highlightText(time, query)}</span>`,
+            `<span class="result-col result-address">${highlightText(address, query)}</span>`,
+            `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
+        ].map((html, idx) => (idx === 0 ? html : `<span class="result-sep">|</span>${html}`)).join('');
+    }
+    return result.cells.filter(c => !isEmptyCell(c)).map(c => {
+        let text = String(c); if (isLab) text = toTitleCase(text);
+        return `<span class="result-cell-fragment">${highlightText(text, query)}</span>`;
+    }).join('<span class="result-sep">|</span>');
+}
+
+/**
+ * Wyświetla widok podglądu pełnej tabeli pliku.
+ */
+function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false }) {
+    const tableModel = fullFileData[fileName];
+    if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
+    if (!options.skipPush) {
+        try { history.pushState({ view: 'preview', fileName, rowIndex: highlightRowIndex }, '', `#preview/${encodeURIComponent(fileName)}`); }
+        catch (e) { logAction('navigation', { error: 'pushState preview failed', msg: e.message }, 'WARN'); }
+    }
+    lastPreviewState = { fileName, rowIndex: highlightRowIndex };
+    togglePreviewView(true, fileName, tableModel.metaLines);
+    const thead = document.getElementById('table-header'), tbody = document.getElementById('table-body');
+    clearElement(thead); clearElement(tbody);
+    renderPreviewHeader(thead, tableModel.headers);
+    const highlightedRowEl = renderPreviewBody(tbody, tableModel, highlightRowIndex);
+    if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
+    queuePreviewReadyEvent(fileName);
+    logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
+    window.requestAnimationFrame(() => updateScrollIndicator());
+}
+
+/**
+ * Renderuje nagłówek podglądu tabeli.
+ */
+function renderPreviewHeader(thead, headers) {
+    const idxTh = document.createElement('th'); idxTh.textContent = '#'; thead.appendChild(idxTh);
+    headers.forEach(h => { const th = document.createElement('th'); th.textContent = h || ''; thead.appendChild(th); });
+}
+
+/**
+ * Renderuje treść podglądu tabeli.
+ */
+function renderPreviewBody(tbody, tableModel, highlightRowIndex) {
+    let highlightedRowEl = null;
+    tableModel.rows.forEach((rowObj) => {
+        const tr = document.createElement('tr');
+        if (rowObj.originalRowIndex === highlightRowIndex) { tr.classList.add('highlighted-row'); highlightedRowEl = tr; }
+        const tdNum = document.createElement('td'); tdNum.className = 'row-num'; tdNum.textContent = String(rowObj.originalRowIndex + 1); tr.appendChild(tdNum);
+        rowObj.cells.forEach((cell, cellIdx) => {
+            const td = document.createElement('td'); td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
+            if (tableModel.headers[cellIdx]) {
+                const h = normalizeText(String(tableModel.headers[cellIdx]));
+                if (h.includes('nazwa') || h.includes('placowk')) td.classList.add('facility-column');
+            }
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    return highlightedRowEl;
+}
+
+/**
+ * Aktualizuje informację o liczbie znalezionych wyników.
+ */
+function updateResultsCountInfo() {
+    resultsInfo.innerHTML = `Trasy: ${matchedResults.length} / ${loadedFiles.size}`;
+}
+
+/**
+ * Aktualizuje stopkę wyników (przycisk "pokaż więcej").
+ */
+function updateResultsFooter() {
+    if (!resultsFooter) return;
+    const hasResults = matchedResults.length > 0, hasMore = currentResults.length < matchedResults.length, hasError = Boolean(showMoreError && showMoreError.textContent && showMoreError.textContent.trim().length > 0);
+    if (showMoreButton) showMoreButton.classList.toggle('hidden', !hasMore);
+    if (showMoreLoading) showMoreLoading.classList.toggle('hidden', !isLoadingMoreResults);
+    if (showMoreError) showMoreError.classList.toggle('hidden', !hasError);
+    resultsFooter.classList.toggle('hidden', !(hasResults && (hasMore || isLoadingMoreResults || hasError) && matchedResults.length > PAGE_SIZE));
+}
+
+/**
+ * Aktualizuje metadane w widoku podglądu.
+ */
+function updatePreviewMeta(metaLines) {
+    if (!previewMeta) return;
+    const lines = Array.isArray(metaLines) ? metaLines : [];
+    if (lines.length > 0) { previewMeta.textContent = lines.join('\n'); previewMeta.classList.remove('hidden'); }
+    else { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
+}
+
+/**
+ * Przełącza między widokiem wyszukiwania a podglądem.
+ */
+function togglePreviewView(show, fileName, metaLines) {
+    if (show) {
+        searchView.classList.add('view-hidden'); filePreviewView.classList.remove('view-hidden');
+        document.getElementById('preview-filename').textContent = formatFileName(fileName); updatePreviewMeta(metaLines);
+    } else {
+        filePreviewView.classList.add('view-hidden'); searchView.classList.remove('view-hidden');
+    }
+}
+
+/**
+ * Wyświetla systemowy modal z opcjami.
+ */
+function showModal(title, content, actions = []) {
+    if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
+    modalTitle.textContent = title; setElementHtml(modalContent, content); clearElement(modalActions);
+    actions.forEach(action => {
+        const btn = document.createElement('button'); btn.className = `modal-btn ${action.class || ''}`; btn.textContent = action.label;
+        btn.onclick = () => { hideModal(); if (typeof action.onClick === 'function') action.onClick(); };
+        modalActions.appendChild(btn);
+    });
+    modalOverlay.classList.remove('hidden'); modalOverlay.setAttribute('aria-hidden', 'false');
+}
+
+/**
+ * Ukrywa aktualnie wyświetlany modal.
+ */
+function hideModal() {
+    if (!modalOverlay) return; modalOverlay.classList.add('hidden'); modalOverlay.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * Wyświetla podsumowanie po zakończeniu importu.
+ */
+function displayImportSummary(summary) {
+    const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
+    setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
+}
+
+/**
+ * Podświetla laboratoria w tabeli podglądu.
+ */
+function highlightLabsInPreviewTable() {
+    const tbody = document.getElementById('table-body'); if (!tbody || !tbody.rows) return;
+    for (let r = 0; r < tbody.rows.length; r++) {
+        const tr = tbody.rows[r]; let rowText = '';
+        for (let c = 0; c < tr.cells.length; c++) rowText += ` ${tr.cells[c]?.textContent || ''}`;
+        const isLab = rowMatchesKeyLab(rowText); tr.classList.toggle('highlight-lab', isLab);
+        if (isLab) {
+            const facilityCell = tr.querySelector('.facility-column');
+            if (facilityCell && !facilityCell.querySelector('.lab-badge')) {
+                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(toTitleCase(facilityCell.textContent))}</span>`;
+            }
         }
-        return out;
+    }
+}
+
+/**
+ * Tworzy element postępu dla ekranu powitalnego.
+ */
+function createWelcomeProgressItem(fileName) {
+    const item = document.createElement('div'); item.className = 'welcome-progress-item';
+    setElementHtml(item, `<div class="welcome-progress-name">${escapeHtml(formatFileName(fileName))}</div><div class="welcome-progress-bar-wrap"><div class="welcome-progress-bar-fill" style="width: 0%"></div></div><div class="welcome-progress-status">0%</div>`);
+    return item;
+}
+
+/**
+ * Aktualizuje element postępu na ekranie powitalnym.
+ */
+function updateWelcomeProgressItem(item, percent, statusText, isError = false) {
+    const fill = item.querySelector('.welcome-progress-bar-fill'), status = item.querySelector('.welcome-progress-status');
+    if (fill) fill.style.width = `${percent}%`;
+    const nextStatus = statusText || `${Math.round(percent)}%`;
+    if (welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done') {
+        item.setAttribute('data-pending-status', '1');
+        item.setAttribute('data-pending-status-text', nextStatus);
+        if (isError) item.setAttribute('data-pending-error', '1');
+        return;
+    }
+    if (status) status.textContent = nextStatus;
+    if (isError) item.classList.add('error');
+}
+
+/**
+ * Renderuje logo w nagłówku aplikacji.
+ */
+function renderHeaderLogo() {
+    if (!appHeaderLogo) return; setElementSvg(appHeaderLogo, buildQuickEvoLogoSvg({ size: 'header' }));
+    startLogoOrbitInContainer(appHeaderLogo, 'header');
+}
+
+/**
+ * Odświeża grafikę powitalną (reakcja na zmianę motywu).
+ */
+function refreshWelcomeGraphicIfPresent() {
+    const container = document.getElementById('welcome-graphic');
+    if (container && container.dataset.loaded === '1') {
+        setElementSvg(container, buildQuickEvoLogoSvg({ size: 'welcome' }));
+        startLogoOrbitInContainer(container, 'welcome');
+    }
+}
+
+/**
+ * Leniwie ładuje grafikę na ekranie powitalnym.
+ */
+function lazyLoadWelcomeGraphic() {
+    const container = document.getElementById('welcome-graphic'); if (!container) return;
+    const inject = () => {
+        if (container.dataset.loaded === '1') return; container.dataset.loaded = '1';
+        setElementSvg(container, buildQuickEvoLogoSvg({ size: 'welcome' })); startLogoOrbitInContainer(container, 'welcome');
+    };
+    if ('requestIdleCallback' in window) window.requestIdleCallback(inject, { timeout: 900 }); else window.setTimeout(inject, 350);
+}
+
+function scheduleWelcomeLogoEntrance() {
+    if (!loadingOverlay) return;
+    const container = document.getElementById('welcome-graphic');
+    if (!container) return;
+
+    if (welcomeLogoEnterTimer !== null) {
+        window.clearTimeout(welcomeLogoEnterTimer);
+        welcomeLogoEnterTimer = null;
+    }
+
+    if (welcomeSeqUnlockTimer !== null) {
+        window.clearTimeout(welcomeSeqUnlockTimer);
+        welcomeSeqUnlockTimer = null;
+    }
+
+    if (welcomeSeqFailSafeTimer !== null) {
+        window.clearTimeout(welcomeSeqFailSafeTimer);
+        welcomeSeqFailSafeTimer = null;
+    }
+
+    const baseTs = Number.isFinite(welcomeOverlayStartedAt) && welcomeOverlayStartedAt > 0
+        ? welcomeOverlayStartedAt
+        : (typeof welcomeLogoDomContentLoadedTs === 'number' ? welcomeLogoDomContentLoadedTs : performance.now());
+    const elapsed = performance.now() - baseTs;
+    const remaining = Math.max(0, WELCOME_LOGO_ENTER_DELAY_MS - elapsed);
+
+    const run = () => {
+        if (!loadingOverlay) return;
+        loadingOverlay.dataset.welcomeSeq = 'ready';
+        clearWelcomeElementsInitState();
+        if (!container.classList.contains('welcome-graphic--ready')) container.classList.add('welcome-graphic--ready');
+        welcomeSeqUnlockTimer = window.setTimeout(() => {
+            welcomeSeqUnlockTimer = null;
+            completeWelcomeEntrance();
+        }, WELCOME_SEQUENCE_UNLOCK_AFTER_MS);
     };
 
-    const safePayload = normalizeForLog(payload);
-    logAction(safeType, safePayload ?? null, 'INFO');
+    welcomeLogoEnterTimer = window.setTimeout(() => { welcomeLogoEnterTimer = null; run(); }, remaining);
+    welcomeSeqFailSafeTimer = window.setTimeout(() => {
+        welcomeSeqFailSafeTimer = null;
+        if (!loadingOverlay) return;
+        if (loadingOverlay.dataset.welcomeSeq === 'done') return;
+        if (!container.classList.contains('welcome-graphic--ready')) container.classList.add('welcome-graphic--ready');
+        forceWelcomeSequenceDone();
+    }, remaining + WELCOME_SEQUENCE_UNLOCK_AFTER_MS + WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS);
+}
+
+function completeWelcomeEntrance() {
+    if (loadingOverlay) loadingOverlay.dataset.welcomeSeq = 'done';
+    if (welcomeTextUpdatesLocked) {
+        welcomeTextUpdatesLocked = false;
+        flushPendingWelcomeTextUpdates();
+    }
+    startLoadingOverlayDynamicEffects();
+}
+
+function flushPendingWelcomeTextUpdates() {
+    if (!loadingOverlay) return;
+
+    if (pendingLoadingStatusText !== null) {
+        if (loadingStatusText) loadingStatusText.textContent = pendingLoadingStatusText;
+        pendingLoadingStatusText = null;
+    }
+
+    if (pendingLoadingProgressValue !== null) {
+        applyLoadingProgressTargetPercent(pendingLoadingProgressValue);
+        pendingLoadingProgressValue = null;
+    }
+
+    if (pendingLoadingErrorVisible) {
+        if (loadingError) {
+            loadingError.textContent = pendingLoadingErrorMessage || 'Nieznany błąd ładowania.';
+            loadingError.classList.remove('hidden');
+        }
+        pendingLoadingErrorVisible = false;
+        pendingLoadingErrorMessage = null;
+    }
+
+    const pendingItems = document.querySelectorAll('.welcome-progress-item[data-pending-status="1"]');
+    for (const item of pendingItems) {
+        const status = item.querySelector('.welcome-progress-status');
+        const text = item.dataset.pendingStatusText;
+        if (status && typeof text === 'string') status.textContent = text;
+        if (item.dataset.pendingError === '1') item.classList.add('error');
+        item.removeAttribute('data-pending-status');
+        item.removeAttribute('data-pending-status-text');
+        item.removeAttribute('data-pending-error');
+    }
+}
+
+function setupWelcomeOverlayParallax() {
+    if (!loadingOverlay) return;
+    const reduced = Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const pointerFine = Boolean(window.matchMedia && window.matchMedia('(pointer: fine)').matches);
+    if (reduced || !pointerFine) return;
+
+    let scrollOffsetY = 0;
+    const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+    const kick = () => {
+        if (welcomeParallaxRaf) return;
+        welcomeParallaxRaf = window.requestAnimationFrame(() => {
+            welcomeParallaxRaf = 0;
+            if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) {
+                welcomeParallaxTargetX = 0;
+                welcomeParallaxTargetY = 0;
+            }
+
+            welcomeParallaxCurrentX += (welcomeParallaxTargetX - welcomeParallaxCurrentX) * 0.14;
+            welcomeParallaxCurrentY += (welcomeParallaxTargetY - welcomeParallaxCurrentY) * 0.14;
+
+            const x = welcomeParallaxCurrentX;
+            const y = welcomeParallaxCurrentY + scrollOffsetY;
+            loadingOverlay.style.setProperty('--qe-parallax-x', `${x.toFixed(2)}px`);
+            loadingOverlay.style.setProperty('--qe-parallax-y', `${y.toFixed(2)}px`);
+        });
+    };
+
+    window.addEventListener('pointermove', (e) => {
+        if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
+        if (e.pointerType && e.pointerType !== 'mouse') return;
+        const card = loadingOverlay.querySelector('.loading-card');
+        if (!card) return;
+        const rect = card.getBoundingClientRect();
+        const dx = (e.clientX - (rect.left + rect.width / 2)) / Math.max(1, rect.width);
+        const dy = (e.clientY - (rect.top + rect.height / 2)) / Math.max(1, rect.height);
+        welcomeParallaxTargetX = clamp(dx * 10, -8, 8);
+        welcomeParallaxTargetY = clamp(dy * 8, -6, 6);
+        kick();
+    }, { passive: true });
+
+    window.addEventListener('scroll', () => {
+        const y = (window.scrollY || document.documentElement.scrollTop || 0);
+        scrollOffsetY = -clamp(y / 120, -6, 6);
+        kick();
+    }, { passive: true });
+}
+
+/**
+ * Uruchamia ekran ładowania.
+ */
+function startLoadingScreen() {
+    if (!loadingOverlay) return;
+    welcomeOverlayStartedAt = performance.now();
+    loadingOverlay.dataset.welcomeSeq = 'init';
+    loadingOverlay.classList.remove('hidden'); loadingOverlay.setAttribute('aria-hidden', 'false'); loadingOverlay.setAttribute('aria-busy', 'true');
+    if (loadingError) { loadingError.textContent = ''; loadingError.classList.add('hidden'); }
+    if (loadingContinueButton) loadingContinueButton.disabled = true;
+    const welcomeGraphic = document.getElementById('welcome-graphic');
+    if (welcomeGraphic) welcomeGraphic.classList.remove('welcome-graphic--ready');
+
+    welcomeTextUpdatesLocked = true;
+    pendingLoadingStatusText = null;
+    pendingLoadingProgressValue = null;
+    pendingLoadingErrorMessage = null;
+    pendingLoadingErrorVisible = false;
+
+    loadingProgressDone = false;
+    loadingProgressValue = 0;
+    loadingProgressDisplayValue = 0;
+    stopLoadingProgressAnimation();
+    pendingLoadingStatusFinalization = null;
+    loadingProgressSim.runId += 1;
+    loadingProgressSim.pauseUntilTs = 0;
+    if (loadingProgressSim.pauseTimerId !== null) {
+        window.clearTimeout(loadingProgressSim.pauseTimerId);
+        loadingProgressSim.pauseTimerId = null;
+    }
+    loadingProgressSim.nextMicroStopAtTs = performance.now() + randomIntInclusive(280, 750);
+    loadingProgressSim.nextJumpAtTs = performance.now() + randomIntInclusive(220, 620);
+    loadingProgressSim.speedDriftUntilTs = 0;
+    loadingProgressSim.speedMultiplier = 1;
+    loadingProgressSim.boostUntilTs = 0;
+    loadingProgressSim.lastTargetValue = 0;
+    loadingProgressSim.profile = null;
+    setLoadingProgressDisplayPercent(0);
+    if (loadingStatusText) loadingStatusText.textContent = 'Inicjalizacja...';
+    if (loadingTitleText) {
+        loadingTitleText.textContent = 'Witamy w QuickEvo!';
+        loadingTitleText.style.opacity = '1';
+    }
+    if (loadingTitleRotator) loadingTitleRotator.stop();
+
+    applyWelcomeElementsInitState();
+    scheduleWelcomeLogoEntrance();
+}
+
+/**
+ * Zatrzymuje ekran ładowania.
+ */
+function stopLoadingScreen() {
+    if (!loadingOverlay) return;
+    const active = document.activeElement; if (active && loadingOverlay.contains(active)) { try { active.blur(); } catch { } focusBodySafely(); }
+    loadingOverlay.classList.add('loading-overlay-fade-out');
+    setTimeout(() => { loadingOverlay.classList.add('hidden'); loadingOverlay.classList.remove('loading-overlay-fade-out'); }, 600);
+    loadingOverlay.setAttribute('aria-hidden', 'true');
+    if (welcomeLogoEnterTimer !== null) { window.clearTimeout(welcomeLogoEnterTimer); welcomeLogoEnterTimer = null; }
+    if (welcomeSeqUnlockTimer !== null) { window.clearTimeout(welcomeSeqUnlockTimer); welcomeSeqUnlockTimer = null; }
+    if (welcomeSeqFailSafeTimer !== null) { window.clearTimeout(welcomeSeqFailSafeTimer); welcomeSeqFailSafeTimer = null; }
+    welcomeTextUpdatesLocked = false;
+    stopLoadingProgressAnimation();
+    if (loadingTitleRotator) loadingTitleRotator.stop();
+}
+
+/**
+ * Aktualizuje pasek postępu ładowania.
+ */
+function setLoadingProgressPercent(percent, { force = false } = {}) {
+    if (!loadingOverlay) return;
+    const next = force ? Math.min(100, Math.max(0, percent)) : Math.max(loadingProgressValue, Math.min(100, percent));
+    loadingProgressValue = next;
+    if (welcomeTextUpdatesLocked && loadingOverlay.dataset.welcomeSeq !== 'done') { pendingLoadingProgressValue = next; return; }
+    applyLoadingProgressTargetPercent(next);
+}
+
+/**
+ * Ustawia tekst statusu na ekranie ładowania.
+ */
+function setLoadingStatusText(text) {
+    if (!loadingOverlay) return;
+    const next = text || '';
+    if (welcomeTextUpdatesLocked && loadingOverlay.dataset.welcomeSeq !== 'done') { pendingLoadingStatusText = next; return; }
+    if (loadingStatusText) loadingStatusText.textContent = next;
+}
+
+/**
+ * Wyświetla komunikat o błędzie na ekranie ładowania.
+ */
+function showLoadingError(message) {
+    setLoadingStatusText('Wystąpił problem podczas ładowania.');
+    if (!loadingError) return;
+    if (welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done') {
+        pendingLoadingErrorVisible = true;
+        pendingLoadingErrorMessage = message || 'Nieznany błąd ładowania.';
+        return;
+    }
+    loadingError.textContent = message || 'Nieznany błąd ładowania.'; loadingError.classList.remove('hidden');
+}
+
+/**
+ * Przygotowuje możliwość ręcznego przejścia do aplikacji.
+ */
+function prepareManualContinue() {
+    if (loadingFailed) {
+        showLoadingError('Nie udało się załadować wszystkich danych. Możesz kontynuować i spróbować ponownie później.');
+        setPendingFinalLoadingStatusText('Ładowanie zakończone (tryb awaryjny).', 'Przygotowywanie trybu awaryjnego...');
+    } else if (loadErrors.length > 0) {
+        showLoadingError(`Załadowano aplikację z błędami plików: ${loadErrors.length}.`);
+        setPendingFinalLoadingStatusText('Ładowanie zakończone (z błędami).', 'Finalizowanie i porządkowanie...');
+    } else {
+        setPendingFinalLoadingStatusText('Ładowanie zakończone pomyślnie.', 'Finalizowanie i optymalizacja...');
+    }
+    syncPendingFinalLoadingStatusText();
+    updateLoadingContinueAvailability();
+}
+
+/**
+ * Aktualizuje widoczność wskaźnika przewijania.
+ */
+function updateScrollIndicator() {
+    if (!scrollIndicator) return;
+    const sH = document.documentElement.scrollHeight, cH = window.innerHeight, sT = window.scrollY || document.documentElement.scrollTop;
+    const isAtBottom = (sT + cH) >= (sH - 40), hasScroll = sH > cH + 50;
+    scrollIndicator.classList.toggle('is-hidden', !(hasScroll && !isAtBottom));
+}
+
+/**
+ * Przełącza widoczność strefy upuszczania plików.
+ */
+function setDropZoneVisible(visible) {
+    if (!dropZone) return; dropZone.classList.toggle('hidden', !visible);
+    dropZone.setAttribute('aria-hidden', visible ? 'false' : 'true');
+}
+
+/**
+ * Włącza lub wyłącza wyszukiwarkę.
+ */
+function setSearchEnabled(enabled) {
+    isSearchEnabled = enabled; searchInput.disabled = !enabled;
+    searchInput.setAttribute('aria-disabled', (!enabled).toString());
+}
+
+/**
+ * Ustawia tekst błędu przy ładowaniu większej liczby wyników.
+ */
+function setShowMoreErrorMessage(message) {
+    if (!showMoreError) return; const text = String(message || '').trim();
+    showMoreError.textContent = text; showMoreError.classList.toggle('hidden', text.length === 0);
+}
+
+/**
+ * Przełącza stan ładowania przycisku "pokaż więcej".
+ */
+function setShowMoreLoadingState(isLoading) {
+    isLoadingMoreResults = Boolean(isLoading);
+    if (showMoreLoading) showMoreLoading.classList.toggle('hidden', !isLoadingMoreResults);
+    if (showMoreButton) showMoreButton.disabled = isLoadingMoreResults;
+}
+
+/**
+ * Czyści wyniki wyszukiwania.
+ */
+function clearResults() {
+    lastQuery = ''; matchedResults = []; currentResults = []; selectedResultIndex = -1;
+    setShowMoreErrorMessage(''); setShowMoreLoadingState(false); clearElement(resultsList);
+    resultsInfo.textContent = ''; updateResultsFooter(); window.requestAnimationFrame(() => updateScrollIndicator());
+}
+
+/**
+ * Obsługuje brak wyników wyszukiwania.
+ */
+function handleNoSearchResults() {
+    resultsInfo.textContent = 'Brak wyników.'; statusIndicator.textContent = 'Dane gotowe.'; updateResultsFooter();
+}
+
+/**
+ * Obsługuje brak wyników do wyrenderowania.
+ */
+function handleNoResultsToRender() {
+    resultsInfo.textContent = 'Brak wyników.'; updateResultsFooter();
+}
+
+/**
+ * Obsługuje błąd wyszukiwania.
+ */
+function handleSearchError(err) {
+    console.error('Search error:', err); logAction('search_error', { message: err.message }, 'ERROR');
+    statusIndicator.textContent = 'Błąd wyszukiwania.'; resultsInfo.textContent = 'Wystąpił błąd podczas przeszukiwania danych.';
+}
+
+/**
+ * Obsługuje błąd ładowania danych.
+ */
+function handleLoadError(error, showProgress) {
+    statusIndicator.textContent = 'Błąd ładowania.';
+    if (showProgress) showLoadingError('Błąd ładowania danych.');
+    logAction('load', { message: error?.message ? String(error.message) : 'Błąd ładowania' }, 'ERROR');
+}
+
+/**
+ * Kończy proces ładowania danych.
+ */
+function finalizeLoad(loadStart, showProgress) {
+    isLoading = false;
+    if (showProgress) {
+        setLoadingStatusText(loadErrors.length > 0 ? `Gotowe (błędy: ${loadErrors.length}).` : 'Gotowe.');
+        setLoadingProgressPercent(100);
+    }
+    logAction('load', { ms: Math.round(performance.now() - loadStart), errors: loadErrors.length });
+}
+
+/**
+ * Finalizuje import plików.
+ */
+async function finalizeFileImport(summary, before) {
+    summary.records = Math.max(0, allData.length - before); if (uploadProgress) uploadProgress.value = 100;
+    uploadStatus.textContent = 'Import zakończony.'; logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
+    displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
+    setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
+}
+
+/**
+ * Finalizuje import z Google Drive.
+ */
+async function finalizeGoogleDriveImport(summary, before) {
+    summary.records = Math.max(0, allData.length - before); uploadStatus.textContent = 'Google Drive: import zakończony.';
+    logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
+    displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
+    setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
+}
+
+/**
+ * Obsługuje niedostępność API Google Drive.
+ */
+function handleGoogleDriveUnavailable() {
+    const msg = 'Import z Google Drive jest niedostępny (brak modułu).';
+    console.error(msg); logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
+    uploadProgressContainer.classList.remove('hidden'); uploadStatus.textContent = msg;
+    window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1500);
+}
+
+/**
+ * Obsługuje anulowanie importu z Google Drive.
+ */
+function handleGoogleDriveCancel() {
+    uploadStatus.textContent = 'Google Drive: anulowano.'; logAction('import', { source: 'google_drive', phase: 'cancel' }, 'INFO');
+}
+
+/**
+ * Obsługuje błąd połączenia z Google Drive.
+ */
+function handleGoogleDriveError(err) {
+    const msg = err?.message ? String(err.message) : 'Błąd importu z Google Drive';
+    console.error(err); logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
+    uploadStatus.textContent = `Google Drive: ${msg}`;
+}
+
+/**
+ * Przełącza stan ładowania interfejsu Google Drive.
+ */
+function setGoogleDriveLoadingState(loading) {
+    if (importGoogleDriveButton) { importGoogleDriveButton.setAttribute('aria-busy', String(loading)); importGoogleDriveButton.disabled = loading; }
+    if (loading) { uploadProgressContainer.classList.remove('hidden'); if (uploadProgress) uploadProgress.value = 0; uploadStatus.textContent = 'Google Drive: inicjalizacja...'; }
+    else window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
+}
+
+/**
+ * Przełącza stan ładowania interfejsu importu.
+ */
+function setImportLoadingState(loading, total = 0) {
+    if (loading) { uploadProgressContainer.classList.remove('hidden'); if (uploadProgress) uploadProgress.value = 0; uploadStatus.textContent = `Import: ${total} plik(ów)...`; }
+    else window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
+}
+
+/**
+ * Przechodzi do widoku głównego aplikacji.
+ */
+function continueToApp() {
+    stopLoadingScreen();
+    try { history.replaceState({ view: 'home', search: false }, '', '#home'); }
+    catch (e) { logAction('navigation', { error: 'replaceState failed', msg: e.message }, 'WARN'); }
+    const elapsed = performance.now() - DOM_READY_TS;
+    window.setTimeout(() => {
+        if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); }
+        if (isSearchEnabled) searchInput.focus();
+        window.requestAnimationFrame(() => updateScrollIndicator());
+    }, Math.max(0, 300 - elapsed));
+}
+
+/**
+ * Powraca do głównego widoku wyszukiwania.
+ */
+function goHome() {
+    if (filePreviewView) filePreviewView.classList.add('view-hidden');
+    if (searchView) searchView.classList.remove('view-hidden');
+    if (isSearchEnabled) searchInput.focus();
+    window.requestAnimationFrame(() => updateScrollIndicator());
+}
+
+/**
+ * Resetuje aplikację do stanu początkowego.
+ */
+function resetToInitialState({ source } = {}) {
+    const now = Date.now(); if (now - lastHomeResetTs < 450) return; lastHomeResetTs = now;
+    if (debouncedSearchRef?.cancel) debouncedSearchRef.cancel(); if (debouncedLogSearchRef?.cancel) debouncedLogSearchRef.cancel();
+    if (searchInput) searchInput.value = ''; clearResults();
+    const thead = document.getElementById('table-header'), tbody = document.getElementById('table-body');
+    clearElement(thead); clearElement(tbody);
+    if (previewMeta) { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
+    const previewFilename = document.getElementById('preview-filename'); if (previewFilename) previewFilename.textContent = '';
+    goHome(); logClientEvent('home', { source: source || 'unknown' });
+}
+
+/**
+ * Przewija widok do zaznaczonego wyniku wyszukiwania.
+ */
+function scrollToSelected() {
+    const selected = resultsList.querySelector('.result-group.selected');
+    if (selected) selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+//////////////////////////////////////////////////
+// FUNKCJE FORMATOWANIA TEKSTU / DANYCH
+//////////////////////////////////////////////////
+
+/**
+ * Czyści nazwę pliku z fragmentów w nawiasach i rozszerzenia.
+ */
+function formatFileName(fileName) {
+    let name = fileName.replace(/\s*\([^)]*\)/g, '');
+    name = name.replace(/\.xlsx$/i, '');
+    return name.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Formatuje nazwę trasy dla listy wyników.
+ */
+function formatRouteNameForResults(fileName) {
+    const base = String(fileName || '').replace(/\.xlsx$/i, '').replace(/\s+/g, ' ').trim();
+    const match = base.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
+    if (match && match[1]) {
+        const code = match[1].replace(/\s*[-–]\s*/g, '-').replace(/[^A-Za-zĄĆĘŁŃÓŚŹŻ0-9-]/g, '').toUpperCase();
+        if (code) return `TRASA ${code}`;
+    }
+    return base.replace(/[\[\]\{\}]/g, '').replace(/\([^)]*\)/g, '').replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, '').replace(/[^\p{L}\p{N}\s-]+/gu, '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+/**
+ * Formatuje tekst do postaci Title Case.
+ */
+function toTitleCase(text) {
+    if (!text) return '';
+    return text.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+}
+
+/**
+ * Podświetla szukane zapytanie w tekście.
+ */
+function highlightText(text, query) {
+    if (!query) return text;
+    const normText = fuzzyNormalizeText(text), normQuery = fuzzyNormalizeText(query);
+    if (!normQuery) return text;
+    let result = '', lastIdx = 0, idx = normText.indexOf(normQuery);
+    while (idx !== -1) {
+        result += escapeHtml(text.slice(lastIdx, idx));
+        result += `<span class="highlight">${escapeHtml(text.slice(idx, idx + normQuery.length))}</span>`;
+        lastIdx = idx + normQuery.length; idx = normText.indexOf(normQuery, lastIdx);
+    }
+    result += escapeHtml(text.slice(lastIdx)); return result;
+}
+
+/**
+ * Normalizuje tekst do małych liter.
+ */
+function normalizeText(text) {
+    return String(text ?? '').toLowerCase().trim();
+}
+
+/**
+ * Normalizuje tekst usuwając polskie znaki diakrytyczne.
+ */
+function fuzzyNormalizeText(text) {
+    return normalizeText(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ł/g, "l");
+}
+
+/**
+ * Formatuje wartość komórki (obsługa czasu Excela).
+ */
+function formatCellValue(value) {
+    if (value === null || value === undefined) return '';
+    let num = value;
+    if (typeof value === 'string') {
+        const trimmed = value.trim();
+        if (trimmed !== '' && /^-?\d*\.?\d+$/.test(trimmed)) num = parseFloat(trimmed);
+    }
+    if (typeof num === 'number' && Number.isFinite(num)) {
+        if (num > 0 && num < 1) return formatTimeFromDayFraction(num);
+        if (num >= 1000 && num < 60000) {
+            const frac = num % 1; if (frac > 0 && frac < 1) return formatTimeFromDayFraction(frac);
+        }
+    }
+    const asString = String(value).trim(), timeParsed = parseTimeString(asString);
+    return timeParsed || asString;
+}
+
+/**
+ * Konwertuje ułamek doby na format czasu HH:MM.
+ */
+function formatTimeFromDayFraction(fraction) {
+    const totalMinutes = Math.round(fraction * 24 * 60);
+    const normalized = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
+    return `${pad2(Math.floor(normalized / 60))}:${pad2(normalized % 60)}`;
+}
+
+/**
+ * Parsuje ciąg znaków do formatu czasu.
+ */
+function parseTimeString(value) {
+    const match = String(value).trim().match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?(?:[.,]\d+)?$/);
+    if (!match) return null;
+    const hours = Number(match[1]), minutes = Number(match[2]);
+    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
+    return `${pad2(hours)}:${pad2(minutes)}`;
+}
+
+/**
+ * Formatuje znacznik czasu na czytelną datę i czas.
+ */
+function formatTimestamp(ts) {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
+}
+
+/**
+ * Uzupełnia liczbę zerem wiodącym.
+ */
+function pad2(value) {
+    return String(value).padStart(2, '0');
+}
+
+/**
+ * Zabezpiecza tekst przed atakami XSS.
+ */
+function escapeHtml(value) {
+    return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+}
+
+/**
+ * Konwertuje wartość komórki na tekst nagłówka.
+ */
+function cellToHeaderText(cell) {
+    if (cell === null || cell === undefined) return '';
+    if (typeof cell === 'string') return cell.trim();
+    return parseTimeString(String(cell)) || String(cell).trim();
+}
+
+/**
+ * Formatuje zawartość komórki zgodnie z jej typem.
+ */
+function formatCellContent(cell, idx, headerMap) {
+    if (idx === headerMap['NR_POL']) { const val = parseInt(cell); return isNaN(val) ? '' : val; }
+    const formatted = formatCellValue(cell);
+    if (idx === headerMap['GODZ']) return (formatted === '' || formatted === '-') ? '-' : formatted;
+    return formatted;
+}
+
+//////////////////////////////////////////////////
+// FUNKCJE ANIMACJI I EFEKTÓW WIZUALNYCH
+//////////////////////////////////////////////////
+
+/**
+ * Buduje kod SVG logo QuickEvo.
+ */
+function buildQuickEvoLogoSvg({ size }) {
+    const { primary, textStrong, textSoft } = getLogoPalette();
+    const fontSize = size === 'header' ? 40 : 56, lineY = size === 'header' ? 14 : 18, textY = size === 'header' ? 4 : 0;
+    const prefix = `qe${++logoInstanceCounter}`;
+    return `<svg viewBox="0 0 640 180" role="img" aria-label="QuickEvo" xmlns="http://www.w3.org/2000/svg" data-qe-logo-size="${size}"><defs><linearGradient id="${prefix}Grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${primary}" stop-opacity="0.95"></stop><stop offset="1" stop-color="${primary}" stop-opacity="0.35"></stop></linearGradient><filter id="${prefix}Soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="blur"></feGaussianBlur><feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.55 0" result="soft"></feColorMatrix><feMerge><feMergeNode in="soft"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter></defs><g transform="translate(72 90)" filter="url(#${prefix}Soft)"><circle class="qe-pulse" cx="0" cy="0" r="34" fill="url(#${prefix}Grad)"></circle><circle cx="0" cy="0" r="52" fill="none" stroke="${primary}" stroke-opacity="0.35" stroke-width="3"></circle><g class="qe-orbit" data-qe-orbit="1"><circle class="qe-orbit-dot qe-orbit-dot--a" data-qe-orbit-dot="a" cx="52" cy="0" r="6" fill="${primary}"></circle><circle class="qe-orbit-dot qe-orbit-dot--b" data-qe-orbit-dot="b" cx="-26" cy="45" r="4" fill="${primary}" fill-opacity="0.75"></circle></g></g><g transform="translate(150 110)"><text x="0" y="${textY}" font-family="Segoe UI, system-ui, -apple-system, Arial" font-size="${fontSize}" font-weight="800" fill="${textStrong}">Quick<tspan font-weight="300" fill="${textSoft}">Evo</tspan></text><path d="M0 ${lineY} H460" stroke="${primary}" stroke-opacity="0.30" stroke-width="3" stroke-linecap="round"></path></g></svg>`;
+}
+
+/**
+ * Uruchamia animację orbity w logo.
+ */
+function startLogoOrbit(svg, size) {
+    if (!svg || logoOrbitControllers.has(svg) || shouldReduceMotion()) return;
+    const orbitGroup = svg.querySelector('g[data-qe-orbit="1"]'); if (!orbitGroup) return;
+    const dotA = orbitGroup.querySelector('[data-qe-orbit-dot="a"]'), dotB = orbitGroup.querySelector('[data-qe-orbit-dot="b"]');
+    if (!dotA || !dotB) return;
+    let cfg = getLogoOrbitConfig(size), lastCfgTs = 0; const startTs = performance.now();
+    const tick = (ts) => {
+        if (!svg.isConnected || shouldReduceMotion()) { logoOrbitControllers.delete(svg); return; }
+        if ((ts - lastCfgTs) > 700) { cfg = getLogoOrbitConfig(size); lastCfgTs = ts; }
+        const t = (ts - startTs) / 1000, theta = cfg.dir * (t / cfg.period) * Math.PI * 2;
+        dotA.setAttribute('cx', (cfg.radius * Math.cos(theta)).toFixed(2)); dotA.setAttribute('cy', (cfg.radius * Math.sin(theta)).toFixed(2));
+        dotB.setAttribute('cx', (cfg.radius * 0.72 * Math.cos(theta + 2.05)).toFixed(2)); dotB.setAttribute('cy', (cfg.radius * 0.72 * Math.sin(theta + 2.05)).toFixed(2));
+        logoOrbitControllers.set(svg, { rafId: window.requestAnimationFrame(tick) });
+    };
+    logoOrbitControllers.set(svg, { rafId: window.requestAnimationFrame(tick) });
+}
+
+/**
+ * Uruchamia animację orbity w kontenerze.
+ */
+function startLogoOrbitInContainer(container, size) {
+    const svg = container?.querySelector('svg'); if (svg) startLogoOrbit(svg, size);
+}
+
+/**
+ * Pobiera konfigurację animacji orbity.
+ */
+function getLogoOrbitConfig(size) {
+    const rootStyle = getComputedStyle(document.documentElement);
+    const radius = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-radius-${size}`), 52);
+    const period = Math.max(0.2, parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-period-${size}`), size === 'header' ? 4.8 : 3.2));
+    const dir = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-direction-${size}`), 1) >= 0 ? 1 : -1;
+    return { radius, period, dir };
+}
+
+/**
+ * Pobiera paletę kolorów dla logo na podstawie motywu.
+ */
+function getLogoPalette() {
+    const bodyStyle = getComputedStyle(document.body);
+    const primary = bodyStyle.getPropertyValue('--primary-color').trim() || '#0066CC';
+    const baseTextColor = bodyStyle.getPropertyValue('--text-color').trim() || '#333333';
+    const isDark = document.body.classList.contains('dark-theme');
+    return { primary, textStrong: isDark ? 'rgba(255, 255, 255, 0.92)' : baseTextColor, textSoft: isDark ? 'rgba(255, 255, 255, 0.78)' : baseTextColor };
+}
+
+/**
+ * Parsuje wartość liczbową z CSS.
+ */
+function parseCssNumber(value, fallback) {
+    const n = parseFloat(String(value ?? '').trim()); return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Sprawdza, czy użytkownik preferuje zredukowany ruch.
+ */
+function shouldReduceMotion() {
+    try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch { return false; }
+}
+
+//////////////////////////////////////////////////
+// EVENT LISTENERY
+//////////////////////////////////////////////////
+
+// Obsługa kliknięć w wyniki (delegacja zdarzeń)
+resultsList.addEventListener('click', (e) => {
+    const row = e.target.closest('.result-row');
+    if (row) {
+        const fileName = row.dataset.fileName, rowIndex = parseInt(row.dataset.rowIndex);
+        if (fileName && !isNaN(rowIndex)) showFilePreview(fileName, rowIndex); return;
+    }
+    const group = e.target.closest('.result-group');
+    if (group) {
+        const index = parseInt(group.dataset.index), groupData = currentResults[index];
+        if (groupData) showFilePreview(groupData.fileName, groupData.items[0].rowIndex);
+    }
+});
+
+// Obsługa wskaźnika przewijania
+window.addEventListener('scroll', () => updateScrollIndicator(), { passive: true });
+window.addEventListener('resize', debounce(() => updateScrollIndicator(), 200), { passive: true });
+
+if (scrollIndicator) {
+    scrollIndicator.addEventListener('click', () => window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' }));
+}
+
+//////////////////////////////////////////////////
+// UTILITY / FALLBACK
+//////////////////////////////////////////////////
+
+/**
+ * Rejestruje zdarzenia użytkownika do DebugLog.
+ */
+function logClientEvent(type, payload) {
+    const safeType = String(type || '').slice(0, 64); if (!safeType) return;
+    const norm = (val) => {
+        if (typeof val === 'string') return normalizeText(val);
+        if (!val || typeof val !== 'object') return val;
+        if (Array.isArray(val)) return val.map(norm);
+        const out = {}; for (const k of Object.keys(val)) out[k] = norm(val[k]); return out;
+    };
+    logAction(safeType, norm(payload) ?? null, 'INFO');
+}
+
+/**
+ * Polifill dla funkcji fetch.
+ */
+function ensureFetchPolyfill() {
+    if (typeof window.fetch === 'function') return;
+    window.fetch = (url, opts = {}) => new Promise((resolve, reject) => {
+        try {
+            const xhr = new XMLHttpRequest(); xhr.open(String(opts.method || 'GET').toUpperCase(), url, true); xhr.responseType = 'arraybuffer';
+            for (const [k, v] of Object.entries(opts.headers || {})) xhr.setRequestHeader(k, String(v));
+            xhr.onload = () => {
+                const ab = xhr.response || new ArrayBuffer(0), response = {
+                    ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, arrayBuffer: async () => ab,
+                    text: async () => new TextDecoder('utf-8').decode(new Uint8Array(ab)),
+                    json: async () => JSON.parse(new TextDecoder('utf-8').decode(new Uint8Array(ab))), blob: async () => new Blob([ab])
+                }; resolve(response);
+            };
+            xhr.onerror = () => reject(new Error('fetch() polyfill: network error')); xhr.send(opts.body || null);
+        } catch (err) { reject(err); }
+    });
+}
+
+/**
+ * Pobiera wartość z localStorage.
+ */
+function storageGet(key) {
+    try { return window.localStorage.getItem(key); } catch { }
+    return memoryStorage.get(key) || null;
+}
+
+/**
+ * Zapisuje wartość w localStorage.
+ */
+function storageSet(key, value) {
+    try { window.localStorage.setItem(key, value); return; } catch { }
+    memoryStorage.set(key, String(value));
+}
+
+/**
+ * Czyści zawartość elementu DOM.
+ */
+function clearElement(el) { if (el) el.replaceChildren(); }
+
+/**
+ * Bezpiecznie ustawia HTML elementu.
+ */
+function setElementHtml(el, html) {
+    if (!el) return;
+    const doc = htmlDomParser.parseFromString(`<div>${String(html ?? '')}</div>`, 'text/html'), wrapper = doc.body?.firstElementChild;
+    if (wrapper) el.replaceChildren(...Array.from(wrapper.childNodes)); else clearElement(el);
+}
+
+/**
+ * Bezpiecznie ustawia SVG elementu.
+ */
+function setElementSvg(el, svgSource) {
+    if (!el) return; const source = String(svgSource ?? '').trim(); if (!source) { clearElement(el); return; }
+    const doc = svgDomParser.parseFromString(source, 'image/svg+xml'), root = doc.documentElement;
+    if (root && root.nodeName.toLowerCase() === 'svg') el.replaceChildren(document.importNode(root, true)); else clearElement(el);
+}
+
+/**
+ * Funkcja debounce.
+ */
+function debounce(fn, delayMs) {
+    let timerId = null; const debounced = (...args) => { if (timerId) clearTimeout(timerId); timerId = setTimeout(() => fn(...args), delayMs); };
+    debounced.cancel = () => { if (timerId) clearTimeout(timerId); timerId = null; }; return debounced;
+}
+
+/**
+ * Funkcja opóźniająca.
+ */
+function waitMs(ms) { return new Promise(resolve => window.setTimeout(resolve, ms)); }
+
+/**
+ * Wykonuje zadania z ograniczoną współbieżnością.
+ */
+async function runWithConcurrency(items, limit, worker) {
+    const list = Array.isArray(items) ? items : []; let idx = 0;
+    const workers = new Array(Math.min(limit || 1, list.length)).fill(null).map(async () => {
+        while (true) { const i = idx++; if (i >= list.length) break; await worker(list[i], i); }
+    });
+    await Promise.all(workers);
+}
+
+/**
+ * Otwiera połączenie z IndexedDB.
+ */
+function openDocsDb() {
+    if (docsDbPromise) return docsDbPromise;
+    docsDbPromise = new Promise((resolve, reject) => {
+        try {
+            const req = indexedDB.open(DOCS_DB_NAME, DOCS_DB_VERSION);
+            const timeout = window.setTimeout(() => {
+                docsDbPromise = null;
+                reject(new Error('Timeout otwierania IndexedDB'));
+            }, DOCS_DB_OPEN_TIMEOUT_MS);
+            req.onblocked = () => alert('Zamknij inne karty z tą aplikacją.');
+            req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(DOCS_DB_STORE)) req.result.createObjectStore(DOCS_DB_STORE, { keyPath: 'name' }); };
+            req.onsuccess = () => { window.clearTimeout(timeout); resolve(req.result); };
+            req.onerror = () => { window.clearTimeout(timeout); docsDbPromise = null; reject(req.error); };
+        } catch (err) { reject(err); }
+    });
+    return docsDbPromise;
+}
+
+/**
+ * Pobiera listę plików z bazy.
+ */
+async function docsListFiles() {
+    const db = await openDocsDb();
+    return await new Promise((resolve, reject) => {
+        const tx = db.transaction(DOCS_DB_STORE, 'readonly'), req = tx.objectStore(DOCS_DB_STORE).getAll();
+        req.onsuccess = () => resolve((Array.isArray(req.result) ? req.result : []).map(r => ({ name: String(r?.name ?? ''), size: Number(r?.size ?? (r?.blob?.size ?? 0)), updatedAt: Number(r?.updatedAt ?? 0) })).filter(r => r.name));
+        req.onerror = () => reject(req.error);
+    });
+}
+
+/**
+ * Sprawdza, czy plik istnieje w bazie.
+ */
+async function docsFileExists(fileName) {
+    const db = await openDocsDb();
+    return await new Promise((resolve) => {
+        const req = db.transaction(DOCS_DB_STORE, 'readonly').objectStore(DOCS_DB_STORE).get(fileName);
+        req.onsuccess = () => resolve(!!req.result); req.onerror = () => resolve(false);
+    });
+}
+
+/**
+ * Pobiera Blob pliku z bazy.
+ */
+async function docsGetBlob(fileName) {
+    const db = await openDocsDb();
+    return await new Promise((resolve, reject) => {
+        const req = db.transaction(DOCS_DB_STORE, 'readonly').objectStore(DOCS_DB_STORE).get(String(fileName || ''));
+        req.onsuccess = () => resolve(req.result?.blob ?? null); req.onerror = () => reject(req.error);
+    });
+}
+
+/**
+ * Zapisuje Blob pliku w bazie.
+ */
+async function docsPutBlob(fileName, blob) {
+    const safe = String(fileName || '').trim(); if (!safe) throw new Error('Brak nazwy pliku');
+    const db = await openDocsDb();
+    await new Promise((resolve, reject) => {
+        const req = db.transaction(DOCS_DB_STORE, 'readwrite').objectStore(DOCS_DB_STORE).put({ name: safe, blob, size: blob?.size ?? 0, updatedAt: Date.now() });
+        req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
+    });
+}
+
+/**
+ * Zabezpiecza ciąg dla RegExp.
+ */
+function escapeRegExp(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+/**
+ * Bezpiecznie konwertuje obiekt na JSON.
+ */
+function safeStringifyForSearch(value) {
+    try { return (value == null || typeof value === 'string') ? (value || '') : JSON.stringify(value); } catch { return ''; }
+}
+
+/**
+ * Liczy niepuste komórki w wierszu.
+ */
+function countNonEmpty(row) {
+    if (!Array.isArray(row)) return 0; let n = 0; for (const cell of row) if (!isEmptyCell(cell)) n += 1; return n;
+}
+
+/**
+ * Sprawdza, czy komórka jest pusta.
+ */
+function isEmptyCell(cell) { return cell === null || cell === undefined || (typeof cell === 'string' && cell.trim() === ''); }
+
+/**
+ * Bezpiecznie ustawia focus na body.
+ */
+function focusBodySafely() {
+    const body = document.body; if (!body) return; const prev = body.getAttribute('tabindex');
+    body.setAttribute('tabindex', '-1'); try { body.focus({ preventScroll: true }); } catch { }
+    if (prev == null) body.removeAttribute('tabindex'); else body.setAttribute('tabindex', prev);
+}
+
+/**
+ * Kolejkuje zdarzenie gotowości podglądu.
+ */
+function queuePreviewReadyEvent(fileName) {
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => document.dispatchEvent(new CustomEvent('qe:preview-ready', { detail: { fileName: String(fileName || '') } }))));
+}
+
+/**
+ * Obsługuje wejście wyszukiwania.
+ */
+function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
+    const isSearchActive = query.length >= 3, currentHistoryState = history.state || {};
+    if (isSearchActive) {
+        if (!currentHistoryState.search) {
+            try { history.pushState({ view: 'home', search: true, query }, '', '#search'); } catch (e) { logAction('navigation', { error: 'pushState search failed', msg: e.message }, 'WARN'); }
+        } else try { history.replaceState({ view: 'home', search: true, query }, '', '#search'); } catch (e) { }
+        debouncedSearch(query); debouncedLogSearch(query);
+    } else {
+        debouncedSearch.cancel(); debouncedLogSearch.cancel();
+        if (currentHistoryState.search) try { history.replaceState({ view: 'home', search: false }, '', '#home'); } catch (e) { }
+        if (query.length > 0) { statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...'; statusIndicator.classList.add('status--hint'); }
+        else { statusIndicator.textContent = 'Dane gotowe.'; statusIndicator.classList.remove('status--hint'); }
+        clearResults();
+    }
+}
+
+/**
+ * Obsługuje zbyt krótkie zapytanie wyszukiwania.
+ */
+function handleSearchShortQuery() {
+    statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
+    statusIndicator.classList.add('status--hint'); clearResults();
+}
+
+/**
+ * Obsługuje nawigację klawiaturą po wynikach.
+ */
+function handleKeyNavigation(e) {
+    if (currentResults.length === 0) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); selectedResultIndex = Math.min(selectedResultIndex + 1, currentResults.length - 1); renderResults(lastQuery); scrollToSelected(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); selectedResultIndex = Math.max(selectedResultIndex - 1, 0); renderResults(lastQuery); scrollToSelected(); }
+    else if (e.key === 'Enter' && selectedResultIndex >= 0) { const group = currentResults[selectedResultIndex]; showFilePreview(group.fileName, group.items[0].rowIndex); }
+}
+
+/**
+ * Ładuje więcej wyników wyszukiwania.
+ */
+async function loadMoreResults({ reset = false, seq = activeSearchSeq } = {}) {
+    if (isLoadingMoreResults || !lastQuery || lastQuery.trim().length < 3) return;
+    const localSeq = seq, offset = reset ? 0 : currentResults.length;
+    if (offset >= matchedResults.length) { updateResultsFooter(); return; }
+    if (reset) { currentResults = []; clearElement(resultsList); selectedResultIndex = -1; }
+    setShowMoreErrorMessage(''); setShowMoreLoadingState(true); updateResultsFooter();
+    try {
+        await waitMs(160); if (localSeq !== activeSearchSeq) return;
+        const next = matchedResults.slice(offset, offset + PAGE_SIZE), startIndex = currentResults.length;
+        currentResults = currentResults.concat(next); renderResults(lastQuery, { append: !reset, startIndex });
+        window.requestAnimationFrame(() => updateScrollIndicator());
+    } catch (err) {
+        if (localSeq !== activeSearchSeq) return;
+        setShowMoreErrorMessage('Błąd sieci podczas pobierania kolejnych wyników. Spróbuj ponownie.'); updateResultsFooter();
+    } finally { if (localSeq !== activeSearchSeq) return; setShowMoreLoadingState(false); updateResultsFooter(); }
 }
 
 // Start aplikacji

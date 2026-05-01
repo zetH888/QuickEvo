@@ -36,7 +36,7 @@ QuickEvo jest nowoczesną, progresywną aplikacją webową (PWA) zbudowaną w ar
 - **Ekstrakcja Metadanych:** Wyświetlanie dodatkowych informacji (nagłówków meta) zawartych nad główną tabelą w plikach Excel.
 
 ### 2.4. Narzędzia Deweloperskie i Diagnostyka
-- **Wbudowany DebugLog:** Panel rejestrujący w czasie rzeczywistym wszystkie akcje systemowe, błędy i zdarzenia nawigacyjne.
+- **Wbudowany Debugger (floating):** Niezależny moduł UI (lewy górny róg) rejestrujący w czasie rzeczywistym akcje systemowe, ostrzeżenia i błędy.
 - **System Autotestów:** Wbudowany moduł weryfikujący poprawność algorytmów dopasowania i normalizacji tekstu.
 
 ---
@@ -114,7 +114,7 @@ System wykorzystuje jedną bazę danych: `quickevo_docs_v2`.
 ### 7.1. Optymalizacje DOM
 - **Virtualization-lite:** Zastosowanie paginacji i DocumentFragment podczas renderowania list wyników, co zapobiega "zamrażaniu" interfejsu przy tysiącach rekordów.
 - **Event Delegation:** Obsługa kliknięć w wyniki poprzez jeden listener na kontenerze nadrzędnym.
-- **RequestAnimationFrame:** Animacje orbity w logo oraz renderowanie logów debugowania są synchronizowane z częstotliwością odświeżania monitora.
+- **RequestAnimationFrame:** Animacje orbity w logo oraz renderowanie UI debuggera są synchronizowane z częstotliwością odświeżania monitora.
 
 ### 7.2. Zarządzanie Pamięcią
 - **WeakMap:** Wykorzystane do przechowywania kontrolerów animacji SVG, co zapobiega wyciekom pamięci przy usuwaniu elementów z DOM.
@@ -123,3 +123,37 @@ System wykorzystuje jedną bazę danych: `quickevo_docs_v2`.
 ### 7.3. Algorytmy
 - **Złożoność Wyszukiwania:** O(N * M), gdzie N to liczba rekordów, a M to średnia długość tekstu. Dzięki trzymaniu znormalizowanego indeksu w RAM, wyszukiwanie w 50 000 rekordów zajmuje średnio < 15ms na nowoczesnych procesorach.
 - **Concurrency Control:** Import wielu plików z Google Drive odbywa się równolegle z limitem 2 jednoczesnych połączeń, co optymalizuje czas przy zachowaniu stabilności przeglądarki.
+
+---
+
+## 8. Debugger (QE_Debugger)
+
+Debugger jest samodzielnym komponentem „floating” (Shadow DOM), który nie wpływa na layout strony i nie powinien modyfikować wysokości viewportu. Jest renderowany w **lewym górnym rogu**.
+
+### 8.1. API logowania (kompatybilność)
+
+Aplikacja korzysta z globalnej funkcji:
+- `window.logAction(action, payload, level)`
+
+Parametry:
+- `action` (String) – krótki identyfikator zdarzenia (np. `boot`, `import`, `navigation`)
+- `payload` (any) – dane dodatkowe; obiekty są serializowane w sposób bezpieczny (z limitami)
+- `level` (String) – `INFO` / `WARN` / `ERROR` (inne mapowane do `INFO`)
+
+Dodatkowo dostępny jest obiekt:
+- `window.QE_Debugger` z metodami: `open()`, `close()`, `toggle()`, `clear()`, `log()`/`push()`, `benchmark()`.
+
+### 8.2. UX
+- Przycisk z ikoną „bug” otwiera/zamyka panel.
+- Panel ma animowane przejścia i dopasowuje wygląd do motywu jasnego/ciemnego poprzez CSS Custom Properties aplikacji.
+- Przycisk „Wyczyść” wymaga krótkiego, minimalistycznego potwierdzenia (drugie kliknięcie w oknie czasowym).
+
+### 8.3. Wydajność
+- Bufor logów jest ograniczony (trim przy przekroczeniu limitu).
+- Renderowanie odbywa się porcjami i jest planowane przez `requestAnimationFrame`, aby ograniczać wpływ dużej liczby logów na UI.
+
+### 8.4. Walidacja (QA)
+- Sprawdź, czy debugger nie zasłania kluczowych kontrolek i nie wpływa na układ (brak przesunięć layoutu po otwarciu/zamknięciu).
+- Sprawdź przełączanie motywu (jasny/ciemny) w trakcie, gdy panel jest otwarty.
+- Sprawdź działanie na małych ekranach (np. 360×800) – panel powinien mieścić się w viewport.
+- Test wydajnościowy: w konsoli uruchom `QE_Debugger.benchmark({ count: 4000 })` i sprawdź płynność przewijania listy.
