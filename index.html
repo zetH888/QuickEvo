@@ -25,7 +25,34 @@
                 <div class="loading-progress-meta"><span id="loading-progress-meta">0%</span></div>
             </div>
             <div id="loading-error" class="loading-error hidden" role="alert"></div>
-            <button id="loading-continue-button" class="loading-continue-button" type="button" disabled>Dalej</button>
+            
+            <div id="welcome-import-progress" class="welcome-import-progress hidden">
+                <div class="welcome-progress-list" id="welcome-progress-list"></div>
+            </div>
+
+            <div class="loading-actions">
+                <button id="sync-gdrive-button" class="loading-sync-button" type="button">
+                    <svg class="btn-icon" viewBox="0 0 24 24">
+                        <path d="M9.5 3h5L22 16l-3.2 5H5.2L2 16l7.5-13zm1.16 2L5.26 14h3.71l3.19-9zm2.49 0L16.34 14h3.71L14.65 5h-1.5zM8.97 16H4.38l1.9 3h12.44l1.9-3H8.97z"></path>
+                    </svg>
+                    Synchronizuj z Dyskiem
+                </button>
+                <button id="loading-continue-button" class="loading-continue-button" type="button" disabled>
+                    Przejdź do aplikacji
+                    <svg class="btn-icon" viewBox="0 0 24 24">
+                        <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modale systemowe -->
+    <div id="modal-overlay" class="modal-overlay hidden" aria-hidden="true">
+        <div class="modal-card">
+            <div id="modal-title" class="modal-title"></div>
+            <div id="modal-content" class="modal-content"></div>
+            <div id="modal-actions" class="modal-actions"></div>
         </div>
     </div>
     <div id="app-shell" class="container app-shell app-shell-hidden" aria-hidden="true">
@@ -67,7 +94,7 @@
         </header>
 
         <main>
-            <div id="search-view">
+            <div id="search-view" class="view-transition">
                 <div class="search-container">
                     <input type="text" id="search-input" placeholder="Przeszukaj trasy (min. 3 znaki)..." autocomplete="off">
                     <div id="status-indicator" class="status">Ładowanie...</div>
@@ -82,8 +109,10 @@
                 </div>
             </div>
 
-            <div id="file-preview-view" class="hidden">
-                <button id="back-to-search" class="btn-secondary">← Powrót do wyszukiwania</button>
+            <div id="file-preview-view" class="view-transition view-hidden">
+                <div class="preview-actions">
+                    <button id="back-to-search" class="btn-secondary">← Powrót</button>
+                </div>
                 <div id="preview-container">
                     <h2 id="preview-filename"></h2>
                     <div id="preview-meta" class="preview-meta hidden"></div>
@@ -123,6 +152,11 @@
             </div>
             <div id="debug-log" class="debug-panel-log" role="log" aria-live="polite"></div>
         </div>
+    </div>
+    <div id="scroll-indicator" class="scroll-indicator is-hidden" aria-hidden="true">
+        <svg viewBox="0 0 24 24">
+            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/>
+        </svg>
     </div>
     <!-- Logika aplikacji (bez parametrów wersji w URL) -->
     <script src="googleDrive.js"></script>

@@ -121,6 +121,15 @@ const debugCopyButton = document.getElementById('debug-copy');
 const debugMinimizeButton = document.getElementById('debug-minimize');
 const debugLogEl = document.getElementById('debug-log');
 const debugClearButton = document.getElementById('debug-clear');
+const syncGDriveButton = document.getElementById('sync-gdrive-button');
+const modalOverlay = document.getElementById('modal-overlay');
+const modalTitle = document.getElementById('modal-title');
+const modalContent = document.getElementById('modal-content');
+const modalActions = document.getElementById('modal-actions');
+const welcomeImportProgress = document.getElementById('welcome-import-progress');
+const welcomeImportStatus = document.getElementById('welcome-import-status');
+const welcomeProgressList = document.getElementById('welcome-progress-list');
+const scrollIndicator = document.getElementById('scroll-indicator');
 
 /**
  * Timestamp referencyjny do wyliczenia opóźnienia wejścia aplikacji.
@@ -168,7 +177,7 @@ let logoInstanceCounter = 0;
  * Nazwa i wersja bazy danych IndexedDB.
  */
 const DOCS_DB_NAME = 'quickevo_docs_v2';
-const DOCS_DB_VERSION = 1;
+const DOCS_DB_VERSION = 2;
 const DOCS_DB_STORE = 'files';
 
 /**
@@ -593,7 +602,10 @@ function openDocsDb() {
     docsDbPromise = new Promise((resolve, reject) => {
         try {
             const req = indexedDB.open(DOCS_DB_NAME, DOCS_DB_VERSION);
-            req.onupgradeneeded = () => {
+            req.onblocked = () => {
+                alert('Proszę zamknąć inne karty z tą aplikacją, aby umożliwić aktualizację bazy danych.');
+            };
+            req.onupgradeneeded = (e) => {
                 const db = req.result;
                 if (!db.objectStoreNames.contains(DOCS_DB_STORE)) {
                     db.createObjectStore(DOCS_DB_STORE, { keyPath: 'name' });
@@ -632,6 +644,54 @@ async function docsListFiles() {
 }
 
 /**
+ * Wyświetla systemowy modal z opcjami.
+ * @param {string} title Tytuł modala.
+ * @param {string} content Treść modala (HTML).
+ * @param {Array<Object>} actions Lista przycisków { label, class, onClick }.
+ */
+function showModal(title, content, actions = []) {
+    if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
+
+    modalTitle.textContent = title;
+    setElementHtml(modalContent, content);
+    clearElement(modalActions);
+
+    actions.forEach(action => {
+        const btn = document.createElement('button');
+        btn.className = `modal-btn ${action.class || ''}`;
+        btn.textContent = action.label;
+        btn.onclick = () => {
+            hideModal();
+            if (typeof action.onClick === 'function') action.onClick();
+        };
+        modalActions.appendChild(btn);
+    });
+
+    modalOverlay.classList.remove('hidden');
+    modalOverlay.setAttribute('aria-hidden', 'false');
+}
+
+function hideModal() {
+    if (!modalOverlay) return;
+    modalOverlay.classList.add('hidden');
+    modalOverlay.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * Pobiera informację czy plik o danej nazwie istnieje w bazie.
+ */
+async function docsFileExists(fileName) {
+    const db = await openDocsDb();
+    return await new Promise((resolve) => {
+        const tx = db.transaction(DOCS_DB_STORE, 'readonly');
+        const store = tx.objectStore(DOCS_DB_STORE);
+        const req = store.get(fileName);
+        req.onsuccess = () => resolve(!!req.result);
+        req.onerror = () => resolve(false);
+    });
+}
+
+/**
  * Pobiera Blob pliku z bazy danych.
  * @param {string} fileName Nazwa pliku.
  * @returns {Promise<Blob|null>} Blob.
@@ -658,6 +718,7 @@ async function docsGetBlob(fileName) {
 async function docsPutBlob(fileName, blob) {
     const safe = String(fileName || '').trim();
     if (!safe) throw new Error('Brak nazwy pliku');
+    
     const db = await openDocsDb();
     const record = { name: safe, blob, size: blob?.size ?? 0, updatedAt: Date.now() };
     await new Promise((resolve, reject) => {
@@ -676,7 +737,6 @@ async function init() {
     setupEventListeners();
     setupLoadingContinueHandlers();
     compileKeyLabTokenSets();
-    queueSelfTests();
 
     // Grafika/logo są ładowane w idle, żeby nie blokować startu.
     lazyLoadWelcomeGraphic();
@@ -773,13 +833,37 @@ function setupSearchListeners() {
 }
 
 function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
-    if (query.length >= 3) {
+    const isSearchActive = query.length >= 3;
+    const currentHistoryState = history.state || {};
+    
+    if (isSearchActive) {
+        // Jeśli szukanie właśnie stało się aktywne (pierwsze 3 znaki), wypchnij nowy stan
+        if (!currentHistoryState.search) {
+            try {
+                history.pushState({ view: 'home', search: true, query }, '', '#search');
+            } catch (e) {
+                logAction('navigation', { error: 'pushState search failed', msg: e.message }, 'WARN');
+            }
+        } else {
+            // Jeśli już jesteśmy w stanie szukania, aktualizuj zapytanie w historii (bez dodawania wpisu)
+            try {
+                history.replaceState({ view: 'home', search: true, query }, '', '#search');
+            } catch (e) { }
+        }
+
         debouncedSearch(query);
         debouncedLogSearch(query);
     } else {
         debouncedSearch.cancel();
         debouncedLogSearch.cancel();
         
+        // Jeśli szukanie zostało wyczyszczone, a byliśmy w stanie szukania - wróć do czystego home
+        if (currentHistoryState.search) {
+            try {
+                history.replaceState({ view: 'home', search: false }, '', '#home');
+            } catch (e) { }
+        }
+
         if (query.length > 0) {
             statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
             statusIndicator.classList.add('status--hint');
@@ -879,18 +963,34 @@ function setupDragAndDropListeners() {
 
 function setupNavigationListeners() {
     backToSearchBtn.addEventListener('click', () => {
-        filePreviewView.classList.add('hidden');
-        searchView.classList.remove('hidden');
-        logClientEvent('navigate', { to: 'search' });
+        // Zamiast ręcznie przełączać widok, wywołujemy history.back()
+        // popstate zajmie się resztą
+        if (history.state && history.state.view === 'preview') {
+            history.back();
+        } else {
+            // Fallback jeśli stan się nie zgadza
+            filePreviewView.classList.add('view-hidden');
+            searchView.classList.remove('view-hidden');
+            logClientEvent('navigate', { to: 'search', fallback: true });
+        }
     });
 
     if (homeLink) {
         homeLink.addEventListener('click', (e) => {
             if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
             e.preventDefault();
+            
+            // Jeśli już jesteśmy na home i nie ma szukania, nic nie rób
+            if (history.state && history.state.view === 'home' && !history.state.search && !searchInput.value) {
+                return;
+            }
+
             resetToInitialState({ source: 'home' });
             logClientEvent('navigate', { to: 'home' });
-            try { history.pushState(null, '', './'); } catch { }
+            
+            try { 
+                history.pushState({ view: 'home', search: false }, '', '#home'); 
+            } catch { }
         });
     }
 
@@ -899,6 +999,112 @@ function setupNavigationListeners() {
             logClientEvent('paginate', { action: 'show_more' });
             loadMoreResults();
         });
+    }
+
+    // Obsługa wskaźnika przewijania
+    window.addEventListener('scroll', () => {
+        updateScrollIndicator();
+    }, { passive: true });
+
+    window.addEventListener('resize', debounce(() => updateScrollIndicator(), 200), { passive: true });
+
+    if (scrollIndicator) {
+        scrollIndicator.addEventListener('click', () => {
+            const scrollTarget = window.innerHeight * 0.8;
+            window.scrollBy({ top: scrollTarget, behavior: 'smooth' });
+        });
+    }
+
+    // Zaawansowana obsługa przycisku wstecz (History API)
+    // Zapewnia płynną nawigację na urządzeniach mobilnych zgodnie z hierarchią widoków.
+    window.addEventListener('popstate', (event) => {
+        const state = event.state;
+        logAction('navigation', { phase: 'popstate', state }, 'INFO');
+
+        // Brak stanu może oznaczać wyjście z aplikacji lub nieoczekiwany stan przeglądarki.
+        if (!state) {
+            resetToInitialState({ source: 'popstate_empty' });
+            return;
+        }
+
+        // Przywracanie widoku podglądu trasy.
+        if (state.view === 'preview') {
+            if (state.fileName && fullFileData[state.fileName]) {
+                showFilePreview(state.fileName, state.rowIndex, { skipPush: true });
+            } else if (state.fileName) {
+                // Jeśli dane nie są jeszcze załadowane (np. odświeżenie na podglądzie), wracamy do home.
+                resetToInitialState({ source: 'popstate_preview_missing_data' });
+            }
+        } 
+        // Przywracanie widoku głównego (home).
+        else if (state.view === 'home') {
+            if (!filePreviewView.classList.contains('view-hidden')) {
+                togglePreviewView(false);
+            }
+
+            // Obsługa stanu wyszukiwarki: czyścimy lub przywracamy zapytanie.
+            if (!state.search) {
+                if (searchInput.value) {
+                    searchInput.value = '';
+                    clearResults();
+                    statusIndicator.textContent = 'Dane gotowe.';
+                    statusIndicator.classList.remove('status--hint');
+                }
+            } else if (state.query && searchInput.value !== state.query) {
+                searchInput.value = state.query;
+                if (isSearchEnabled) {
+                    performSearch(state.query);
+                }
+            }
+        }
+    });
+
+    // Ciągłe monitorowanie zmian w DOM w celu aktualizacji strzałki
+    setupMutationObserver();
+}
+
+/**
+ * Konfiguruje MutationObserver do monitorowania zmian w strukturze DOM.
+ * Pozwala to na automatyczne wykrycie nowych wyników lub zmian widoku.
+ */
+function setupMutationObserver() {
+    const observer = new MutationObserver(debounce(() => {
+        updateScrollIndicator();
+    }, 150));
+
+    // Monitorujemy zmiany w głównym kontenerze aplikacji
+    if (appShell) {
+        observer.observe(appShell, { 
+            childList: true, 
+            subtree: true, 
+            attributes: true,
+            characterData: false 
+        });
+    }
+}
+
+/**
+ * Aktualizuje widoczność wskaźnika przewijania (strzałki).
+ * Pokazuje ją, gdy istnieje treść poniżej widoku, i ukrywa po osiągnięciu dołu.
+ */
+function updateScrollIndicator() {
+    if (!scrollIndicator) return;
+
+    // Pobieramy aktualne wymiary i pozycję
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = window.innerHeight;
+    const scrollTop = window.scrollY || document.documentElement.scrollTop;
+    
+    // Sprawdzamy czy użytkownik dotarł do dołu strony (z marginesem 40px)
+    const isAtBottom = (scrollTop + clientHeight) >= (scrollHeight - 40);
+    
+    // Sprawdzamy czy w ogóle jest co przewijać
+    const hasScrollableContent = scrollHeight > clientHeight + 50;
+
+    if (hasScrollableContent && !isAtBottom) {
+        scrollIndicator.classList.remove('is-hidden');
+    } else {
+        scrollIndicator.classList.add('is-hidden');
     }
 }
 
@@ -1168,7 +1374,14 @@ function stopLoadingScreen() {
         focusBodySafely();
     }
 
-    loadingOverlay.classList.add('hidden');
+    loadingOverlay.classList.add('loading-overlay-fade-out');
+    
+    // Usuwamy overlay całkowicie po zakończeniu animacji
+    setTimeout(() => {
+        loadingOverlay.classList.add('hidden');
+        loadingOverlay.classList.remove('loading-overlay-fade-out');
+    }, 600);
+
     loadingOverlay.setAttribute('aria-hidden', 'true');
 }
 
@@ -1176,10 +1389,158 @@ function setupLoadingContinueHandlers() {
     if (loadingContinueButton) {
         loadingContinueButton.addEventListener('click', continueToApp);
     }
+    if (syncGDriveButton) {
+        syncGDriveButton.addEventListener('click', handleGoogleDriveSync);
+    }
+}
+
+/**
+ * Obsługuje automatyczną synchronizację z Google Drive (folder stały).
+ */
+async function handleGoogleDriveSync() {
+    const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
+    logAction('sync', { phase: 'start', folderId: FOLDER_ID });
+
+    try {
+        setLoadingStatusText('Łączenie z Google Drive...');
+        const token = await window.GoogleDriveImport.getAccessToken();
+        
+        setLoadingStatusText('Przeszukiwanie folderów...');
+        const files = await window.GoogleDriveImport.crawlFolder(FOLDER_ID, token);
+        
+        if (files.length === 0) {
+            showModal('Brak plików', 'Nie znaleziono żadnych plików .xlsx w wskazanym folderze Google Drive.');
+            return;
+        }
+
+        showModal(
+            'Potwierdź synchronizację',
+            `Znaleziono <strong>${files.length}</strong> plików .xlsx na Dysku Google. Czy chcesz rozpocząć import?`,
+            [
+                {
+                    label: 'Rozpocznij import',
+                    class: 'modal-btn--primary',
+                    onClick: () => startGoogleDriveSync(files, token)
+                },
+                {
+                    label: 'Anuluj',
+                    onClick: () => logAction('sync', { phase: 'cancelled' })
+                }
+            ]
+        );
+    } catch (err) {
+        logAction('sync', { phase: 'error', message: err.message }, 'ERROR');
+        showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${err.message}`);
+    }
+}
+
+async function startGoogleDriveSync(files, token) {
+    logAction('sync', { phase: 'process', count: files.length });
+    
+    // Rozwiąż konflikty przed rozpoczęciem
+    const toImport = await resolveImportConflicts(files);
+    if (toImport.length === 0) {
+        logAction('sync', { phase: 'skipped_by_user' });
+        return;
+    }
+
+    if (welcomeImportProgress) {
+        welcomeImportProgress.classList.remove('hidden');
+        clearElement(welcomeProgressList);
+    }
+
+    setImportLoadingState(true, toImport.length);
+    const summary = { files: [], records: 0, errors: 0 };
+
+    try {
+        const before = allData.length;
+        let processed = 0;
+
+        for (const file of toImport) {
+            const name = file.name;
+            const progressItem = createWelcomeProgressItem(name);
+            welcomeProgressList.appendChild(progressItem);
+            progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            // Aktualizacja głównego paska progresu i statusu
+            setLoadingStatusText(`Pobieranie: ${formatFileName(name)}...`);
+            if (loadingProgressBar) {
+                loadingProgressBar.value = (processed / toImport.length) * 100;
+                if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(loadingProgressBar.value)}%`;
+            }
+
+            try {
+                const buffer = await window.GoogleDriveImport.downloadFileArrayBuffer(file.id, token);
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                
+                await docsPutBlob(name, blob);
+                removeFileData(name);
+                loadedFiles.delete(name);
+                await processFile(name);
+                loadedFiles.add(name);
+                summary.files.push(name);
+                updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
+            } catch (err) {
+                summary.errors += 1;
+                logAction('sync', { fileName: name, message: err.message }, 'ERROR');
+                updateWelcomeProgressItem(progressItem, 0, 'Błąd', true);
+            } finally {
+                processed += 1;
+            }
+        }
+        
+        finalizeFileImport(summary, before);
+        setLoadingStatusText('Synchronizacja zakończona');
+        if (loadingProgressBar) {
+            loadingProgressBar.value = 100;
+            if (loadingProgressMeta) loadingProgressMeta.textContent = '100%';
+        }
+    } catch (err) {
+        logAction('sync', { phase: 'fatal_error', message: err.message }, 'ERROR');
+        setLoadingStatusText('Błąd synchronizacji');
+    } finally {
+        setImportLoadingState(false);
+    }
+}
+
+/**
+ * Tworzy element postępu dla listy na ekranie powitalnym.
+ */
+function createWelcomeProgressItem(fileName) {
+    const item = document.createElement('div');
+    item.className = 'welcome-progress-item';
+    setElementHtml(item, `
+        <div class="welcome-progress-name">${escapeHtml(formatFileName(fileName))}</div>
+        <div class="welcome-progress-bar-wrap">
+            <div class="welcome-progress-bar-fill" style="width: 0%"></div>
+        </div>
+        <div class="welcome-progress-status">0%</div>
+    `);
+    return item;
+}
+
+/**
+ * Aktualizuje stan elementu postępu na ekranie powitalnym.
+ */
+function updateWelcomeProgressItem(item, percent, statusText, isError = false) {
+    const fill = item.querySelector('.welcome-progress-bar-fill');
+    const status = item.querySelector('.welcome-progress-status');
+    if (fill) fill.style.width = `${percent}%`;
+    if (status) {
+        status.textContent = statusText || `${Math.round(percent)}%`;
+    }
+    if (isError) item.classList.add('error');
 }
 
 function continueToApp() {
     stopLoadingScreen();
+
+    // Zabezpieczenie przed powrotem do ekranu powitalnego - zastępujemy go w historii stanem home.
+    try {
+        history.replaceState({ view: 'home', search: false }, '', '#home');
+    } catch (e) {
+        logAction('navigation', { error: 'replaceState failed', msg: e.message }, 'WARN');
+    }
 
     // Wymóg: wejście aplikacji ma mieć opóźnienie 0.3s od DOM ready.
     const elapsedSinceDomReady = performance.now() - DOM_READY_TS;
@@ -1190,6 +1551,7 @@ function continueToApp() {
             appShell.setAttribute('aria-hidden', 'false');
         }
         if (isSearchEnabled) searchInput.focus();
+        window.requestAnimationFrame(() => updateScrollIndicator());
     }, remainingDelay);
 }
 
@@ -1441,7 +1803,7 @@ function buildTableModel(matrix) {
 
 function mapRequiredHeaders(rawHeaders) {
     const requiredHeaders = {
-        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA'],
+        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA', 'NR'],
         'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
         'ADRES': ['ADRES', 'ULICA'],
         'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
@@ -1565,22 +1927,6 @@ function cellToHeaderText(cell) {
     return String(cell).trim();
 }
 
-function isTimeValue(value) {
-    if (value === null || value === undefined) return false;
-
-    if (typeof value === 'number' && Number.isFinite(value)) {
-        if (value > 0 && value < 1) return true;
-        if (value >= 1000 && value < 60000) {
-            const frac = value % 1;
-            return frac > 0 && frac < 1;
-        }
-        return false;
-    }
-
-    if (typeof value === 'string') return Boolean(parseTimeString(value));
-    return false;
-}
-
 let searchSeq = 0;
 let activeSearchSeq = 0;
 
@@ -1692,6 +2038,7 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
 
     if (currentResults.length === 0) {
         handleNoResultsToRender();
+        window.requestAnimationFrame(() => updateScrollIndicator());
         return;
     }
 
@@ -1706,6 +2053,7 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
     resultsList.appendChild(fragment);
 
     updateResultsFooter();
+    window.requestAnimationFrame(() => updateScrollIndicator());
 }
 
 function handleNoResultsToRender() {
@@ -1816,6 +2164,18 @@ function formatRouteNameForResults(fileName) {
 }
 
 /**
+ * Formatuje tekst do postaci "Title Case" (każde słowo z wielkiej litery).
+ * @param {string} text Tekst do sformatowania.
+ * @returns {string} Sformatowany tekst.
+ */
+function toTitleCase(text) {
+    if (!text) return '';
+    return text.toLowerCase().split(' ').map(word => {
+        return word.charAt(0).toUpperCase() + word.slice(1);
+    }).join(' ');
+}
+
+/**
  * Buduje podgląd wiersza w wynikach:
  * - pomija 1. kolumnę z numerem półki
  * - pokazuje tylko 3 pola: godzina, adres, placówka
@@ -1825,7 +2185,11 @@ function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
         const parts = result.displayText.split('|').map(s => s.trim());
         const time = parts[0] || '—';
         const address = parts[1] || '';
-        const facility = parts[2] || '';
+        let facility = parts[2] || '';
+        
+        if (isLab) {
+            facility = toTitleCase(facility);
+        }
         
         const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
         return [
@@ -1837,7 +2201,13 @@ function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
         // Dla niekompletnej struktury: wyświetl cały wiersz jako rozdzielone komórki
         return result.cells
             .filter(c => !isEmptyCell(c))
-            .map(c => `<span class="result-cell-fragment">${highlightText(String(c), query)}</span>`)
+            .map(c => {
+                let text = String(c);
+                if (isLab) {
+                    text = toTitleCase(text);
+                }
+                return `<span class="result-cell-fragment">${highlightText(text, query)}</span>`;
+            })
             .join('<span class="result-sep">|</span>');
     }
 }
@@ -1903,6 +2273,7 @@ async function loadMoreResults({ reset = false, seq = activeSearchSeq } = {}) {
         const startIndex = currentResults.length;
         currentResults = currentResults.concat(next);
         renderResults(lastQuery, { append: !reset, startIndex });
+        window.requestAnimationFrame(() => updateScrollIndicator());
     } catch (err) {
         if (localSeq !== activeSearchSeq) return;
         setShowMoreErrorMessage('Błąd sieci podczas pobierania kolejnych wyników. Spróbuj ponownie.');
@@ -1915,9 +2286,14 @@ async function loadMoreResults({ reset = false, seq = activeSearchSeq } = {}) {
 }
 
 function goHome() {
-    if (filePreviewView) filePreviewView.classList.add('hidden');
-    if (searchView) searchView.classList.remove('hidden');
+    if (filePreviewView && !filePreviewView.classList.contains('view-hidden')) {
+        filePreviewView.classList.add('view-hidden');
+    }
+    if (searchView && searchView.classList.contains('view-hidden')) {
+        searchView.classList.remove('view-hidden');
+    }
     if (isSearchEnabled) searchInput.focus();
+    window.requestAnimationFrame(() => updateScrollIndicator());
 }
 
 // Reset stanu aplikacji do formy identycznej jak po pierwszym wejściu do aplikacji po ekranie powitalnym.
@@ -1962,7 +2338,7 @@ function compileKeyLabTokenSets() {
     const compiled = [];
     for (const entry of KEY_LAB_TOKEN_SETS) {
         const phrase = Array.isArray(entry) ? entry.join(' ') : String(entry ?? '');
-        const normalized = normalizeText(phrase).replace(/[^a-z0-9]+/g, ' ').trim();
+        const normalized = fuzzyNormalizeText(phrase).replace(/[^a-z0-9]+/g, ' ').trim();
         if (!normalized) continue;
         const tokens = normalized.split(/\s+/g).filter(Boolean);
         if (tokens.length === 0) continue;
@@ -1986,7 +2362,7 @@ function compileKeyLabTokenSets() {
 }
 
 function rowMatchesKeyLab(text) {
-    const normalized = normalizeText(text).replace(/[^a-z0-9]+/g, ' ').trim();
+    const normalized = fuzzyNormalizeText(text).replace(/[^a-z0-9]+/g, ' ').trim();
     if (!normalized) return false;
     const tokens = normalized.split(/\s+/g).filter(Boolean);
     if (tokens.length === 0) return false;
@@ -2037,7 +2413,8 @@ function highlightLabsInPreviewTable() {
             const facilityCell = tr.querySelector('.facility-column');
             if (facilityCell && !facilityCell.querySelector('.lab-badge')) {
                 const originalText = facilityCell.textContent;
-                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(originalText)}</span>`;
+                const formattedText = toTitleCase(originalText);
+                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(formattedText)}</span>`;
             }
         }
     }
@@ -2072,9 +2449,28 @@ function scrollToSelected() {
 // Podgląd pliku
 let lastPreviewState = { fileName: null, rowIndex: null };
 
-function showFilePreview(fileName, highlightRowIndex) {
+/**
+ * Wyświetla widok podglądu pliku (trasy).
+ * @param {string} fileName Nazwa pliku.
+ * @param {number} highlightRowIndex Indeks wiersza do podświetlenia.
+ * @param {Object} options Opcje (np. skipPush: true przy obsłudze popstate).
+ */
+function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false }) {
     const tableModel = fullFileData[fileName];
     if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
+
+    // Aktualizacja historii jeśli nie jesteśmy w trakcie popstate
+    if (!options.skipPush) {
+        try {
+            history.pushState(
+                { view: 'preview', fileName, rowIndex: highlightRowIndex }, 
+                '', 
+                `#preview/${encodeURIComponent(fileName)}`
+            );
+        } catch (e) {
+            logAction('navigation', { error: 'pushState preview failed', msg: e.message }, 'WARN');
+        }
+    }
 
     lastPreviewState = { fileName, rowIndex: highlightRowIndex };
     togglePreviewView(true, fileName, tableModel.metaLines);
@@ -2090,17 +2486,18 @@ function showFilePreview(fileName, highlightRowIndex) {
     if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
     queuePreviewReadyEvent(fileName);
     logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
+    window.requestAnimationFrame(() => updateScrollIndicator());
 }
 
 function togglePreviewView(show, fileName, metaLines) {
     if (show) {
-        searchView.classList.add('hidden');
-        filePreviewView.classList.remove('hidden');
+        searchView.classList.add('view-hidden');
+        filePreviewView.classList.remove('view-hidden');
         document.getElementById('preview-filename').textContent = formatFileName(fileName);
         updatePreviewMeta(metaLines);
     } else {
-        filePreviewView.classList.add('hidden');
-        searchView.classList.remove('hidden');
+        filePreviewView.classList.add('view-hidden');
+        searchView.classList.remove('view-hidden');
     }
 }
 
@@ -2259,6 +2656,7 @@ async function handleImportGoogleDrive() {
             return;
         }
 
+        const accessToken = picked.accessToken;
         const accepted = filterGoogleDriveFiles(pickedFiles, api);
         summary.errors += (pickedFiles.length - accepted.length);
 
@@ -2267,7 +2665,14 @@ async function handleImportGoogleDrive() {
             return;
         }
 
-        await importFilesFromGoogleDrive(accepted, api, summary);
+        // Mechanizm deduplikacji przed importem z Google Drive
+        const toImport = await resolveImportConflicts(accepted);
+        if (toImport.length === 0) {
+            logAction('import', { source: 'google_drive', phase: 'skipped_by_user' });
+            return;
+        }
+
+        await importFilesFromGoogleDrive(toImport, api, accessToken, summary);
         finalizeGoogleDriveImport(summary, before);
     } catch (err) {
         handleGoogleDriveError(err);
@@ -2315,7 +2720,7 @@ function filterGoogleDriveFiles(pickedFiles, api) {
     }).map(f => ({ id: String(f.id), name: String(f.name), mimeType: String(f.mimeType) }));
 }
 
-async function importFilesFromGoogleDrive(accepted, api, summary) {
+async function importFilesFromGoogleDrive(accepted, api, accessToken, summary) {
     let done = 0;
     const total = accepted.length;
     uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
@@ -2324,7 +2729,7 @@ async function importFilesFromGoogleDrive(accepted, api, summary) {
         const name = String(meta.name).trim();
         try {
             uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
-            const ab = await api.downloadFileArrayBuffer(meta.id, ''); // Access token is managed inside api
+            const ab = await api.downloadFileArrayBuffer(meta.id, accessToken);
             if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
             
             await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
@@ -2372,16 +2777,84 @@ async function handleImportFiles(files) {
     const { accepted, rejected } = filterImportFiles(list);
     rejected.forEach(r => logAction('import', { fileName: r.name, reason: r.reason }, 'WARN'));
 
-    setImportLoadingState(true, accepted.length);
+    if (accepted.length === 0) return;
+
+    // Mechanizm deduplikacji
+    const toImport = await resolveImportConflicts(accepted);
+    if (toImport.length === 0) return;
+
+    setImportLoadingState(true, toImport.length);
     const summary = { files: [], records: 0, errors: rejected.length };
 
     try {
         const before = allData.length;
-        await processImportFiles(accepted, summary);
+        await processImportFiles(toImport, summary);
         finalizeFileImport(summary, before);
     } finally {
         setImportLoadingState(false);
     }
+}
+
+/**
+ * Rozwiązuje konflikty nazw plików przed importem.
+ * @param {Array<File|Object>} files Lista plików do importu.
+ * @returns {Promise<Array<File|Object>>} Lista plików zatwierdzonych do importu.
+ */
+async function resolveImportConflicts(files) {
+    const conflicts = [];
+    for (const f of files) {
+        if (await docsFileExists(f.name)) {
+            conflicts.push(f);
+        }
+    }
+
+    if (conflicts.length === 0) return files;
+
+    return new Promise((resolve) => {
+        if (files.length === 1) {
+            // Pojedynczy plik
+            showModal(
+                'Konflikt nazw',
+                `Plik o nazwie <strong>${escapeHtml(files[0].name)}</strong> już istnieje. Czy chcesz go nadpisać?`,
+                [
+                    {
+                        label: `Nadpisz tylko ${files[0].name}`,
+                        class: 'modal-btn--primary',
+                        onClick: () => resolve(files)
+                    },
+                    {
+                        label: 'Anuluj',
+                        onClick: () => resolve([])
+                    }
+                ]
+            );
+        } else {
+            // Wiele plików
+            showModal(
+                'Konflikty nazw',
+                `Wykryto ${conflicts.length} plików, które już istnieją w bazie. Wybierz akcję dla importu zbiorczego.`,
+                [
+                    {
+                        label: 'Nadpisz wszystkie',
+                        class: 'modal-btn--danger',
+                        onClick: () => resolve(files)
+                    },
+                    {
+                        label: 'Pomiń istniejące',
+                        class: 'modal-btn--primary',
+                        onClick: () => {
+                            const conflictNames = new Set(conflicts.map(c => c.name));
+                            resolve(files.filter(f => !conflictNames.has(f.name)));
+                        }
+                    },
+                    {
+                        label: 'Anuluj',
+                        onClick: () => resolve([])
+                    }
+                ]
+            );
+        }
+    });
 }
 
 function filterImportFiles(files) {
@@ -2463,49 +2936,6 @@ function fuzzyNormalizeText(text) {
         .replace(/ł/g, "l");
 }
 
-let selfTestsQueued = false;
-
-function shouldRunSelfTests() {
-    try {
-        return new URLSearchParams(window.location.search).get('qeTest') === '1';
-    } catch {
-        return false;
-    }
-}
-
-function queueSelfTests() {
-    if (selfTestsQueued) return;
-    if (!shouldRunSelfTests()) return;
-    selfTestsQueued = true;
-    window.setTimeout(() => runSelfTests(), 0);
-}
-
-function runSelfTests() {
-    const errors = [];
-
-    const assert = (condition, message) => {
-        if (!condition) errors.push(message);
-    };
-
-    assert(rowMatchesKeyLab('LM - Dzika'), 'Dopasowanie: "LM - Dzika"');
-    assert(rowMatchesKeyLab('dzika laboratorium'), 'Dopasowanie: "dzika laboratorium"');
-    assert(rowMatchesKeyLab('laboratorium dzika'), 'Dopasowanie: "laboratorium dzika"');
-    assert(rowMatchesKeyLab('Piaseczno — LABORATORIUM'), 'Dopasowanie: "Piaseczno — LABORATORIUM"');
-    assert(rowMatchesKeyLab('Łódź   laboratorium'), 'Dopasowanie: "Łódź   laboratorium"');
-    assert(rowMatchesKeyLab('Wołomin/laboratorium'), 'Dopasowanie: "Wołomin/laboratorium"');
-    assert(rowMatchesKeyLab('Szpital Medicover'), 'Dopasowanie: "Szpital Medicover"');
-    assert(!rowMatchesKeyLab('dzika'), 'Brak fałszywego dopasowania dla samego "dzika"');
-    assert(normalizeText('Łódź') === 'lodz', 'Normalizacja polskich znaków (Łódź → lodz)');
-    assert(Boolean(parseDisplayText(' | Warszawa, Dzika 4 | Dzika Laboratorium')), 'Brak godziny nie blokuje wyniku');
-    assert(Boolean(parseDisplayText('- | Warszawa, Dzika 4 | Dzika Laboratorium')), 'Niepoprawna godzina nie blokuje wyniku');
-
-    if (errors.length > 0) {
-        logAction('self_test', { ok: false, errors }, 'WARN');
-    } else {
-        logAction('self_test', { ok: true }, 'INFO');
-    }
-}
-
 function highlightText(text, query) {
     if (!query) return text;
     
@@ -2547,6 +2977,7 @@ function clearResults() {
     clearElement(resultsList);
     resultsInfo.textContent = '';
     updateResultsFooter();
+    window.requestAnimationFrame(() => updateScrollIndicator());
 }
 
 // Rejestruje zdarzenia użytkownika do DebugLog (np. wyszukiwania, nawigacja, kliknięcia).

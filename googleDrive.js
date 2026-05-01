@@ -223,10 +223,48 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
         return ab;
     }
 
+    /**
+     * Rekurencyjnie pobiera listę wszystkich plików .xlsx z folderu i jego podfolderów.
+     * @param {string} folderId ID folderu startowego.
+     * @param {string} token Access token.
+     * @returns {Promise<Array<Object>>} Lista plików.
+     */
+    async function crawlFolder(folderId, token) {
+        const files = [];
+        const queue = [folderId];
+
+        while (queue.length > 0) {
+            const currentFolderId = queue.shift();
+            // Zapytanie o pliki i foldery w bieżącym folderze
+            const q = `'${currentFolderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or name contains '.xlsx' or name contains '.xls')`;
+            const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=1000`;
+
+            const res = await fetch(url, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: { message: 'Nieznany błąd API' } }));
+                throw new Error(`Błąd listowania plików: ${err.error.message}`);
+            }
+
+            const data = await res.json();
+            for (const file of data.files || []) {
+                if (file.mimeType === 'application/vnd.google-apps.folder') {
+                    queue.push(file.id);
+                } else if (validateExcelFileName(file.name)) {
+                    files.push(file);
+                }
+            }
+        }
+        return files;
+    }
+
     window.GoogleDriveImport = Object.freeze({
         pickExcelFiles,
         getAccessToken,
         downloadFileArrayBuffer,
-        validateExcelFileName
+        validateExcelFileName,
+        crawlFolder
     });
 })();
