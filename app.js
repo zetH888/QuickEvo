@@ -115,13 +115,13 @@ const LOADING_TITLE_MESSAGES = {
         'Symulacja profesjonalizmu...'
     ],
     powitalne: [
-        'Gotowe — wchodź śmiało 🗸',
-        'Aplikacja gotowa, zapraszamy 🗸',
-        'Pełna gotowość — startujemy 🗸',
-        '100% śmiga — zapraszamy 🗸',
-        'Gotowe — zielone światło, wchodzimy 🗸',
-        'Gotowe i działa. Tak, serio — zapraszamy 🗸',
-        'Gotowe. Wszystkie bity na miejscu — wchodź 🗸'
+        'Gotowe — wchodź śmiało ✓',
+        'Aplikacja gotowa, zapraszamy ✓',
+        'Pełna gotowość — startujemy ✓',
+        '100% śmiga — zapraszamy ✓',
+        'Zielone światło - wchodzimy ✓',
+        'Gotowe i działa... Serio ✓',
+        'Bity na miejscu — wchodź ✓'
     ]
 };
 
@@ -415,11 +415,11 @@ function setLoadingTitleContent(el, nextText) {
     if (!el) return;
     const raw = String(nextText || '').trim();
     if (raw.length === 0) return;
-    const normalized = raw.replace(/✅/g, '✓');
+    const normalized = raw.replace(/[✅✔🗸]/g, '✓');
     let hasCheck = false;
     const frag = document.createDocumentFragment();
     for (const ch of Array.from(normalized)) {
-        if (ch === '✓' || ch === '✔' || ch === '🗸') {
+        if (ch === '✓') {
             hasCheck = true;
             const s = document.createElement('span');
             s.className = 'qe-check';
