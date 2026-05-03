@@ -61,10 +61,9 @@ const DOCS_DB_OPEN_TIMEOUT_MS = 6000;
 
 /**
  * Konfiguracja „premium” dla ekranu ładowania:
- * - ograniczenie prędkości wypełniania paska postępu, aby animacja nie „migała” (domyślnie 3s na 0→100),
- * - rotacja losowych komunikatów w tytule (z płynnymi przejściami) zsynchronizowana z postępem.
+ * - rotacja losowych komunikatów w tytule (z płynnymi przejściami) zsynchronizowana z postępem,
+ * - symulacja płynnego postępu (mikropauzy, skoki, soft-cap), aby pasek nie „migał”.
  */
-const LOADING_PROGRESS_RAMP_DURATION_MS = 3000;
 const LOADING_TITLE_INTERVAL_MIN_MS = 500;
 const LOADING_TITLE_INTERVAL_MAX_MS = 800;
 const LOADING_TITLE_FADE_OUT_MS = 200;
@@ -78,7 +77,7 @@ const LOADING_PROGRESS_JUMP_MAX = 5;
 
 /**
  * Komunikaty wyświetlane w tytule podczas ładowania (zsynchronizowane z zakresem postępu).
- * @type {{startowe: string[], techniczne: string[], absurdalne: string[], finalizujace: string[]}}
+ * @type {{startowe: string[], techniczne: string[], absurdalne: string[], finalizujace: string[], powitalne: string[]}}
  */
 const LOADING_TITLE_MESSAGES = {
     startowe: [
@@ -114,6 +113,15 @@ const LOADING_TITLE_MESSAGES = {
         'Nakładanie warstwy premium...',
         'Polerowanie wyniku...',
         'Symulacja profesjonalizmu...'
+    ],
+    powitalne: [
+        'Gotowe — wchodź śmiało 🗸',
+        'Aplikacja gotowa, zapraszamy 🗸',
+        'Pełna gotowość — startujemy 🗸',
+        '100% śmiga — zapraszamy 🗸',
+        'Gotowe — zielone światło, wchodzimy 🗸',
+        'Gotowe i działa. Tak, serio — zapraszamy 🗸',
+        'Gotowe. Wszystkie bity na miejscu — wchodź 🗸'
     ]
 };
 
@@ -333,6 +341,7 @@ function clampNumber(v, min, max) {
 
 function getLoadingTitleCategoryForProgress(progressPercent) {
     const p = clampNumber(progressPercent, 0, 100);
+    if (p >= 100) return 'powitalne';
     if (p <= 20) return 'startowe';
     if (p <= 50) return 'techniczne';
     if (p <= 80) return 'absurdalne';
@@ -402,11 +411,33 @@ function syncPendingFinalLoadingStatusText() {
     if (!pendingLoadingStatusFinalization.applied) setLoadingStatusText(pendingLoadingStatusFinalization.interimText);
 }
 
+function setLoadingTitleContent(el, nextText) {
+    if (!el) return;
+    const raw = String(nextText || '').trim();
+    if (raw.length === 0) return;
+    const normalized = raw.replace(/✅/g, '✓');
+    let hasCheck = false;
+    const frag = document.createDocumentFragment();
+    for (const ch of Array.from(normalized)) {
+        if (ch === '✓' || ch === '✔' || ch === '🗸') {
+            hasCheck = true;
+            const s = document.createElement('span');
+            s.className = 'qe-check';
+            s.textContent = ch;
+            frag.appendChild(s);
+            continue;
+        }
+        frag.appendChild(document.createTextNode(ch));
+    }
+    el.replaceChildren(frag);
+    el.classList.toggle('qe-title-has-check', hasCheck);
+}
+
 async function animateLoadingTitleSwap(el, nextText, { reducedMotion } = {}) {
     if (!el) return;
     const text = String(nextText || '').trim();
     if (text.length === 0) return;
-    if (reducedMotion) { el.textContent = text; el.style.opacity = '1'; return; }
+    if (reducedMotion) { setLoadingTitleContent(el, text); el.style.opacity = '1'; return; }
 
     const fade = (from, to, durationMs) => new Promise((resolve) => {
         try {
@@ -429,7 +460,7 @@ async function animateLoadingTitleSwap(el, nextText, { reducedMotion } = {}) {
     });
 
     await fade(1, 0, LOADING_TITLE_FADE_OUT_MS);
-    el.textContent = text;
+    setLoadingTitleContent(el, text);
     await fade(0, 1, LOADING_TITLE_FADE_IN_MS);
     el.style.opacity = '1';
 }
@@ -471,18 +502,9 @@ class LoadingTitleRotator {
         }
     }
 
-    setProgress(_progressPercent) {
-        if (!this._running) return;
-        const p = clampNumber(this._getProgress(), 0, 100);
-        if (p >= 100) this.stop();
-    }
-
     _scheduleNext({ immediate } = {}) {
         if (!this._running) return;
         if (!this._el) return;
-
-        const p = clampNumber(this._getProgress(), 0, 100);
-        if (p >= 100) { this.stop(); return; }
 
         const delay = immediate
             ? 0
@@ -500,18 +522,21 @@ class LoadingTitleRotator {
         if (!this._el) return;
 
         const progress = clampNumber(this._getProgress(), 0, 100);
-        if (progress >= 100) { this.stop(); return; }
-
         const category = getLoadingTitleCategoryForProgress(progress);
         const pool = LOADING_TITLE_MESSAGES[category] || [];
         const next = pickRandomNonRepeating(pool, this._lastMessage);
-        if (!next) { this._scheduleNext(); return; }
+        if (!next) {
+            if (progress >= 100) { this.stop(); return; }
+            this._scheduleNext();
+            return;
+        }
 
         const seq = (this._animSeq += 1);
         await animateLoadingTitleSwap(this._el, next, { reducedMotion: this._reducedMotion });
         if (!this._running) return;
         if (seq !== this._animSeq) return;
         this._lastMessage = next;
+        if (progress >= 100) { this.stop(); return; }
         this._scheduleNext();
     }
 }
@@ -521,7 +546,6 @@ function setLoadingProgressDisplayPercent(percent) {
     loadingProgressDisplayValue = next;
     if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(next)}%`;
     if (loadingProgressBar) loadingProgressBar.value = next;
-    if (loadingTitleRotator) loadingTitleRotator.setProgress(next);
     updateLoadingContinueAvailability();
     syncPendingFinalLoadingStatusText();
 }
@@ -861,6 +885,7 @@ function setupEventListeners() {
     setupDragAndDropListeners();
     setupNavigationListeners();
     setupGlobalErrorListeners();
+    setupDeveloperFakeLoadingBypass();
 
     document.addEventListener('qe:preview-ready', () => highlightLabsInPreviewTable(), { passive: true });
 }
@@ -1042,6 +1067,56 @@ function setupLoadingContinueHandlers() {
     if (syncGDriveButton) {
         syncGDriveButton.addEventListener('click', handleGoogleDriveSync);
     }
+}
+
+/**
+ * Backdoor deweloperski: umożliwia pominięcie „fake loading” poprzez kliknięcie w centralną część loga na ekranie ładowania.
+ * Mechanizm działa wyłącznie wtedy, gdy faktyczne ładowanie danych jest zakończone, ale UI nadal symuluje domykanie progresu.
+ */
+function setupDeveloperFakeLoadingBypass() {
+    const container = document.getElementById('welcome-graphic');
+    if (!container || !loadingOverlay) return;
+
+    const HIT_RADIUS_SCALE = 0.72;
+    const MIN_HIT_RADIUS_PX = 10;
+
+    const isFakeLoadingActive = () => {
+        if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return false;
+        if (!loadingContinueButton || !loadingContinueButton.disabled) return false;
+        return isLoadingVisualFinishAllowed();
+    };
+
+    const getPulseCircleRect = () => {
+        const svg = container.querySelector('svg');
+        if (!svg) return null;
+        const circle = svg.querySelector('circle.qe-pulse');
+        if (!circle) return null;
+        const rect = circle.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+        return rect;
+    };
+
+    container.addEventListener('pointerdown', (e) => {
+        if (!isFakeLoadingActive()) return;
+        if (!e.isTrusted) return;
+        if (e.pointerType === 'mouse' && typeof e.button === 'number' && e.button !== 0) return;
+
+        const rect = getPulseCircleRect();
+        if (!rect) return;
+
+        const cx = rect.left + rect.width / 2;
+        const cy = rect.top + rect.height / 2;
+        const baseRadius = Math.min(rect.width, rect.height) / 2;
+        const hitRadius = Math.max(MIN_HIT_RADIUS_PX, baseRadius * HIT_RADIUS_SCALE);
+
+        const dx = e.clientX - cx;
+        const dy = e.clientY - cy;
+        if ((dx * dx + dy * dy) > (hitRadius * hitRadius)) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+        continueToApp();
+    }, { passive: false });
 }
 
 //////////////////////////////////////////////////
