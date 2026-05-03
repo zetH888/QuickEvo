@@ -48,7 +48,7 @@ QuickEvo jest nowoczesną, progresywną aplikacją webową (PWA) zbudowaną w ar
 sequenceDiagram
     participant U as Użytkownik
     participant UI as Interfejs (HTML/CSS)
-    participant APP as Logika (app.js)
+    participant APP as Logika (js/app.js)
     participant IDB as IndexedDB
     participant XLSX as SheetJS
     

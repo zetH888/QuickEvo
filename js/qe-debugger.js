@@ -144,12 +144,19 @@
 .panel{pointer-events:auto; position:absolute; top:0; right:0; left:auto; margin-top:54px; width:min(520px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right))); max-height:min(62vh, 520px); display:flex; flex-direction:column; gap:0; background:var(--card-gradient); border:1px solid var(--border-color); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; transform-origin:top right; transform:translateY(-6px) scale(0.98); opacity:0; visibility:hidden; transition:opacity 180ms ease, transform 180ms ease, visibility 180ms linear}
 .wrap[data-open="true"] .panel{opacity:1; visibility:visible; transform:translateY(0) scale(1)}
 
-.header{display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 10px 8px 12px; border-bottom:1px solid var(--border-color); background:rgba(0,0,0,0)}
+.header{position:relative; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 10px 8px 12px; border-bottom:1px solid var(--border-color); background:rgba(0,0,0,0)}
 .title{display:flex; align-items:baseline; gap:8px; min-width:0}
 .titleName{font-weight:800; letter-spacing:0.2px; color:var(--text-color); white-space:nowrap}
 .count{font-weight:700; font-size:0.82rem; color:var(--secondary-text)}
 
 .actions{display:flex; align-items:center; gap:8px}
+.matrix-easter-egg{appearance:none; border:0; background:transparent; padding:0; width:96px; height:32px; display:inline-flex; align-items:center; justify-content:center; opacity:0.75; cursor:pointer; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); transition:opacity 180ms ease, filter 300ms ease, transform 120ms ease}
+.matrix-easter-egg:hover{opacity:1; filter:brightness(1.08)}
+.matrix-easter-egg:active{transform:translate(-50%,-50%) translateY(1px)}
+.matrix-easter-egg svg{width:92px; height:28px; display:block}
+.matrix-easter-egg .matrix-pill-knob{transform:translateX(0px); transition:transform 300ms ease; transform-box:fill-box; transform-origin:center}
+.matrix-easter-egg[data-active="true"] .matrix-pill-knob{transform:translateX(44px)}
+.matrix-easter-egg:focus-visible{outline:2px solid var(--primary-color); outline-offset:3px}
 .btn{appearance:none; border:1px solid var(--border-color); background:var(--state-hover); color:var(--text-color); border-radius:10px; padding:6px 10px; cursor:pointer; font-weight:800; line-height:1; display:inline-flex; align-items:center; gap:6px; transition:background 140ms ease, border-color 140ms ease, transform 120ms ease}
 .btn:hover{background:var(--state-active)}
 .btn:active{transform:translateY(1px)}
@@ -177,7 +184,7 @@
 }
 
 @media (prefers-reduced-motion: reduce){
-  .fab, .panel, .toast, .btn{transition:none !important}
+  .fab, .panel, .toast, .btn, .matrix-easter-egg, .matrix-easter-egg .matrix-pill-knob{transition:none !important}
 }
 
 @media (forced-colors: active){
@@ -226,6 +233,46 @@
         const actions = document.createElement('div');
         actions.className = 'actions';
 
+        const matrixBtn = (window.QE_MatrixTheme && typeof window.QE_MatrixTheme.createEasterEggButton === 'function')
+            ? window.QE_MatrixTheme.createEasterEggButton()
+            : (() => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'matrix-easter-egg';
+                btn.setAttribute('aria-hidden', 'true');
+                btn.tabIndex = -1;
+                btn.dataset.active = window.isMatrixThemeActive ? 'true' : 'false';
+                btn.innerHTML = `<svg class="matrix-pill" viewBox="0 0 92 28" role="presentation" aria-hidden="true">
+  <defs>
+    <linearGradient id="pillBlue_fallback" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0096c7"/>
+      <stop offset="1" stop-color="#00BFFF"/>
+    </linearGradient>
+    <linearGradient id="pillRed_fallback" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c1121f"/>
+      <stop offset="1" stop-color="#FF0000"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="90" height="26" rx="13" fill="rgba(0,0,0,0.35)" stroke="rgba(255,255,255,0.14)"/>
+  <path d="M14 2h32v24H14c-6.6 0-12-5.4-12-12S7.4 2 14 2Z" fill="url(#pillBlue_fallback)" opacity="0.92"/>
+  <path d="M46 2h32c6.6 0 12 5.4 12 12s-5.4 12-12 12H46V2Z" fill="url(#pillRed_fallback)" opacity="0.92"/>
+  <text x="23.5" y="18" text-anchor="middle" font-family="Courier New, monospace" font-size="10" font-weight="900" fill="rgba(0,0,0,0.75)">STAY</text>
+  <text x="68.5" y="18" text-anchor="middle" font-family="Courier New, monospace" font-size="10" font-weight="900" fill="rgba(0,0,0,0.75)">LEAVE</text>
+  <g class="matrix-pill-knob">
+    <rect x="4" y="4" width="40" height="20" rx="10" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.22)"/>
+  </g>
+</svg>`;
+                btn.addEventListener('click', () => {
+                    const next = window.QE_MatrixTheme?.toggle?.();
+                    if (typeof next === 'boolean') btn.dataset.active = next ? 'true' : 'false';
+                });
+                window.addEventListener('qe:matrix-theme-changed', (ev) => {
+                    const next = Boolean(ev && ev.detail && ev.detail.active);
+                    btn.dataset.active = next ? 'true' : 'false';
+                }, { passive: true });
+                return btn;
+            })();
+
         const clearBtn = document.createElement('button');
         clearBtn.className = 'btn btn--danger';
         clearBtn.type = 'button';
@@ -240,6 +287,7 @@
         closeBtn.innerHTML = closeIconSvg();
         dom.closeBtn = closeBtn;
 
+        actions.appendChild(matrixBtn);
         actions.appendChild(clearBtn);
         actions.appendChild(closeBtn);
 

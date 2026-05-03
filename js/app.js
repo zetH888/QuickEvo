@@ -886,11 +886,43 @@ function updateLoadingProgressStart(total) {
  * Konfiguruje motyw graficzny aplikacji.
  */
 function setupTheme() {
+    let isMatrixThemeActive = (storageGet('matrixThemeActive') === 'true') || Boolean(window.isMatrixThemeActive);
+
+    window.addEventListener('qe:matrix-theme-changed', (ev) => {
+        isMatrixThemeActive = Boolean(ev && ev.detail && ev.detail.active);
+        try { window.isMatrixThemeActive = isMatrixThemeActive; } catch { }
+        // Przy aktywnym MATRIX® blokujemy przełącznik dark/light, aby nie mieszać dwóch systemów styli.
+        updateThemeToggleLock();
+        // Prze-renderowanie logo zapewnia spójne kolory w headerze i na ekranie powitalnym.
+        renderHeaderLogo();
+        refreshWelcomeGraphicIfPresent();
+    }, { passive: true });
+
+    function updateThemeToggleLock() {
+        if (!themeToggle) return;
+        const container = themeToggle.closest('.theme-switch-container');
+        themeToggle.disabled = isMatrixThemeActive;
+        if (container) container.classList.toggle('matrix-theme-locked', isMatrixThemeActive);
+    }
+
     const savedTheme = storageGet('theme') || 'dark';
     applyTheme(savedTheme);
     themeToggle.checked = savedTheme === 'dark';
+    updateThemeToggleLock();
 
-    themeToggle.addEventListener('change', () => {
+    themeToggle.addEventListener('click', (e) => {
+        if (!isMatrixThemeActive) return;
+        if (e && typeof e.preventDefault === 'function') e.preventDefault();
+        if (e && typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+    }, true);
+
+    themeToggle.addEventListener('change', (e) => {
+        if (isMatrixThemeActive) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            if (e && typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+            themeToggle.checked = document.body.classList.contains('dark-theme');
+            return;
+        }
         const newTheme = themeToggle.checked ? 'dark' : 'light';
         applyTheme(newTheme);
         storageSet('theme', newTheme);
@@ -2941,6 +2973,9 @@ function getLogoPalette() {
     const bodyStyle = getComputedStyle(document.body);
     const primary = bodyStyle.getPropertyValue('--primary-color').trim() || '#0066CC';
     const baseTextColor = bodyStyle.getPropertyValue('--text-color').trim() || '#333333';
+    const isMatrix = document.body.classList.contains('matrix-theme') || Boolean(window.isMatrixThemeActive);
+    // W trybie MATRIX® oba logotypy (header + ekran powitalny) muszą używać tej samej palety neonowej zieleni.
+    if (isMatrix) return { primary, textStrong: 'rgba(0, 255, 65, 0.92)', textSoft: 'rgba(0, 255, 65, 0.72)' };
     const isDark = document.body.classList.contains('dark-theme');
     return { primary, textStrong: isDark ? 'rgba(255, 255, 255, 0.92)' : baseTextColor, textSoft: isDark ? 'rgba(255, 255, 255, 0.78)' : baseTextColor };
 }
