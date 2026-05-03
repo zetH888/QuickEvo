@@ -82,46 +82,63 @@ const LOADING_PROGRESS_JUMP_MAX = 5;
 const LOADING_TITLE_MESSAGES = {
     startowe: [
         'Budzenie serwera...',
-        'Rozgrzewanie tranzystorów...',
-        'Wciąganie internetu...',
-        'Inicjalizacja chaosu...',
-        'Parzenie kawy dla backendu...'
+        'Odpinanie respiratora...',
+        'Szturchanie backendu...',
+        'Włączanie internetu...',
+        'Rozruch atomów...',
+        'Szukanie przycisku...',
+        'Start silnika...',
+        'Odpalanie chaosu...',
+        'Rozgrzewka bitów...',
+        'Kopnięcie infrastruktury...'
     ],
     techniczne: [
-        'Kalibracja pikseli...',
-        'Analiza błędów użytkownika...',
-        'Defragmentacja rzeczywistości...',
-        'Synchronizacja z alternatywnym wszechświatem...',
-        'Hiperkompresja danych...',
-        'Rekurencyjna walidacja zasobów...',
-        'Odczyt sygnału z kosmosu...'
+        'Kalibracja ogarniania...',
+        'Stabilizacja chaosu...',
+        'Analiza logów...',
+        'Negocjacje z bazą...',
+        'Parsowanie rzeczy...',
+        'Tłumaczenie kodu...',
+        'Czyszczenie traum...',
+        'Korekta pakietów...',
+        'Rekompilacja sensu...',
+        'Liczenie wyjątków...'
     ],
     absurdalne: [
-        'Ustalanie IQ użytkownika...',
-        'Koszenie trawnika...',
-        'Głaskanie algorytmu...',
-        'Prostowanie kabli bezprzewodowych...',
-        'Przeglądanie konstelacji NGC 772...',
-        "Kończenie połączenia z Trump'em...",
-        'Karmienie elektronicznych gołębi...',
-        'Resetowanie praw fizyki...'
+        'Tresura pikseli...',
+        'Duch dokumentacji...',
+        'Prostowanie zer...',
+        'Koszenie cache...',
+        'Chłodzenie lodem...',
+        'Odbiór z kosmosu...',
+        'Przesłuchanie bitów...',
+        'Regulacja chmury...',
+        'Reset fizyki...',
+        'JavaScript protestuje...'
     ],
     finalizujace: [
-        'Finalizacja magii...',
-        'Dopięcie ostatnich bitów...',
-        'Udawanie ciężkiej pracy...',
-        'Nakładanie warstwy premium...',
-        'Polerowanie wyniku...',
-        'Symulacja profesjonalizmu...'
+        'Zacieranie prowizorki...',
+        'Dokręcanie iluzji...',
+        'Lakierowanie kodu...',
+        'Maskowanie katastrof...',
+        'Domykanie chaosu...',
+        'Polerka backendu...',
+        'Udawanie kontroli...',
+        'Spinanie trytytką...',
+        'Wygładzanie kantów...',
+        'Zaklinanie stabilności...'
     ],
     powitalne: [
-        'Gotowe — wchodź śmiało ✓',
-        'Aplikacja gotowa, zapraszamy ✓',
-        'Pełna gotowość — startujemy ✓',
-        '100% śmiga — zapraszamy ✓',
-        'Zielone światło - wchodzimy ✓',
-        'Gotowe i działa... Serio ✓',
-        'Bity na miejscu — wchodź ✓'
+        'Backend skapitulował. Można wchodzić ✓',
+        'Działa dobrze. Podejrzane... ✓',
+        'Nic nie wybuchło. Sukces ✓',
+        'Serwer przeżył tę próbę ✓',
+        'System ocalał. Zapraszamy ✓',
+        'Ruszyło bez większych strat ✓',
+        'Fizyka chwilowo działa ✓',
+        'Kod się nie zbuntował ✓',
+        'Jakoś działa, trytytki trzymają ✓',
+        'Cud techniki zakończony sukcesem ✓'
     ]
 };
 
@@ -303,6 +320,22 @@ let activeSearchSeq = 0;
 
 /** @type {Object} Ostatni stan podglądu pliku. */
 let lastPreviewState = { fileName: null, rowIndex: null };
+
+/**
+ * Obserwatory odpowiedzialne za automatyczne aktualizowanie stanu scroll-indicator
+ * na podstawie faktycznego overflow listy wyników.
+ * @type {{
+ *   resize: ResizeObserver | null,
+ *   mutation: MutationObserver | null,
+ *   attached: boolean,
+ *   onWindowScroll: ((e?: Event) => void) | null,
+ *   onWindowResize: ((e?: UIEvent) => void) | null,
+ *   onListScroll: ((e?: Event) => void) | null
+ * }}
+ */
+let resultsListOverflowObservers = { resize: null, mutation: null, attached: false, onWindowScroll: null, onWindowResize: null, onListScroll: null };
+
+let resultsEndIntersection = { observer: null, target: null, lastFullyVisible: false };
 
 let welcomeLogoDomContentLoadedTs = null;
 let welcomeLogoEnterTimer = null;
@@ -1046,15 +1079,50 @@ function setupGlobalErrorListeners() {
 }
 
 /**
- * Konfiguruje MutationObserver do monitorowania zmian DOM.
+ * Konfiguruje obserwatory i listenery odpowiedzialne za scroll-indicator.
+ * Wskaźnik jest kontrolowany wyłącznie przez to, czy lista wyników wykracza poza viewport
+ * kontenera przewijania (scrollHeight listy vs clientHeight kontenera).
  */
 function setupMutationObserver() {
-    const observer = new MutationObserver(debounce(() => {
+    if (!resultsList) return;
+
+    const debouncedUpdate = debounce(() => {
+        syncResultsEndIntersectionObserver();
         updateScrollIndicator();
-    }, 150));
-    if (appShell) {
-        observer.observe(appShell, { childList: true, subtree: true, attributes: true });
+    }, 120);
+    const scrollContainer = getResultsScrollContainer();
+
+    if (resultsListOverflowObservers.mutation) {
+        try { resultsListOverflowObservers.mutation.disconnect(); } catch { }
+        resultsListOverflowObservers.mutation = null;
     }
+    if (resultsListOverflowObservers.resize) {
+        try { resultsListOverflowObservers.resize.disconnect(); } catch { }
+        resultsListOverflowObservers.resize = null;
+    }
+
+    resultsListOverflowObservers.mutation = new MutationObserver(() => debouncedUpdate());
+    resultsListOverflowObservers.mutation.observe(resultsList, { childList: true, subtree: true, attributes: true });
+
+    if (typeof ResizeObserver === 'function') {
+        resultsListOverflowObservers.resize = new ResizeObserver(() => debouncedUpdate());
+        resultsListOverflowObservers.resize.observe(scrollContainer);
+    }
+
+    ensureResultsEndIntersectionObserver();
+
+    if (!resultsListOverflowObservers.attached) {
+        resultsListOverflowObservers.attached = true;
+        resultsListOverflowObservers.onWindowScroll = () => updateScrollIndicator();
+        resultsListOverflowObservers.onWindowResize = () => debouncedUpdate();
+        resultsListOverflowObservers.onListScroll = () => updateScrollIndicator();
+
+        window.addEventListener('scroll', resultsListOverflowObservers.onWindowScroll, { passive: true });
+        window.addEventListener('resize', resultsListOverflowObservers.onWindowResize, { passive: true });
+        resultsList.addEventListener('scroll', resultsListOverflowObservers.onListScroll, { passive: true });
+    }
+
+    debouncedUpdate();
 }
 
 /**
@@ -1847,7 +1915,7 @@ function resetAppData() {
 function renderResults(query, { append = false, startIndex = 0 } = {}) {
     if (!append) clearElement(resultsList);
     if (currentResults.length === 0) {
-        handleNoResultsToRender(); window.requestAnimationFrame(() => updateScrollIndicator()); return;
+        handleNoResultsToRender(); window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); }); return;
     }
     updateResultsCountInfo();
     const fragment = document.createDocumentFragment();
@@ -1856,7 +1924,7 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
     }
     resultsList.appendChild(fragment);
     updateResultsFooter();
-    window.requestAnimationFrame(() => updateScrollIndicator());
+    window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
 }
 
 /**
@@ -2358,9 +2426,120 @@ function prepareManualContinue() {
  */
 function updateScrollIndicator() {
     if (!scrollIndicator) return;
-    const sH = document.documentElement.scrollHeight, cH = window.innerHeight, sT = window.scrollY || document.documentElement.scrollTop;
-    const isAtBottom = (sT + cH) >= (sH - 40), hasScroll = sH > cH + 50;
-    scrollIndicator.classList.toggle('is-hidden', !(hasScroll && !isAtBottom));
+    if (!resultsList) {
+        scrollIndicator.classList.add('is-hidden');
+        scrollIndicator.setAttribute('aria-hidden', 'true');
+        scrollIndicator.dataset.scrollNeeded = 'false';
+        return;
+    }
+
+    const container = getResultsScrollContainer();
+    const hasVerticalOverflow = checkListOverflow(container, resultsList);
+    const hasMoreBelow = (resultsEndIntersection.observer && resultsEndIntersection.target) ? !resultsEndIntersection.lastFullyVisible : hasMoreContentBelowViewport(container, resultsList, 40);
+    const shouldShow = hasVerticalOverflow && hasMoreBelow;
+
+    scrollIndicator.dataset.scrollNeeded = hasVerticalOverflow ? 'true' : 'false';
+    scrollIndicator.classList.toggle('is-hidden', !shouldShow);
+    scrollIndicator.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+}
+
+/**
+ * Zwraca element, który faktycznie przewija widok wyników.
+ * Celowo nie analizuje headerów/stopki ani innych elementów DOM – korzysta z natywnego scroll kontenera dokumentu.
+ * @returns {HTMLElement}
+ */
+function getResultsScrollContainer() {
+    const el = document.scrollingElement;
+    if (el && el instanceof HTMLElement) return el;
+    return document.documentElement;
+}
+
+function ensureResultsEndIntersectionObserver() {
+    if (resultsEndIntersection.observer) return;
+    if (typeof IntersectionObserver !== 'function') return;
+
+    resultsEndIntersection.observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            if (!entry || entry.target !== resultsEndIntersection.target) continue;
+            const fullyVisible = Boolean(entry.isIntersecting && entry.intersectionRatio >= 0.999);
+            if (fullyVisible === resultsEndIntersection.lastFullyVisible) continue;
+            resultsEndIntersection.lastFullyVisible = fullyVisible;
+            updateScrollIndicator();
+        }
+    }, { root: null, threshold: [0, 1] });
+}
+
+function syncResultsEndIntersectionObserver() {
+    if (!resultsList) return;
+    ensureResultsEndIntersectionObserver();
+    if (!resultsEndIntersection.observer) return;
+
+    const last = resultsList.querySelector('.result-group:last-child') || resultsList.lastElementChild;
+    if (last === resultsEndIntersection.target) return;
+
+    if (resultsEndIntersection.target) {
+        try { resultsEndIntersection.observer.unobserve(resultsEndIntersection.target); } catch { }
+    }
+    resultsEndIntersection.target = last || null;
+    resultsEndIntersection.lastFullyVisible = false;
+
+    if (resultsEndIntersection.target) {
+        try { resultsEndIntersection.observer.observe(resultsEndIntersection.target); } catch { }
+    }
+}
+
+/**
+ * Sprawdza, czy lista wyników faktycznie wymaga przewijania w pionie (overflow).
+ * Mechanizm bazuje wyłącznie na wymiarach kontenera listy i jego zawartości:
+ * clientHeight (widoczny viewport kontenera) oraz scrollHeight (sumaryczna wysokość treści).
+ *
+ * @param {Element|null} container Kontener z włączonym przewijaniem (viewport).
+ * @param {Element|null} list Element zawierający elementy listy (treść).
+ * @returns {boolean}
+ */
+function checkListOverflow(container, list) {
+    if (!container || !list) return false;
+    if (!(container instanceof Element) || !(list instanceof Element)) return false;
+
+    const containerStyle = window.getComputedStyle(container);
+    if (containerStyle.display === 'none' || containerStyle.visibility === 'hidden') return false;
+    const listStyle = window.getComputedStyle(list);
+    if (listStyle.display === 'none' || listStyle.visibility === 'hidden') return false;
+
+    const containerClientHeight = container.clientHeight;
+    const listScrollHeight = list.scrollHeight;
+    if (!Number.isFinite(containerClientHeight) || !Number.isFinite(listScrollHeight)) return false;
+    if (containerClientHeight <= 0) return false;
+
+    return listScrollHeight > containerClientHeight;
+}
+
+/**
+ * Sprawdza, czy w kontenerze przewijania są jeszcze elementy listy poniżej dolnej krawędzi viewportu.
+ * @param {HTMLElement} container
+ * @param {Element} list
+ * @param {number} thresholdPx
+ * @returns {boolean}
+ */
+function hasMoreContentBelowViewport(container, list, thresholdPx = 0) {
+    if (!container || !(container instanceof HTMLElement)) return false;
+    if (!list || !(list instanceof Element)) return false;
+
+    const t = Number(thresholdPx);
+    const threshold = Number.isFinite(t) ? Math.max(0, t) : 0;
+
+    if (container === list) {
+        const current = container.scrollTop + container.clientHeight;
+        return current < (container.scrollHeight - threshold);
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const listRect = list.getBoundingClientRect();
+    const listOffsetTopInContainer = (listRect.top - containerRect.top) + container.scrollTop;
+    const listBottomInContainer = listOffsetTopInContainer + list.scrollHeight;
+    const viewportBottomInContainer = container.scrollTop + container.clientHeight;
+
+    return listBottomInContainer > (viewportBottomInContainer + threshold);
 }
 
 /**
@@ -2402,7 +2581,7 @@ function setShowMoreLoadingState(isLoading) {
 function clearResults() {
     lastQuery = ''; matchedResults = []; currentResults = []; selectedResultIndex = -1;
     setShowMoreErrorMessage(''); setShowMoreLoadingState(false); clearElement(resultsList);
-    resultsInfo.textContent = ''; updateResultsFooter(); window.requestAnimationFrame(() => updateScrollIndicator());
+    resultsInfo.textContent = ''; updateResultsFooter(); window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
 }
 
 /**
@@ -2799,11 +2978,14 @@ resultsList.addEventListener('click', (e) => {
 });
 
 // Obsługa wskaźnika przewijania
-window.addEventListener('scroll', () => updateScrollIndicator(), { passive: true });
-window.addEventListener('resize', debounce(() => updateScrollIndicator(), 200), { passive: true });
-
 if (scrollIndicator) {
-    scrollIndicator.addEventListener('click', () => window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' }));
+    scrollIndicator.addEventListener('click', () => {
+        if (!resultsList) return;
+        const container = getResultsScrollContainer();
+        const amount = container.clientHeight * 0.8;
+        try { container.scrollBy({ top: amount, behavior: 'smooth' }); }
+        catch { window.scrollBy({ top: amount, behavior: 'smooth' }); }
+    });
 }
 
 //////////////////////////////////////////////////

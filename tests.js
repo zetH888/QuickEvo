@@ -10,6 +10,7 @@ const QuickEvoTests = {
         this.testDeduplicationLogic();
         this.testUnifiedDeduplication();
         this.testTitleCase();
+        this.testCheckListOverflow();
         this.testLegacySelfTests();
         this.testDebuggerModule();
         console.log("%c--- Tests Completed ---", "color: #0066cc; font-weight: bold;");
@@ -60,6 +61,37 @@ const QuickEvoTests = {
         this.assert(toTitleCase("LM DZIKA") === "Lm Dzika", "Formats 'LM DZIKA' to 'Lm Dzika'");
         this.assert(toTitleCase("") === "", "Handles empty string");
         this.assert(toTitleCase(null) === "", "Handles null");
+    },
+
+    testCheckListOverflow() {
+        console.log("\nTesting Scroll Indicator Overflow Logic (checkListOverflow):");
+
+        this.assert(typeof window.checkListOverflow === 'function', "checkListOverflow jest dostępne globalnie");
+
+        const container = document.createElement('div');
+        container.style.width = '120px';
+        container.style.height = '80px';
+        container.style.overflowY = 'auto';
+        container.style.position = 'absolute';
+        container.style.left = '-9999px';
+        container.style.top = '0';
+
+        const content = document.createElement('div');
+        content.style.width = '100%';
+
+        container.appendChild(content);
+        document.body.appendChild(container);
+
+        content.style.height = '60px';
+        this.assert(checkListOverflow(container, container) === false, "Brak overflow, gdy scrollHeight <= clientHeight");
+
+        content.style.height = '180px';
+        this.assert(checkListOverflow(container, container) === true, "Overflow, gdy scrollHeight > clientHeight");
+
+        container.style.display = 'none';
+        this.assert(checkListOverflow(container, container) === false, "Brak overflow dla niewidocznego kontenera (display:none)");
+
+        container.remove();
     },
 
     assert(condition, message) {
