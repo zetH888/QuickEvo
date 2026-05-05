@@ -1074,6 +1074,31 @@ function setupNavigationListeners() {
             }
         }
     });
+
+    window.addEventListener('pageshow', (event) => {
+        const persisted = Boolean(event && event.persisted);
+        let navType = '';
+        try {
+            const navEntries = (performance.getEntriesByType && performance.getEntriesByType('navigation')) || [];
+            navType = navEntries[0] && navEntries[0].type ? String(navEntries[0].type) : '';
+        } catch { }
+
+        if (!persisted && navType !== 'back_forward') return;
+
+        logAction('navigation', { phase: 'pageshow', persisted, navType }, 'INFO');
+
+        window.requestAnimationFrame(() => {
+            try { void document.documentElement.offsetWidth; } catch { }
+            try { void document.body.offsetHeight; } catch { }
+
+            if (history.state && history.state.view === 'home') {
+                try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { window.scrollTo(0, 0); }
+            }
+
+            try { syncResultsEndIntersectionObserver(); } catch { }
+            try { updateScrollIndicator(); } catch { }
+        });
+    }, { passive: true });
 }
 
 /**

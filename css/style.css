@@ -3,6 +3,8 @@ html {
     scroll-behavior: smooth;
     scrollbar-width: none; /* Firefox */
     -ms-overflow-style: none; /* IE/Edge */
+    max-width: 100vw;
+    overflow-x: hidden;
 }
 
 html::-webkit-scrollbar {
@@ -124,6 +126,8 @@ body {
     margin: 0;
     padding: 0;
     min-height: 100vh;
+    min-height: 100dvh;
+    max-width: 100vw;
     display: flex;
     justify-content: center;
     transition: background-color 0.4s ease-in-out, color 0.4s ease-in-out, background-image 0.4s ease-in-out;
@@ -607,6 +611,9 @@ input:checked + .slider:before {
 
 .result-facility {
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
 }
 
 .result-facility--lab {
@@ -679,6 +686,14 @@ input:checked + .slider:before {
     .result-time, .result-address, .result-facility {
         display: block;
         width: 100%;
+    }
+
+    .result-facility {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+        overflow-wrap: anywhere;
+        word-break: break-word;
     }
 
     .result-cell-fragment {

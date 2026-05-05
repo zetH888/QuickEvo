@@ -88,23 +88,26 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
     }
 
     function requestAccessToken(prompt) {
-        return new Promise(async (resolve, reject) => {
-            await ensureGisLoaded();
-            const client = getTokenClient();
-            client.callback = (resp) => {
-                const token = resp?.access_token ? String(resp.access_token) : '';
-                if (!token) {
-                    const err = new Error(resp?.error ? String(resp.error) : 'Brak access token');
-                    err.code = resp?.error ? String(resp.error) : 'no_token';
-                    reject(err);
-                    return;
-                }
-                accessToken = token;
-                const expiresIn = Number(resp?.expires_in || 0);
-                accessTokenExpiresAt = Date.now() + Math.max(0, expiresIn - 60) * 1000;
-                resolve(token);
-            };
-            client.requestAccessToken({ prompt: prompt || '' });
+        return new Promise((resolve, reject) => {
+            ensureGisLoaded()
+                .then(() => {
+                    const client = getTokenClient();
+                    client.callback = (resp) => {
+                        const token = resp?.access_token ? String(resp.access_token) : '';
+                        if (!token) {
+                            const err = new Error(resp?.error ? String(resp.error) : 'Brak access token');
+                            err.code = resp?.error ? String(resp.error) : 'no_token';
+                            reject(err);
+                            return;
+                        }
+                        accessToken = token;
+                        const expiresIn = Number(resp?.expires_in || 0);
+                        accessTokenExpiresAt = Date.now() + Math.max(0, expiresIn - 60) * 1000;
+                        resolve(token);
+                    };
+                    client.requestAccessToken({ prompt: prompt || '' });
+                })
+                .catch(reject);
         });
     }
 
@@ -155,8 +158,8 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
     }
 
     async function pickExcelFiles() {
-        await ensurePickerLoaded();
         const token = await getAccessToken();
+        await ensurePickerLoaded();
 
         return await new Promise((resolve, reject) => {
             let finished = false;
