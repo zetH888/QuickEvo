@@ -10,8 +10,9 @@
 // STAŁE GLOBALNE, KONFIGURACJA, IMPORTY
 //////////////////////////////////////////////////
 
-/** @const {number} Liczba grup wyników wyświetlanych na jednej stronie paginacji. */
-const PAGE_SIZE = 10; 
+const ROUTE_CATEGORIES_ORDER = Object.freeze(['STANDARD', 'WIECZOREK', 'SOBOTA', 'NIEDZIELA']);
+const ROUTE_CATEGORY_STORAGE_PREFIX = 'qe:routeCategoryCollapsed:';
+const routeCategoryCache = new Map();
 
 /**
  * Zestaw tokenów do wykrywania wierszy związanych z laboratorium.
@@ -185,10 +186,6 @@ const loadingContinueButton = document.getElementById('loading-continue-button')
 const appShell = document.getElementById('app-shell');
 const appHeaderLogo = document.getElementById('app-header-logo');
 const homeLink = document.getElementById('home-link');
-const resultsFooter = document.getElementById('results-footer');
-const showMoreButton = document.getElementById('show-more-button');
-const showMoreLoading = document.getElementById('show-more-loading');
-const showMoreError = document.getElementById('show-more-error');
 const dropZone = document.getElementById('drop-zone');
 const syncGDriveButton = document.getElementById('sync-gdrive-button');
 const modalOverlay = document.getElementById('modal-overlay');
@@ -229,9 +226,6 @@ let isSearchEnabled = false;
 
 /** @type {boolean} Flaga wskazująca, czy trwa obecnie proces ładowania plików. */
 let isLoading = false; 
-
-/** @type {boolean} Flaga wskazująca, czy trwa obecnie doczytywanie kolejnej strony wyników. */
-let isLoadingMoreResults = false; 
 
 /** @type {Array<Object>} Lista błędów napotkanych podczas wczytywania plików. */
 let loadErrors = []; 
@@ -311,12 +305,6 @@ let logoInstanceCounter = 0;
 
 /** @type {Promise|null} Obietnica otwarcia bazy danych. */
 let docsDbPromise = null;
-
-/** @type {number} Licznik sekwencji wyszukiwania. */
-let searchSeq = 0;
-
-/** @type {number} ID aktywnej sekwencji wyszukiwania. */
-let activeSearchSeq = 0;
 
 /** @type {Object} Ostatni stan podglądu pliku. */
 let lastPreviewState = { fileName: null, rowIndex: null };
@@ -1056,13 +1044,6 @@ function setupNavigationListeners() {
         });
     }
 
-    if (showMoreButton) {
-        showMoreButton.addEventListener('click', () => {
-            logClientEvent('paginate', { action: 'show_more' });
-            loadMoreResults();
-        });
-    }
-
     window.addEventListener('popstate', (event) => {
         const state = event.state;
         logAction('navigation', { phase: 'popstate', state }, 'INFO');
@@ -1743,19 +1724,16 @@ async function performSearch(query) {
     statusIndicator.textContent = 'Szukanie...';
     statusIndicator.classList.remove('status--hint');
     lastQuery = trimmedQuery;
-    activeSearchSeq = ++searchSeq;
     selectedResultIndex = -1;
     try {
         matchedResults = await executeSearch(trimmedQuery);
-        currentResults = [];
-        clearElement(resultsList);
-        setShowMoreErrorMessage('');
         if (matchedResults.length === 0) {
             handleNoSearchResults();
             return;
         }
         statusIndicator.textContent = 'Dane gotowe.';
-        await loadMoreResults({ reset: true, seq: activeSearchSeq });
+        currentResults = matchedResults;
+        renderResults(trimmedQuery, { append: false, startIndex: 0 });
     } catch (err) {
         handleSearchError(err);
     }
@@ -1780,6 +1758,10 @@ async function executeSearch(query) {
 function matchItem(item, lowerQuery, fuzzyQuery) {
     const matches = item.searchable.includes(lowerQuery) || item.searchableFuzzy.includes(fuzzyQuery);
     if (!matches) return false;
+
+    const fileName = String(item?.fileName ?? '');
+    if (normalizeText(fileName).includes(lowerQuery) || fuzzyNormalizeText(fileName).includes(fuzzyQuery)) return true;
+
     if (item.isComplete) {
         const h = item.headerMap;
         if (!h) return true;
@@ -1799,7 +1781,7 @@ function groupSearchResults(filtered) {
     const groups = new Map();
     for (const item of filtered) {
         if (!groups.has(item.fileName)) {
-            groups.set(item.fileName, { fileName: item.fileName, isComplete: item.isComplete, items: [] });
+            groups.set(item.fileName, { fileName: item.fileName, isComplete: item.isComplete, items: [], categories: getRouteCategoriesFromFileName(item.fileName) });
         }
         groups.get(item.fileName).items.push(item);
     }
@@ -1950,13 +1932,129 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
         handleNoResultsToRender(); window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); }); return;
     }
     updateResultsCountInfo();
-    const fragment = document.createDocumentFragment();
+
+    const sections = ensureRouteCategorySections();
+    const fragmentByCategory = new Map();
+    for (const category of ROUTE_CATEGORIES_ORDER) fragmentByCategory.set(category, document.createDocumentFragment());
+
     for (let index = startIndex; index < currentResults.length; index++) {
-        fragment.appendChild(createResultGroupElement(currentResults[index], index, query));
+        const group = currentResults[index];
+        const cats = Array.isArray(group?.categories) && group.categories.length > 0 ? group.categories : ['STANDARD'];
+        const uniqueCats = Array.from(new Set(cats.map(c => String(c || '').trim()).filter(Boolean)));
+        const targetCats = uniqueCats.length > 0 ? uniqueCats : ['STANDARD'];
+        for (const category of targetCats) {
+            if (!fragmentByCategory.has(category)) continue;
+            fragmentByCategory.get(category).appendChild(createResultGroupElement(group, index, query));
+        }
     }
-    resultsList.appendChild(fragment);
-    updateResultsFooter();
+
+    for (const category of ROUTE_CATEGORIES_ORDER) {
+        const section = sections.get(category);
+        if (!section) continue;
+        section.body.appendChild(fragmentByCategory.get(category));
+    }
+
+    updateRouteCategorySectionCounts(sections);
     window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+}
+
+function ensureRouteCategorySections() {
+    const map = new Map();
+    const shouldRebuild = ROUTE_CATEGORIES_ORDER.some((c) => !resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(c)}"]`));
+    if (shouldRebuild) clearElement(resultsList);
+
+    for (const category of ROUTE_CATEGORIES_ORDER) {
+        const existing = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(category)}"]`);
+        if (existing) {
+            const btn = existing.querySelector('.results-category-toggle');
+            const count = existing.querySelector('.results-category-count');
+            const body = existing.querySelector('.results-category-body');
+            if (btn && count && body) map.set(category, { section: existing, button: btn, count, body });
+            continue;
+        }
+
+        const section = document.createElement('section');
+        section.className = 'results-category';
+        section.dataset.category = category;
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'results-category-toggle';
+        button.dataset.category = category;
+
+        const title = document.createElement('span');
+        title.className = 'results-category-title';
+        title.textContent = category;
+
+        const count = document.createElement('span');
+        count.className = 'results-category-count';
+        count.textContent = '0';
+
+        button.appendChild(title);
+        button.appendChild(count);
+
+        const body = document.createElement('div');
+        body.className = 'results-category-body';
+
+        const collapsed = isRouteCategoryCollapsed(category);
+        section.classList.toggle('is-collapsed', collapsed);
+        button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+
+        section.appendChild(button);
+        section.appendChild(body);
+        resultsList.appendChild(section);
+
+        map.set(category, { section, button, count, body });
+    }
+
+    return map;
+}
+
+function updateRouteCategorySectionCounts(sections) {
+    const counts = new Map();
+    for (const category of ROUTE_CATEGORIES_ORDER) counts.set(category, 0);
+
+    for (const group of currentResults) {
+        const cats = Array.isArray(group?.categories) && group.categories.length > 0 ? group.categories : ['STANDARD'];
+        const uniqueCats = Array.from(new Set(cats.map(c => String(c || '').trim()).filter(Boolean)));
+        const targetCats = uniqueCats.length > 0 ? uniqueCats : ['STANDARD'];
+        for (const category of targetCats) {
+            if (!counts.has(category)) continue;
+            counts.set(category, counts.get(category) + 1);
+        }
+    }
+
+    for (const category of ROUTE_CATEGORIES_ORDER) {
+        const section = sections.get(category);
+        if (!section) continue;
+        const value = counts.get(category) || 0;
+        section.count.textContent = String(value);
+        section.section.classList.toggle('hidden', value === 0);
+    }
+}
+
+function toggleRouteCategorySection(category) {
+    const cat = String(category || '').trim();
+    if (!cat) return;
+    const section = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(cat)}"]`);
+    if (!section) return;
+    const button = section.querySelector('.results-category-toggle');
+    const isCollapsed = section.classList.toggle('is-collapsed');
+    if (button) button.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+    storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, isCollapsed ? '1' : '0');
+    window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+}
+
+function isRouteCategoryCollapsed(category) {
+    const cat = String(category || '').trim();
+    if (!cat) return false;
+    return storageGet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`) === '1';
+}
+
+function cssEscapeAttrValue(value) {
+    const v = String(value ?? '');
+    if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') return CSS.escape(v);
+    return v.replace(/["\\\]]/g, '\\$&');
 }
 
 /**
@@ -2060,18 +2158,6 @@ function updateResultsCountInfo() {
 }
 
 /**
- * Aktualizuje stopkę wyników (przycisk "pokaż więcej").
- */
-function updateResultsFooter() {
-    if (!resultsFooter) return;
-    const hasResults = matchedResults.length > 0, hasMore = currentResults.length < matchedResults.length, hasError = Boolean(showMoreError && showMoreError.textContent && showMoreError.textContent.trim().length > 0);
-    if (showMoreButton) showMoreButton.classList.toggle('hidden', !hasMore);
-    if (showMoreLoading) showMoreLoading.classList.toggle('hidden', !isLoadingMoreResults);
-    if (showMoreError) showMoreError.classList.toggle('hidden', !hasError);
-    resultsFooter.classList.toggle('hidden', !(hasResults && (hasMore || isLoadingMoreResults || hasError) && matchedResults.length > PAGE_SIZE));
-}
-
-/**
  * Aktualizuje metadane w widoku podglądu.
  */
 function updatePreviewMeta(metaLines) {
@@ -2081,13 +2167,33 @@ function updatePreviewMeta(metaLines) {
     else { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
 }
 
+function renderPreviewFileNameWithCategory(fileName) {
+    const el = document.getElementById('preview-filename');
+    if (!el) return;
+    el.replaceChildren();
+    const title = document.createElement('span');
+    title.className = 'preview-filename-title';
+    title.textContent = formatFileName(fileName);
+    el.appendChild(title);
+
+    const categories = getRouteCategoriesFromFileName(fileName);
+    const uniqueCats = Array.from(new Set((Array.isArray(categories) ? categories : []).map(c => String(c || '').trim()).filter(Boolean)));
+    for (const cat of uniqueCats) {
+        const badge = document.createElement('span');
+        badge.className = 'route-category-badge';
+        badge.dataset.routeCategory = cat;
+        badge.textContent = cat;
+        el.appendChild(badge);
+    }
+}
+
 /**
  * Przełącza między widokiem wyszukiwania a podglądem.
  */
 function togglePreviewView(show, fileName, metaLines) {
     if (show) {
         searchView.classList.add('view-hidden'); filePreviewView.classList.remove('view-hidden');
-        document.getElementById('preview-filename').textContent = formatFileName(fileName); updatePreviewMeta(metaLines);
+        renderPreviewFileNameWithCategory(fileName); updatePreviewMeta(metaLines);
     } else {
         filePreviewView.classList.add('view-hidden'); searchView.classList.remove('view-hidden');
     }
@@ -2506,7 +2612,19 @@ function syncResultsEndIntersectionObserver() {
     ensureResultsEndIntersectionObserver();
     if (!resultsEndIntersection.observer) return;
 
-    const last = resultsList.querySelector('.result-group:last-child') || resultsList.lastElementChild;
+    const groups = Array.from(resultsList.querySelectorAll('.result-group'));
+    const lastVisibleGroup = (() => {
+        for (let i = groups.length - 1; i >= 0; i--) {
+            const el = groups[i];
+            if (!el) continue;
+            if (typeof el.getClientRects === 'function' && el.getClientRects().length === 0) continue;
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') continue;
+            return el;
+        }
+        return null;
+    })();
+    const last = lastVisibleGroup || (groups.length > 0 ? groups[groups.length - 1] : resultsList.lastElementChild);
     if (last === resultsEndIntersection.target) return;
 
     if (resultsEndIntersection.target) {
@@ -2591,43 +2709,27 @@ function setSearchEnabled(enabled) {
 }
 
 /**
- * Ustawia tekst błędu przy ładowaniu większej liczby wyników.
- */
-function setShowMoreErrorMessage(message) {
-    if (!showMoreError) return; const text = String(message || '').trim();
-    showMoreError.textContent = text; showMoreError.classList.toggle('hidden', text.length === 0);
-}
-
-/**
- * Przełącza stan ładowania przycisku "pokaż więcej".
- */
-function setShowMoreLoadingState(isLoading) {
-    isLoadingMoreResults = Boolean(isLoading);
-    if (showMoreLoading) showMoreLoading.classList.toggle('hidden', !isLoadingMoreResults);
-    if (showMoreButton) showMoreButton.disabled = isLoadingMoreResults;
-}
-
-/**
  * Czyści wyniki wyszukiwania.
  */
 function clearResults() {
     lastQuery = ''; matchedResults = []; currentResults = []; selectedResultIndex = -1;
-    setShowMoreErrorMessage(''); setShowMoreLoadingState(false); clearElement(resultsList);
-    resultsInfo.textContent = ''; updateResultsFooter(); window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+    clearElement(resultsList);
+    resultsInfo.textContent = '';
+    window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
 }
 
 /**
  * Obsługuje brak wyników wyszukiwania.
  */
 function handleNoSearchResults() {
-    resultsInfo.textContent = 'Brak wyników.'; statusIndicator.textContent = 'Dane gotowe.'; updateResultsFooter();
+    resultsInfo.textContent = 'Brak wyników.'; statusIndicator.textContent = 'Dane gotowe.';
 }
 
 /**
  * Obsługuje brak wyników do wyrenderowania.
  */
 function handleNoResultsToRender() {
-    resultsInfo.textContent = 'Brak wyników.'; updateResultsFooter();
+    resultsInfo.textContent = 'Brak wyników.';
 }
 
 /**
@@ -2757,7 +2859,7 @@ function resetToInitialState({ source } = {}) {
     const thead = document.getElementById('table-header'), tbody = document.getElementById('table-body');
     clearElement(thead); clearElement(tbody);
     if (previewMeta) { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
-    const previewFilename = document.getElementById('preview-filename'); if (previewFilename) previewFilename.textContent = '';
+    const previewFilename = document.getElementById('preview-filename'); if (previewFilename) previewFilename.replaceChildren();
     goHome(); logClientEvent('home', { source: source || 'unknown' });
 }
 
@@ -2766,7 +2868,16 @@ function resetToInitialState({ source } = {}) {
  */
 function scrollToSelected() {
     const selected = resultsList.querySelector('.result-group.selected');
-    if (selected) selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    if (!selected) return;
+    const section = selected.closest('.results-category');
+    if (section && section.classList.contains('is-collapsed')) {
+        const category = section.dataset.category;
+        section.classList.remove('is-collapsed');
+        const button = section.querySelector('.results-category-toggle');
+        if (button) button.setAttribute('aria-expanded', 'true');
+        storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${String(category || '').trim()}`, '0');
+    }
+    selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 //////////////////////////////////////////////////
@@ -2793,6 +2904,31 @@ function formatRouteNameForResults(fileName) {
         if (code) return `TRASA ${code}`;
     }
     return base.replace(/[\[\]\{\}]/g, '').replace(/\([^)]*\)/g, '').replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, '').replace(/[^\p{L}\p{N}\s-]+/gu, '').replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+function getRouteCategoriesFromFileName(fileName) {
+    const key = String(fileName || '');
+    if (routeCategoryCache.has(key)) return routeCategoryCache.get(key);
+
+    const bracketParts = [];
+    const re = /\(([^)]*)\)/g;
+    let m;
+    while ((m = re.exec(key)) !== null) {
+        const part = String(m[1] || '').trim();
+        if (part) bracketParts.push(part);
+    }
+
+    const found = new Set();
+    for (const part of bracketParts) {
+        const norm = fuzzyNormalizeText(part);
+        if (norm.includes('sobota')) found.add('SOBOTA');
+        if (norm.includes('niedziela')) found.add('NIEDZIELA');
+        if (norm.includes('wieczorek')) found.add('WIECZOREK');
+    }
+
+    const out = found.size > 0 ? Array.from(found) : ['STANDARD'];
+    routeCategoryCache.set(key, out);
+    return out;
 }
 
 /**
@@ -3000,6 +3136,11 @@ function shouldReduceMotion() {
 
 // Obsługa kliknięć w wyniki (delegacja zdarzeń)
 resultsList.addEventListener('click', (e) => {
+    const categoryToggle = e.target.closest('.results-category-toggle');
+    if (categoryToggle) {
+        toggleRouteCategorySection(categoryToggle.dataset.category);
+        return;
+    }
     const row = e.target.closest('.result-row');
     if (row) {
         const fileName = row.dataset.fileName, rowIndex = parseInt(row.dataset.rowIndex);
@@ -3267,26 +3408,6 @@ function handleKeyNavigation(e) {
     if (e.key === 'ArrowDown') { e.preventDefault(); selectedResultIndex = Math.min(selectedResultIndex + 1, currentResults.length - 1); renderResults(lastQuery); scrollToSelected(); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); selectedResultIndex = Math.max(selectedResultIndex - 1, 0); renderResults(lastQuery); scrollToSelected(); }
     else if (e.key === 'Enter' && selectedResultIndex >= 0) { const group = currentResults[selectedResultIndex]; showFilePreview(group.fileName, group.items[0].rowIndex); }
-}
-
-/**
- * Ładuje więcej wyników wyszukiwania.
- */
-async function loadMoreResults({ reset = false, seq = activeSearchSeq } = {}) {
-    if (isLoadingMoreResults || !lastQuery || lastQuery.trim().length < 3) return;
-    const localSeq = seq, offset = reset ? 0 : currentResults.length;
-    if (offset >= matchedResults.length) { updateResultsFooter(); return; }
-    if (reset) { currentResults = []; clearElement(resultsList); selectedResultIndex = -1; }
-    setShowMoreErrorMessage(''); setShowMoreLoadingState(true); updateResultsFooter();
-    try {
-        await waitMs(160); if (localSeq !== activeSearchSeq) return;
-        const next = matchedResults.slice(offset, offset + PAGE_SIZE), startIndex = currentResults.length;
-        currentResults = currentResults.concat(next); renderResults(lastQuery, { append: !reset, startIndex });
-        window.requestAnimationFrame(() => updateScrollIndicator());
-    } catch (err) {
-        if (localSeq !== activeSearchSeq) return;
-        setShowMoreErrorMessage('Błąd sieci podczas pobierania kolejnych wyników. Spróbuj ponownie.'); updateResultsFooter();
-    } finally { if (localSeq !== activeSearchSeq) return; setShowMoreLoadingState(false); updateResultsFooter(); }
 }
 
 // Start aplikacji
