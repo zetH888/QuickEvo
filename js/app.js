@@ -150,6 +150,16 @@ const LOADING_TITLE_MESSAGES = {
 let searchCache = new Map();
 
 /**
+ * Stan indeksu podpowiedzi dla predykcji wpisywanej frazy.
+ * Priorytety: adresy, nazwy placówek, nazwy tras.
+ */
+let predictiveIndex = null;
+let predictiveIndexBuildTimer = null;
+let predictiveSuggestionsCache = new Map();
+let predictiveUiState = { raw: '', norm: '', options: [], index: 0, hidden: false };
+let predictiveIsComposing = false;
+
+/**
  * Kontrolery animacji orbit logo.
  * @type {WeakMap<SVGElement, Object>}
  */
@@ -195,6 +205,9 @@ const modalActions = document.getElementById('modal-actions');
 const welcomeImportProgress = document.getElementById('welcome-import-progress');
 const welcomeProgressList = document.getElementById('welcome-progress-list');
 const scrollIndicator = document.getElementById('scroll-indicator');
+const ghostOverlay = document.getElementById('qe-ghost');
+const ghostPrefix = document.getElementById('qe-ghost-prefix');
+const ghostSuffix = document.getElementById('qe-ghost-suffix');
 
 //////////////////////////////////////////////////
 // KLUCZOWY STAN APLIKACJI
@@ -208,9 +221,6 @@ let currentResults = [];
 
 /** @type {Array<Object>} Wszystkie dopasowania dla bieżącego zapytania. */
 let matchedResults = []; 
-
-/** @type {number} Indeks zaznaczonego wyniku podczas nawigacji klawiaturą. */
-let selectedResultIndex = -1; 
 
 /** @type {string} Ostatnie zapytanie użyte do wyszukiwania. */
 let lastQuery = ''; 
@@ -955,10 +965,15 @@ function setupSearchListeners() {
     searchInput.addEventListener('input', (e) => {
         if (!isSearchEnabled) return;
         const query = e.target.value.trim();
+        updatePredictiveSuggestions(query, { source: 'input' });
         handleSearchInput(query, debouncedSearch, debouncedLogSearch);
     });
 
-    searchInput.addEventListener('keydown', handleKeyNavigation);
+    searchInput.addEventListener('keydown', handlePredictiveKeydown);
+    searchInput.addEventListener('scroll', () => syncGhostOverlayScroll(), { passive: true });
+    searchInput.addEventListener('blur', () => hideGhostOverlay(), { passive: true });
+    searchInput.addEventListener('compositionstart', () => { predictiveIsComposing = true; hideGhostOverlay(); }, { passive: true });
+    searchInput.addEventListener('compositionend', () => { predictiveIsComposing = false; updatePredictiveSuggestions(searchInput.value, { source: 'compositionend' }); }, { passive: true });
 }
 
 /**
@@ -1251,6 +1266,7 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
             statusIndicator.textContent = 'Dane aktualne.';
         }
 
+        schedulePredictiveIndexRebuild({ reason: 'load_all_files_done' });
         if (isSearchEnabled && lastQuery && lastQuery.trim().length >= 3) {
             performSearch(lastQuery.trim());
         }
@@ -1749,7 +1765,6 @@ async function performSearch(query) {
     statusIndicator.textContent = 'Szukanie...';
     statusIndicator.classList.remove('status--hint');
     lastQuery = trimmedQuery;
-    selectedResultIndex = -1;
     try {
         matchedResults = await executeSearch(trimmedQuery);
         if (matchedResults.length === 0) {
@@ -1940,7 +1955,7 @@ function removeFileData(fileName) {
  * Resetuje kluczowe dane aplikacji.
  */
 function resetAppData() {
-    allData = []; currentResults = []; selectedResultIndex = -1; lastQuery = '';
+    allData = []; currentResults = []; lastQuery = '';
     loadedFiles = new Set(); fullFileData = {}; loadErrors = [];
 }
 
@@ -2089,7 +2104,6 @@ function createResultGroupElement(group, index, query) {
     const routeName = formatRouteNameForResults(group.fileName);
     const groupDiv = document.createElement('div');
     groupDiv.className = 'result-group'; groupDiv.dataset.index = index;
-    if (index === selectedResultIndex) groupDiv.classList.add('selected');
     const rowsHtml = group.items.map(item => {
         const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
         const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
@@ -2737,7 +2751,7 @@ function setSearchEnabled(enabled) {
  * Czyści wyniki wyszukiwania.
  */
 function clearResults() {
-    lastQuery = ''; matchedResults = []; currentResults = []; selectedResultIndex = -1;
+    lastQuery = ''; matchedResults = []; currentResults = [];
     clearElement(resultsList);
     resultsInfo.textContent = '';
     window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
@@ -2794,6 +2808,7 @@ async function finalizeFileImport(summary, before) {
     uploadStatus.textContent = 'Import zakończony.'; logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
     displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
     setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
+    schedulePredictiveIndexRebuild({ reason: 'import_done' });
 }
 
 /**
@@ -2804,6 +2819,7 @@ async function finalizeGoogleDriveImport(summary, before) {
     logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
     displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
     setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
+    schedulePredictiveIndexRebuild({ reason: 'gdrive_import_done' });
 }
 
 /**
@@ -2886,23 +2902,6 @@ function resetToInitialState({ source } = {}) {
     if (previewMeta) { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
     const previewFilename = document.getElementById('preview-filename'); if (previewFilename) previewFilename.replaceChildren();
     goHome(); logClientEvent('home', { source: source || 'unknown' });
-}
-
-/**
- * Przewija widok do zaznaczonego wyniku wyszukiwania.
- */
-function scrollToSelected() {
-    const selected = resultsList.querySelector('.result-group.selected');
-    if (!selected) return;
-    const section = selected.closest('.results-category');
-    if (section && section.classList.contains('is-collapsed')) {
-        const category = section.dataset.category;
-        section.classList.remove('is-collapsed');
-        const button = section.querySelector('.results-category-toggle');
-        if (button) button.setAttribute('aria-expanded', 'true');
-        storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${String(category || '').trim()}`, '0');
-    }
-    selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
 //////////////////////////////////////////////////
@@ -3417,22 +3416,344 @@ function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
     }
 }
 
+//////////////////////////////////////////////////
+// PREDYKCJA / PODPOWIEDZI WPISYWANEJ FRAZY
+//////////////////////////////////////////////////
+
+const PREDICT_MIN_CHARS = 2;
+const PREDICT_MAX_OPTIONS = 14;
+const PREDICT_BUCKET_PREFIX_LEN = 2;
+
+const PREDICT_TYPE_WEIGHT = Object.freeze({
+    address: 330,
+    facility: 300,
+    route: 270
+});
+
+const PREDICT_MATCH_WEIGHT = Object.freeze({
+    startsWith: 120,
+    tokenStartsWith: 75,
+    contains: 25
+});
+
+/**
+ * Planista przebudowy indeksu podpowiedzi, aby nie wykonywać kosztownej pracy wielokrotnie podczas importu.
+ */
+function schedulePredictiveIndexRebuild({ reason } = {}) {
+    if (predictiveIndexBuildTimer) window.clearTimeout(predictiveIndexBuildTimer);
+    predictiveIndexBuildTimer = window.setTimeout(() => {
+        predictiveIndexBuildTimer = null;
+        rebuildPredictiveIndex({ reason: reason || 'unknown' });
+    }, 0);
+}
+
+/**
+ * Przebudowuje indeks podpowiedzi na podstawie aktualnie załadowanych danych.
+ */
+function rebuildPredictiveIndex({ reason } = {}) {
+    const addressMap = new Map();
+    const facilityMap = new Map();
+    const routeMap = new Map();
+    const fileNames = new Set();
+
+    for (const item of (Array.isArray(allData) ? allData : [])) {
+        const safeFileName = String(item?.fileName || '').trim();
+        if (safeFileName) fileNames.add(safeFileName);
+
+        if (!item?.isComplete || !item?.headerMap || !Array.isArray(item?.cells)) continue;
+        const h = item.headerMap;
+
+        const address = String(item.cells[h.ADRES] || '').trim();
+        if (address) addPredictiveValueWithVariants(addressMap, address);
+
+        const facility = String(item.cells[h.NAZWA_PLACOWKI] || '').trim();
+        if (facility) addPredictiveValueWithVariants(facilityMap, facility);
+    }
+
+    for (const fn of fileNames) {
+        const routeName = String(formatRouteNameForResults(fn) || '').trim();
+        if (routeName) addPredictiveValueWithVariants(routeMap, routeName);
+    }
+
+    predictiveIndex = {
+        builtAt: Date.now(),
+        reason: String(reason || ''),
+        buckets: {
+            address: buildPredictiveBuckets(addressMap, 'address'),
+            facility: buildPredictiveBuckets(facilityMap, 'facility'),
+            route: buildPredictiveBuckets(routeMap, 'route')
+        }
+    };
+    predictiveSuggestionsCache = new Map();
+}
+
+/**
+ * Dodaje wartość do mapy deduplikującej po fuzzy-normalizacji.
+ */
+function addPredictiveValue(map, rawValue) {
+    const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    const key = fuzzyNormalizeText(value);
+    if (!key) return;
+    const prev = map.get(key);
+    if (!prev) map.set(key, { value, count: 1 });
+    else prev.count += 1;
+}
+
+/**
+ * Dodaje wartość i jej warianty tokenowe (np. „Jerozolimskie 96” z pełnego adresu),
+ * aby predykcja działała także dla wpisywania od środka frazy.
+ */
+function addPredictiveValueWithVariants(map, rawValue) {
+    const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    addPredictiveValue(map, value);
+
+    const tokenRe = /[^\s,.;:/\\\-–—()]+/g;
+    const matches = Array.from(value.matchAll(tokenRe));
+    if (matches.length <= 1) return;
+
+    const maxVariants = 8;
+    let added = 0;
+    for (let i = 1; i < matches.length && added < maxVariants; i++) {
+        const idx = matches[i]?.index;
+        if (typeof idx !== 'number' || idx < 0) continue;
+        const phrase = value.slice(idx).trimStart();
+        if (phrase.length < PREDICT_MIN_CHARS) continue;
+        addPredictiveValue(map, phrase);
+        added += 1;
+    }
+}
+
+/**
+ * Buduje kubełki podpowiedzi na podstawie prefiksu, aby zapytania były szybkie.
+ */
+function buildPredictiveBuckets(map, type) {
+    const bucketMaps = new Map();
+
+    const addToBucket = (bucketKey, cand) => {
+        const key = String(bucketKey || '').slice(0, PREDICT_BUCKET_PREFIX_LEN);
+        if (!key) return;
+        let inner = bucketMaps.get(key);
+        if (!inner) { inner = new Map(); bucketMaps.set(key, inner); }
+        inner.set(cand.fuzzy, cand);
+    };
+
+    for (const [fuzzy, meta] of map.entries()) {
+        const baseFuzzy = String(fuzzy || '');
+        if (!baseFuzzy) continue;
+        const cand = { type, value: meta.value, fuzzy, count: meta.count };
+        addToBucket(baseFuzzy, cand);
+
+        const tokens = baseFuzzy.split(/[\s,.;:/\\\-–—()]+/g).filter(t => t.length >= PREDICT_MIN_CHARS);
+        for (const t of tokens) addToBucket(t, cand);
+    }
+
+    const buckets = new Map();
+    for (const [k, inner] of bucketMaps.entries()) {
+        const list = Array.from(inner.values());
+        list.sort((a, b) => (b.count - a.count) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
+        buckets.set(k, list);
+    }
+    return buckets;
+}
+
+/**
+ * Aktualizuje podpowiedź inline (wyszarzony suffix) dla aktualnej frazy.
+ */
+function updatePredictiveSuggestions(query, { source } = {}) {
+    if (predictiveIsComposing) return;
+    if (!ghostOverlay || !ghostPrefix || !ghostSuffix || !searchInput) return;
+
+    const raw = String(query ?? '');
+    const norm = raw.trim();
+    const changed = raw !== predictiveUiState.raw;
+    if (changed) predictiveUiState = { raw, norm, options: [], index: 0, hidden: false };
+    else { predictiveUiState.raw = raw; predictiveUiState.norm = norm; }
+
+    if (!isSearchEnabled || norm.length < PREDICT_MIN_CHARS || raw !== norm) {
+        predictiveUiState.hidden = true;
+        hideGhostOverlay();
+        return;
+    }
+    if (!predictiveIndex) {
+        schedulePredictiveIndexRebuild({ reason: 'predictive_lazy' });
+        predictiveUiState.hidden = true;
+        hideGhostOverlay();
+        return;
+    }
+
+    const cached = predictiveSuggestionsCache.get(norm);
+    const options = cached || computePredictiveSuggestions(norm, PREDICT_MAX_OPTIONS);
+    if (!cached) predictiveSuggestionsCache.set(norm, options);
+
+    predictiveUiState.options = Array.isArray(options) ? options : [];
+    if (predictiveUiState.index >= predictiveUiState.options.length) predictiveUiState.index = 0;
+
+    if (source === 'input') predictiveUiState.index = 0;
+
+    renderGhostOverlay();
+}
+
+/**
+ * Wylicza listę podpowiedzi z priorytetem: adresy, placówki, trasy.
+ */
+function computePredictiveSuggestions(query, limit) {
+    const q = String(query || '').trim();
+    const qf = fuzzyNormalizeText(q);
+    if (!qf || qf.length < PREDICT_MIN_CHARS || !predictiveIndex?.buckets) return [];
+
+    const bucketKey = qf.slice(0, PREDICT_BUCKET_PREFIX_LEN);
+    if (!bucketKey) return [];
+
+    const scored = [];
+    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.address?.get(bucketKey), qf, 'address');
+    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.facility?.get(bucketKey), qf, 'facility');
+    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.route?.get(bucketKey), qf, 'route');
+
+    scored.sort((a, b) => (b.score - a.score) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
+
+    const out = [];
+    const seen = new Set();
+    for (const row of scored) {
+        const v = String(row.value || '').trim();
+        if (!v) continue;
+        if (!predictiveCandidateStartsWithQuery(q, v)) continue;
+        if (v.length <= q.length) continue;
+        const k = fuzzyNormalizeText(v);
+        if (!k || seen.has(k)) continue;
+        seen.add(k);
+        out.push(v);
+        if (out.length >= (Number(limit || 0) || PREDICT_MAX_OPTIONS)) break;
+    }
+    return out;
+}
+
+function predictiveCandidateStartsWithQuery(query, candidate) {
+    const q = String(query ?? '').trim();
+    const c = String(candidate ?? '').trim();
+    if (!q || !c) return false;
+    const qf = fuzzyNormalizeText(q);
+    const cf = fuzzyNormalizeText(c);
+    return cf.startsWith(qf);
+}
+
+function scorePredictiveCandidatesInto(target, candidates, qf, type) {
+    const list = Array.isArray(candidates) ? candidates : [];
+    if (list.length === 0) return;
+
+    const typeWeight = PREDICT_TYPE_WEIGHT[type] || 0;
+    const maxScan = 1600;
+    for (let i = 0; i < list.length && i < maxScan; i++) {
+        const c = list[i];
+        const text = String(c?.fuzzy || '');
+        if (!text) continue;
+
+        let matchWeight = 0;
+        if (text.startsWith(qf)) matchWeight = PREDICT_MATCH_WEIGHT.startsWith;
+        else if (text.includes(` ${qf}`)) matchWeight = PREDICT_MATCH_WEIGHT.tokenStartsWith;
+        else if (text.includes(qf)) matchWeight = PREDICT_MATCH_WEIGHT.contains;
+        else continue;
+
+        const freq = Math.min(36, Math.round(Math.log2(Math.max(1, Number(c.count || 1))) * 12));
+        target.push({ value: c.value, score: typeWeight + matchWeight + freq });
+    }
+}
+
+function renderGhostOverlay() {
+    if (!ghostOverlay || !ghostPrefix || !ghostSuffix || !searchInput) return;
+
+    if (predictiveUiState.hidden) { hideGhostOverlay(); return; }
+
+    const query = String(predictiveUiState.raw || '');
+    const suggestion = predictiveUiState.options[predictiveUiState.index] || '';
+    if (!query || !suggestion || suggestion.length <= query.length) { hideGhostOverlay(); return; }
+    if (String(predictiveUiState.norm || '') !== query) { hideGhostOverlay(); return; }
+    if (!predictiveCandidateStartsWithQuery(predictiveUiState.norm, suggestion)) { hideGhostOverlay(); return; }
+
+    const selStart = Number(searchInput.selectionStart ?? 0);
+    const selEnd = Number(searchInput.selectionEnd ?? 0);
+    if (selStart !== selEnd || selEnd !== query.length) { hideGhostOverlay(); return; }
+
+    ghostPrefix.textContent = query;
+    ghostSuffix.textContent = String(suggestion).slice(query.length);
+    ghostOverlay.classList.toggle('is-hidden', ghostSuffix.textContent.length === 0);
+    syncGhostOverlayScroll();
+}
+
+function syncGhostOverlayScroll() {
+    if (!ghostOverlay || !searchInput) return;
+    ghostOverlay.scrollLeft = searchInput.scrollLeft;
+}
+
+function hideGhostOverlay() {
+    if (!ghostOverlay || !ghostPrefix || !ghostSuffix) return;
+    ghostPrefix.textContent = '';
+    ghostSuffix.textContent = '';
+    ghostOverlay.classList.add('is-hidden');
+}
+
+function acceptPredictiveSuggestion() {
+    const query = String(predictiveUiState.norm || '').trim();
+    const suggestion = predictiveUiState.options[predictiveUiState.index] || '';
+    if (!query || !suggestion || suggestion.length <= query.length) return false;
+    if (!predictiveCandidateStartsWithQuery(query, suggestion)) return false;
+    if (!searchInput) return false;
+
+    searchInput.value = suggestion;
+    try { searchInput.setSelectionRange(suggestion.length, suggestion.length); } catch { }
+    predictiveUiState = { raw: suggestion, norm: suggestion, options: [], index: 0, hidden: false };
+    searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+}
+
+function handlePredictiveKeydown(e) {
+    if (!isSearchEnabled || predictiveIsComposing) return;
+    if (!e || !searchInput) return;
+
+    const key = String(e.key || '');
+    const raw = String(searchInput.value || '');
+    const norm = raw.trim();
+    if (norm.length < PREDICT_MIN_CHARS || raw !== norm) return;
+    if (!predictiveIndex) { schedulePredictiveIndexRebuild({ reason: 'predictive_lazy_keydown' }); return; }
+
+    updatePredictiveSuggestions(raw, { source: 'keydown' });
+
+    const hasOptions = Array.isArray(predictiveUiState.options) && predictiveUiState.options.length > 0;
+    if (!hasOptions) return;
+
+    if (key === 'ArrowDown' || key === 'ArrowUp') {
+        e.preventDefault();
+        predictiveUiState.hidden = false;
+        const delta = key === 'ArrowDown' ? 1 : -1;
+        const n = predictiveUiState.options.length;
+        predictiveUiState.index = (predictiveUiState.index + delta + n) % n;
+        renderGhostOverlay();
+        return;
+    }
+
+    const canAccept = (key === 'Tab') || (key === 'ArrowRight' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey);
+    if (canAccept) {
+        const ok = acceptPredictiveSuggestion();
+        if (ok) e.preventDefault();
+        return;
+    }
+
+    if (key === 'Escape') {
+        if (!ghostOverlay?.classList.contains('is-hidden')) {
+            e.preventDefault();
+            predictiveUiState.hidden = true;
+            hideGhostOverlay();
+        }
+    }
+}
+
 /**
  * Obsługuje zbyt krótkie zapytanie wyszukiwania.
  */
 function handleSearchShortQuery() {
     statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...';
     statusIndicator.classList.add('status--hint'); clearResults();
-}
-
-/**
- * Obsługuje nawigację klawiaturą po wynikach.
- */
-function handleKeyNavigation(e) {
-    if (currentResults.length === 0) return;
-    if (e.key === 'ArrowDown') { e.preventDefault(); selectedResultIndex = Math.min(selectedResultIndex + 1, currentResults.length - 1); renderResults(lastQuery); scrollToSelected(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); selectedResultIndex = Math.max(selectedResultIndex - 1, 0); renderResults(lastQuery); scrollToSelected(); }
-    else if (e.key === 'Enter' && selectedResultIndex >= 0) { const group = currentResults[selectedResultIndex]; showFilePreview(group.fileName, group.items[0].rowIndex); }
 }
 
 // Start aplikacji

@@ -97,7 +97,12 @@
         <main>
             <div id="search-view" class="view-transition">
                 <div class="search-container">
-                    <input type="text" id="search-input" placeholder="Przeszukaj trasy (min. 3 znaki)..." autocomplete="off">
+                    <div class="search-input-wrap" id="search-input-wrap">
+                        <div id="qe-ghost" class="qe-ghost is-hidden" aria-hidden="true">
+                            <span id="qe-ghost-prefix" class="qe-ghost-prefix"></span><span id="qe-ghost-suffix" class="qe-ghost-suffix"></span>
+                        </div>
+                        <input type="text" id="search-input" placeholder="Przeszukaj trasy (min. 3 znaki)..." autocomplete="off">
+                    </div>
                     <div id="status-indicator" class="status">Ładowanie...</div>
                 </div>
 

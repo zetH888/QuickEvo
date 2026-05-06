@@ -27,11 +27,23 @@
     --progress-fill-start: #00ff41;
     --progress-fill-end: #00ff41;
     --progress-glint: rgba(0, 255, 65, 0.35);
+    --qe-ghost-suffix-color: rgba(0, 255, 65, 0.44);
 
     background: #000000 !important;
     background-image: none !important;
     color: #00ff41;
     font-family: "Courier New", Courier, monospace;
+}
+
+.matrix-theme #search-input {
+    background: transparent !important;
+    border: 0 !important;
+    text-shadow: none !important;
+}
+
+
+.matrix-theme .search-input-wrap {
+    border: 1px solid #00ff41;
 }
 
 .matrix-theme ::selection {
