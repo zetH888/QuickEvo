@@ -144,10 +144,33 @@ const LOADING_TITLE_MESSAGES = {
 };
 
 /**
- * Cache dla wyników wyszukiwania.
- * @type {Map<string, Array>}
+ * Implementacja prostego cache'u LRU (Least Recently Used).
  */
-let searchCache = new Map();
+class LRUCache {
+    constructor(limit = 100) {
+        this.limit = limit;
+        this.cache = new Map();
+    }
+    get(key) {
+        if (!this.cache.has(key)) return undefined;
+        const val = this.cache.get(key);
+        this.cache.delete(key);
+        this.cache.set(key, val);
+        return val;
+    }
+    set(key, value) {
+        if (this.cache.has(key)) this.cache.delete(key);
+        else if (this.cache.size >= this.limit) this.cache.delete(this.cache.keys().next().value);
+        this.cache.set(key, value);
+    }
+    has(key) { return this.cache.has(key); }
+    clear() { this.cache.clear(); }
+}
+
+/**
+ * Cache dla wyników wyszukiwania (LRU).
+ */
+let searchCache = new LRUCache(100);
 
 /**
  * Stan indeksu podpowiedzi dla predykcji wpisywanej frazy.
@@ -155,7 +178,7 @@ let searchCache = new Map();
  */
 let predictiveIndex = null;
 let predictiveIndexBuildTimer = null;
-let predictiveSuggestionsCache = new Map();
+let predictiveSuggestionsCache = new LRUCache(150);
 let predictiveUiState = { raw: '', norm: '', options: [], index: 0, hidden: false };
 let predictiveIsComposing = false;
 
@@ -164,6 +187,33 @@ let predictiveIsComposing = false;
  * @type {WeakMap<SVGElement, Object>}
  */
 const logoOrbitControllers = new WeakMap();
+
+/**
+ * Oblicza dystans Levenshteina między dwoma ciągami znaków (fuzzy matching).
+ */
+function getLevenshteinDistance(a, b) {
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    const matrix = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
+            else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+/**
+ * Oblicza podobieństwo (0.0 - 1.0) na podstawie dystansu Levenshteina.
+ */
+function getFuzzyScore(query, text) {
+    const distance = getLevenshteinDistance(query, text);
+    const maxLength = Math.max(query.length, text.length);
+    return maxLength === 0 ? 1.0 : 1.0 - (distance / maxLength);
+}
 
 //////////////////////////////////////////////////
 // CACHE ELEMENTÓW DOM
@@ -959,13 +1009,14 @@ function setupEventListeners() {
 function setupSearchListeners() {
     const debouncedSearch = debounce((query) => performSearch(query), 180);
     const debouncedLogSearch = debounce((query) => logClientEvent('search', { query }), 450);
+    const debouncedPredictive = debounce((query, source) => updatePredictiveSuggestions(query, { source }), 150);
     debouncedSearchRef = debouncedSearch;
     debouncedLogSearchRef = debouncedLogSearch;
 
     searchInput.addEventListener('input', (e) => {
         if (!isSearchEnabled) return;
         const query = e.target.value.trim();
-        updatePredictiveSuggestions(query, { source: 'input' });
+        debouncedPredictive(query, 'input');
         handleSearchInput(query, debouncedSearch, debouncedLogSearch);
     });
 
@@ -1140,6 +1191,7 @@ function setupMutationObserver() {
     if (!resultsList) return;
 
     const debouncedUpdate = debounce(() => {
+        syncRouteCategorySectionHeights();
         syncResultsEndIntersectionObserver();
         updateScrollIndicator();
     }, 120);
@@ -1832,7 +1884,6 @@ function groupSearchResults(filtered) {
  * Aktualizuje cache wyników wyszukiwania.
  */
 function updateSearchCache(query, results) {
-    if (searchCache.size > 50) searchCache.delete(searchCache.keys().next().value);
     searchCache.set(query, results);
 }
 
@@ -1974,6 +2025,10 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
     updateResultsCountInfo();
 
     const sections = ensureRouteCategorySections();
+    const reduceMotion = prefersReducedMotion();
+    const shouldAnimateEnter = !reduceMotion;
+    let enterOrdinal = 0;
+    const maxEnterAnimations = append ? 18 : 42;
     const fragmentByCategory = new Map();
     for (const category of ROUTE_CATEGORIES_ORDER) fragmentByCategory.set(category, document.createDocumentFragment());
 
@@ -1984,18 +2039,74 @@ function renderResults(query, { append = false, startIndex = 0 } = {}) {
         const targetCats = uniqueCats.length > 0 ? uniqueCats : ['STANDARD'];
         for (const category of targetCats) {
             if (!fragmentByCategory.has(category)) continue;
-            fragmentByCategory.get(category).appendChild(createResultGroupElement(group, index, query));
+            const animateIn = shouldAnimateEnter && enterOrdinal < maxEnterAnimations;
+            const enterDelayMs = animateIn ? Math.min(enterOrdinal, 12) * 24 : 0;
+            const el = createResultGroupElement(group, index, query, animateIn ? { animateIn: true, enterDelayMs } : undefined);
+            if (animateIn) enterOrdinal += 1;
+            fragmentByCategory.get(category).appendChild(el);
         }
     }
 
     for (const category of ROUTE_CATEGORIES_ORDER) {
         const section = sections.get(category);
         if (!section) continue;
-        section.body.appendChild(fragmentByCategory.get(category));
+        (section.inner || section.body).appendChild(fragmentByCategory.get(category));
     }
 
     updateRouteCategorySectionCounts(sections);
+    syncRouteCategorySectionHeights(sections);
     window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+}
+
+function ensureResultsCategoryBodyInner(body) {
+    if (!body || !(body instanceof HTMLElement)) return null;
+    const existing = body.querySelector('.results-category-body-inner');
+    if (existing && existing.parentElement === body) return existing;
+
+    const inner = document.createElement('div');
+    inner.className = 'results-category-body-inner';
+    while (body.firstChild) inner.appendChild(body.firstChild);
+    body.appendChild(inner);
+    return inner;
+}
+
+function syncRouteCategorySectionHeights(sections) {
+    if (!resultsList) return;
+
+    const entries = [];
+    if (sections instanceof Map) {
+        for (const entry of sections.values()) {
+            if (!entry || !entry.section || !entry.body) continue;
+            const body = entry.body;
+            const inner = entry.inner || ensureResultsCategoryBodyInner(body);
+            if (!inner) continue;
+            entries.push({ section: entry.section, body, inner });
+        }
+    } else {
+        const sectionEls = resultsList.querySelectorAll('.results-category');
+        for (const section of sectionEls) {
+            if (!(section instanceof HTMLElement)) continue;
+            const body = section.querySelector('.results-category-body');
+            if (!body || !(body instanceof HTMLElement)) continue;
+            const inner = ensureResultsCategoryBodyInner(body);
+            if (!inner) continue;
+            entries.push({ section, body, inner });
+        }
+    }
+
+    for (const entry of entries) {
+        if (entry.section.classList.contains('hidden')) continue;
+        const style = window.getComputedStyle(entry.section);
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+        if (entry.section.classList.contains('is-collapsed')) {
+            entry.body.style.setProperty('--qe-results-category-max', '0px');
+            continue;
+        }
+
+        const height = entry.inner.scrollHeight;
+        entry.body.style.setProperty('--qe-results-category-max', `${height}px`);
+    }
 }
 
 function ensureRouteCategorySections() {
@@ -2009,7 +2120,10 @@ function ensureRouteCategorySections() {
             const btn = existing.querySelector('.results-category-toggle');
             const count = existing.querySelector('.results-category-count');
             const body = existing.querySelector('.results-category-body');
-            if (btn && count && body) map.set(category, { section: existing, button: btn, count, body });
+            if (btn && count && body) {
+                const inner = ensureResultsCategoryBodyInner(body);
+                map.set(category, { section: existing, button: btn, count, body, inner });
+            }
             continue;
         }
 
@@ -2035,6 +2149,9 @@ function ensureRouteCategorySections() {
 
         const body = document.createElement('div');
         body.className = 'results-category-body';
+        const inner = document.createElement('div');
+        inner.className = 'results-category-body-inner';
+        body.appendChild(inner);
 
         const collapsed = isRouteCategoryCollapsed(category);
         section.classList.toggle('is-collapsed', collapsed);
@@ -2044,7 +2161,7 @@ function ensureRouteCategorySections() {
         section.appendChild(body);
         resultsList.appendChild(section);
 
-        map.set(category, { section, button, count, body });
+        map.set(category, { section, button, count, body, inner });
     }
 
     return map;
@@ -2079,10 +2196,41 @@ function toggleRouteCategorySection(category) {
     const section = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(cat)}"]`);
     if (!section) return;
     const button = section.querySelector('.results-category-toggle');
-    const isCollapsed = section.classList.toggle('is-collapsed');
-    if (button) button.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
-    storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, isCollapsed ? '1' : '0');
-    window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+    const body = section.querySelector('.results-category-body');
+    const inner = body ? ensureResultsCategoryBodyInner(body) : null;
+    const wasCollapsed = section.classList.contains('is-collapsed');
+    const reduceMotion = prefersReducedMotion();
+
+    if (!body || !inner || reduceMotion) {
+        const isCollapsed = section.classList.toggle('is-collapsed');
+        if (button) button.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+        storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, isCollapsed ? '1' : '0');
+        syncRouteCategorySectionHeights();
+        window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+        return;
+    }
+
+    if (wasCollapsed) {
+        body.style.setProperty('--qe-results-category-max', '0px');
+        section.classList.remove('is-collapsed');
+        if (button) button.setAttribute('aria-expanded', 'true');
+        storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, '0');
+        window.requestAnimationFrame(() => {
+            const height = inner.scrollHeight;
+            body.style.setProperty('--qe-results-category-max', `${height}px`);
+            window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+        });
+        return;
+    }
+
+    const height = inner.scrollHeight;
+    body.style.setProperty('--qe-results-category-max', `${height}px`);
+    if (button) button.setAttribute('aria-expanded', 'false');
+    storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, '1');
+    window.requestAnimationFrame(() => {
+        section.classList.add('is-collapsed');
+        window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+    });
 }
 
 function isRouteCategoryCollapsed(category) {
@@ -2100,10 +2248,12 @@ function cssEscapeAttrValue(value) {
 /**
  * Tworzy element grupy wyników (plik/trasa).
  */
-function createResultGroupElement(group, index, query) {
+function createResultGroupElement(group, index, query, { animateIn = false, enterDelayMs = 0 } = {}) {
     const routeName = formatRouteNameForResults(group.fileName);
     const groupDiv = document.createElement('div');
-    groupDiv.className = 'result-group'; groupDiv.dataset.index = index;
+    groupDiv.className = animateIn ? 'result-group qe-result-enter' : 'result-group';
+    groupDiv.dataset.index = index;
+    if (animateIn && Number.isFinite(enterDelayMs) && enterDelayMs > 0) groupDiv.style.setProperty('--qe-enter-delay', `${enterDelayMs}ms`);
     const rowsHtml = group.items.map(item => {
         const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
         const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
@@ -2129,12 +2279,12 @@ function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
             `<span class="result-col result-time">${highlightText(time, query)}</span>`,
             `<span class="result-col result-address">${highlightText(address, query)}</span>`,
             `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
-        ].map((html, idx) => (idx === 0 ? html : `<span class="result-sep">|</span>${html}`)).join('');
+        ].join('');
     }
     return result.cells.filter(c => !isEmptyCell(c)).map(c => {
         let text = String(c); if (isLab) text = toTitleCase(text);
         return `<span class="result-cell-fragment">${highlightText(text, query)}</span>`;
-    }).join('<span class="result-sep">|</span>');
+    }).join('');
 }
 
 /**
@@ -3036,14 +3186,6 @@ function parseTimeString(value) {
 /**
  * Formatuje znacznik czasu na czytelną datę i czas.
  */
-function formatTimestamp(ts) {
-    const d = new Date(ts);
-    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`;
-}
-
-/**
- * Uzupełnia liczbę zerem wiodącym.
- */
 function pad2(value) {
     return String(value).padStart(2, '0');
 }
@@ -3275,11 +3417,6 @@ function debounce(fn, delayMs) {
 }
 
 /**
- * Funkcja opóźniająca.
- */
-function waitMs(ms) { return new Promise(resolve => window.setTimeout(resolve, ms)); }
-
-/**
  * Wykonuje zadania z ograniczoną współbieżnością.
  */
 async function runWithConcurrency(items, limit, worker) {
@@ -3358,18 +3495,6 @@ async function docsPutBlob(fileName, blob) {
 }
 
 /**
- * Zabezpiecza ciąg dla RegExp.
- */
-function escapeRegExp(string) { return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
-/**
- * Bezpiecznie konwertuje obiekt na JSON.
- */
-function safeStringifyForSearch(value) {
-    try { return (value == null || typeof value === 'string') ? (value || '') : JSON.stringify(value); } catch { return ''; }
-}
-
-/**
  * Liczy niepuste komórki w wierszu.
  */
 function countNonEmpty(row) {
@@ -3431,9 +3556,11 @@ const PREDICT_TYPE_WEIGHT = Object.freeze({
 });
 
 const PREDICT_MATCH_WEIGHT = Object.freeze({
-    startsWith: 120,
-    tokenStartsWith: 75,
-    contains: 25
+    exactPrefix: 250,
+    exactWord: 200,
+    caseInsensitivePrefix: 150,
+    substring: 50,
+    fuzzy: 20
 });
 
 /**
@@ -3484,7 +3611,7 @@ function rebuildPredictiveIndex({ reason } = {}) {
             route: buildPredictiveBuckets(routeMap, 'route')
         }
     };
-    predictiveSuggestionsCache = new Map();
+    predictiveSuggestionsCache.clear();
 }
 
 /**
@@ -3568,14 +3695,25 @@ function updatePredictiveSuggestions(query, { source } = {}) {
     const raw = String(query ?? '');
     const norm = raw.trim();
     const changed = raw !== predictiveUiState.raw;
-    if (changed) predictiveUiState = { raw, norm, options: [], index: 0, hidden: false };
-    else { predictiveUiState.raw = raw; predictiveUiState.norm = norm; }
+    
+    if (changed) {
+        predictiveUiState = { raw, norm, options: [], index: 0, hidden: false };
+        // Pokaż stan ładowania jeśli zapytanie jest wystarczająco długie
+        if (norm.length >= PREDICT_MIN_CHARS) {
+            ghostOverlay.classList.remove('is-hidden');
+            ghostOverlay.classList.add('qe-ghost-loading');
+        }
+    } else { 
+        predictiveUiState.raw = raw; 
+        predictiveUiState.norm = norm; 
+    }
 
     if (!isSearchEnabled || norm.length < PREDICT_MIN_CHARS || raw !== norm) {
         predictiveUiState.hidden = true;
         hideGhostOverlay();
         return;
     }
+
     if (!predictiveIndex) {
         schedulePredictiveIndexRebuild({ reason: 'predictive_lazy' });
         predictiveUiState.hidden = true;
@@ -3587,6 +3725,7 @@ function updatePredictiveSuggestions(query, { source } = {}) {
     const options = cached || computePredictiveSuggestions(norm, PREDICT_MAX_OPTIONS);
     if (!cached) predictiveSuggestionsCache.set(norm, options);
 
+    ghostOverlay.classList.remove('qe-ghost-loading');
     predictiveUiState.options = Array.isArray(options) ? options : [];
     if (predictiveUiState.index >= predictiveUiState.options.length) predictiveUiState.index = 0;
 
@@ -3607,9 +3746,9 @@ function computePredictiveSuggestions(query, limit) {
     if (!bucketKey) return [];
 
     const scored = [];
-    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.address?.get(bucketKey), qf, 'address');
-    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.facility?.get(bucketKey), qf, 'facility');
-    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.route?.get(bucketKey), qf, 'route');
+    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.address?.get(bucketKey), q, qf, 'address');
+    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.facility?.get(bucketKey), q, qf, 'facility');
+    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.route?.get(bucketKey), q, qf, 'route');
 
     scored.sort((a, b) => (b.score - a.score) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
 
@@ -3638,25 +3777,59 @@ function predictiveCandidateStartsWithQuery(query, candidate) {
     return cf.startsWith(qf);
 }
 
-function scorePredictiveCandidatesInto(target, candidates, qf, type) {
+/**
+ * Oblicza wagę dla kandydata na podstawie dopasowania do zapytania.
+ */
+function scorePredictiveCandidatesInto(target, candidates, q, qf, type) {
     const list = Array.isArray(candidates) ? candidates : [];
     if (list.length === 0) return;
 
     const typeWeight = PREDICT_TYPE_WEIGHT[type] || 0;
-    const maxScan = 1600;
+    const maxScan = 2000; // Zwiększony limit skanowania dla lepszej jakości
+    
     for (let i = 0; i < list.length && i < maxScan; i++) {
         const c = list[i];
-        const text = String(c?.fuzzy || '');
-        if (!text) continue;
+        const value = String(c?.value || '');
+        const fuzzyValue = String(c?.fuzzy || '');
+        if (!value || !fuzzyValue) continue;
 
         let matchWeight = 0;
-        if (text.startsWith(qf)) matchWeight = PREDICT_MATCH_WEIGHT.startsWith;
-        else if (text.includes(` ${qf}`)) matchWeight = PREDICT_MATCH_WEIGHT.tokenStartsWith;
-        else if (text.includes(qf)) matchWeight = PREDICT_MATCH_WEIGHT.contains;
-        else continue;
+        
+        // 1. Exact prefix match (z uwzględnieniem wielkości liter jeśli to możliwe, ale tu mamy głównie fuzzy)
+        if (value.startsWith(q)) {
+            matchWeight = PREDICT_MATCH_WEIGHT.exactPrefix;
+        } 
+        // 2. Exact word match / Case-insensitive prefix
+        else if (fuzzyValue.startsWith(qf)) {
+            matchWeight = PREDICT_MATCH_WEIGHT.caseInsensitivePrefix;
+        }
+        // 3. Exact word match (początek słowa wewnątrz frazy)
+        else if (fuzzyValue.includes(` ${qf}`)) {
+            matchWeight = PREDICT_MATCH_WEIGHT.exactWord;
+        }
+        // 4. Substring match
+        else if (fuzzyValue.includes(qf)) {
+            matchWeight = PREDICT_MATCH_WEIGHT.substring;
+        }
+        // 5. Fuzzy match (jeśli zapytanie jest wystarczająco długie)
+        else if (qf.length >= 4) {
+            const fuzzyScore = getFuzzyScore(qf, fuzzyValue);
+            if (fuzzyScore > 0.7) {
+                matchWeight = PREDICT_MATCH_WEIGHT.fuzzy * fuzzyScore;
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        }
 
-        const freq = Math.min(36, Math.round(Math.log2(Math.max(1, Number(c.count || 1))) * 12));
-        target.push({ value: c.value, score: typeWeight + matchWeight + freq });
+        // Dodatkowa premia za częstotliwość (logarytmiczna)
+        const freqBonus = Math.min(50, Math.round(Math.log2(Math.max(1, Number(c.count || 1))) * 10));
+        
+        target.push({ 
+            value: c.value, 
+            score: typeWeight + matchWeight + freqBonus 
+        });
     }
 }
 
@@ -3667,14 +3840,23 @@ function renderGhostOverlay() {
 
     const query = String(predictiveUiState.raw || '');
     const suggestion = predictiveUiState.options[predictiveUiState.index] || '';
-    if (!query || !suggestion || suggestion.length <= query.length) { hideGhostOverlay(); return; }
-    if (String(predictiveUiState.norm || '') !== query) { hideGhostOverlay(); return; }
-    if (!predictiveCandidateStartsWithQuery(predictiveUiState.norm, suggestion)) { hideGhostOverlay(); return; }
+    
+    if (!query || !suggestion || suggestion.length <= query.length || 
+        String(predictiveUiState.norm || '') !== query || 
+        !predictiveCandidateStartsWithQuery(predictiveUiState.norm, suggestion)) { 
+        
+        // Nie ukrywaj jeśli trwa ładowanie
+        if (!ghostOverlay.classList.contains('qe-ghost-loading')) {
+            hideGhostOverlay(); 
+        }
+        return; 
+    }
 
     const selStart = Number(searchInput.selectionStart ?? 0);
     const selEnd = Number(searchInput.selectionEnd ?? 0);
     if (selStart !== selEnd || selEnd !== query.length) { hideGhostOverlay(); return; }
 
+    ghostOverlay.classList.remove('qe-ghost-loading');
     ghostPrefix.textContent = query;
     ghostSuffix.textContent = String(suggestion).slice(query.length);
     ghostOverlay.classList.toggle('is-hidden', ghostSuffix.textContent.length === 0);
@@ -3690,6 +3872,7 @@ function hideGhostOverlay() {
     if (!ghostOverlay || !ghostPrefix || !ghostSuffix) return;
     ghostPrefix.textContent = '';
     ghostSuffix.textContent = '';
+    ghostOverlay.classList.remove('qe-ghost-loading');
     ghostOverlay.classList.add('is-hidden');
 }
 
@@ -3732,11 +3915,16 @@ function handlePredictiveKeydown(e) {
         return;
     }
 
-    const canAccept = (key === 'Tab') || (key === 'ArrowRight' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey);
+    const canAccept = (key === 'Tab') || (key === 'Enter') || (key === 'ArrowRight' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey);
     if (canAccept) {
-        const ok = acceptPredictiveSuggestion();
-        if (ok) e.preventDefault();
-        return;
+        // Jeśli jest widoczna sugestia, zaakceptuj ją
+        if (!ghostOverlay?.classList.contains('is-hidden')) {
+            const ok = acceptPredictiveSuggestion();
+            if (ok) {
+                e.preventDefault();
+                return;
+            }
+        }
     }
 
     if (key === 'Escape') {
