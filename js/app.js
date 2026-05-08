@@ -1825,7 +1825,7 @@ async function performSearch(query) {
         }
         statusIndicator.textContent = 'Dane gotowe.';
         currentResults = matchedResults;
-        renderResults(trimmedQuery, { append: false, startIndex: 0 });
+        await renderResults(trimmedQuery, { append: false, startIndex: 0 });
     } catch (err) {
         handleSearchError(err);
     }
@@ -2017,16 +2017,30 @@ function resetAppData() {
 /**
  * Renderuje listę wyników wyszukiwania.
  */
-function renderResults(query, { append = false, startIndex = 0 } = {}) {
-    if (!append) clearElement(resultsList);
+async function renderResults(query, { append = false, startIndex = 0 } = {}) {
+    const reduceMotion = prefersReducedMotion();
+
+    if (!append && resultsList.children.length > 0 && !reduceMotion) {
+        // Jeśli nie dopisujemy wyników i mamy już coś na liście, robimy płynne wyjście
+        resultsList.classList.add('qe-results-exiting');
+        
+        // Czekamy na koniec animacji (180ms w CSS + margines bezpieczeństwa)
+        await new Promise(resolve => setTimeout(resolve, 160));
+        
+        resultsList.classList.remove('qe-results-exiting');
+        clearElement(resultsList);
+    } else if (!append) {
+        // Standardowe czyszczenie dla reduced motion lub pustej listy
+        clearElement(resultsList);
+    }
+
     if (currentResults.length === 0) {
         handleNoResultsToRender(); window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); }); return;
     }
     updateResultsCountInfo();
 
-    const sections = ensureRouteCategorySections();
-    const reduceMotion = prefersReducedMotion();
     const shouldAnimateEnter = !reduceMotion;
+    const sections = ensureRouteCategorySections({ animate: shouldAnimateEnter && !append });
     let enterOrdinal = 0;
     const maxEnterAnimations = append ? 18 : 42;
     const fragmentByCategory = new Map();
@@ -2109,59 +2123,77 @@ function syncRouteCategorySectionHeights(sections) {
     }
 }
 
-function ensureRouteCategorySections() {
+function ensureRouteCategorySections({ animate = false } = {}) {
     const map = new Map();
     const shouldRebuild = ROUTE_CATEGORIES_ORDER.some((c) => !resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(c)}"]`));
     if (shouldRebuild) clearElement(resultsList);
 
+    let sectionOrdinal = 0;
     for (const category of ROUTE_CATEGORIES_ORDER) {
-        const existing = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(category)}"]`);
-        if (existing) {
-            const btn = existing.querySelector('.results-category-toggle');
-            const count = existing.querySelector('.results-category-count');
-            const body = existing.querySelector('.results-category-body');
-            if (btn && count && body) {
-                const inner = ensureResultsCategoryBodyInner(body);
-                map.set(category, { section: existing, button: btn, count, body, inner });
-            }
-            continue;
+        let section = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(category)}"]`);
+        
+        if (!section) {
+            section = document.createElement('section');
+            section.className = 'results-category';
+            section.dataset.category = category;
+
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'results-category-toggle';
+            button.dataset.category = category;
+
+            const title = document.createElement('span');
+            title.className = 'results-category-title';
+            title.textContent = category;
+
+            const count = document.createElement('span');
+            count.className = 'results-category-count';
+            count.textContent = '0';
+
+            button.appendChild(title);
+            button.appendChild(count);
+
+            const body = document.createElement('div');
+            body.className = 'results-category-body';
+            const inner = document.createElement('div');
+            inner.className = 'results-category-body-inner';
+            body.appendChild(inner);
+
+            const collapsed = isRouteCategoryCollapsed(category);
+            section.classList.toggle('is-collapsed', collapsed);
+            button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+
+            section.appendChild(button);
+            section.appendChild(body);
+            resultsList.appendChild(section);
         }
 
-        const section = document.createElement('section');
-        section.className = 'results-category';
-        section.dataset.category = category;
+        // Dodajemy klasy animacji jeśli wymagane
+        if (animate) {
+            const collapsed = isRouteCategoryCollapsed(category);
+            section.classList.remove('qe-section-enter', 'qe-enter-left', 'qe-enter-right', 'qe-enter-center');
+            
+            // Wymuszamy reflow aby zresetować animację jeśli sekcja już istniała
+            void section.offsetWidth; 
+            
+            section.classList.add('qe-section-enter');
+            if (collapsed) {
+                // Naprzemienny wjazd dla zwiniętych
+                const directionClass = (sectionOrdinal % 2 === 0) ? 'qe-enter-left' : 'qe-enter-right';
+                section.classList.add(directionClass);
+            } else {
+                // Subtelne pojawienie się w centrum dla rozwiniętych
+                section.classList.add('qe-enter-center');
+            }
+            section.style.setProperty('--qe-section-delay', `${sectionOrdinal * 60}ms`);
+            sectionOrdinal++;
+        }
 
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'results-category-toggle';
-        button.dataset.category = category;
-
-        const title = document.createElement('span');
-        title.className = 'results-category-title';
-        title.textContent = category;
-
-        const count = document.createElement('span');
-        count.className = 'results-category-count';
-        count.textContent = '0';
-
-        button.appendChild(title);
-        button.appendChild(count);
-
-        const body = document.createElement('div');
-        body.className = 'results-category-body';
-        const inner = document.createElement('div');
-        inner.className = 'results-category-body-inner';
-        body.appendChild(inner);
-
-        const collapsed = isRouteCategoryCollapsed(category);
-        section.classList.toggle('is-collapsed', collapsed);
-        button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-
-        section.appendChild(button);
-        section.appendChild(body);
-        resultsList.appendChild(section);
-
-        map.set(category, { section, button, count, body, inner });
+        const btn = section.querySelector('.results-category-toggle');
+        const count = section.querySelector('.results-category-count');
+        const body = section.querySelector('.results-category-body');
+        const inner = ensureResultsCategoryBodyInner(body);
+        map.set(category, { section, button: btn, count, body, inner });
     }
 
     return map;
@@ -2251,7 +2283,11 @@ function cssEscapeAttrValue(value) {
 function createResultGroupElement(group, index, query, { animateIn = false, enterDelayMs = 0 } = {}) {
     const routeName = formatRouteNameForResults(group.fileName);
     const groupDiv = document.createElement('div');
-    groupDiv.className = animateIn ? 'result-group qe-result-enter' : 'result-group';
+    
+    // Określamy kierunek animacji na podstawie indeksu (parzyste z lewej, nieparzyste z prawej)
+    const directionClass = (index % 2 === 0) ? 'qe-enter-left' : 'qe-enter-right';
+    groupDiv.className = animateIn ? `result-group qe-result-enter ${directionClass}` : 'result-group';
+    
     groupDiv.dataset.index = index;
     if (animateIn && Number.isFinite(enterDelayMs) && enterDelayMs > 0) groupDiv.style.setProperty('--qe-enter-delay', `${enterDelayMs}ms`);
     const rowsHtml = group.items.map(item => {

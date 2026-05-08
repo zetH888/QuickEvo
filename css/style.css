@@ -629,20 +629,91 @@ input:checked + .slider:before {
 }
 
 .qe-result-enter {
-    animation: qeResultEnter 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation-duration: 480ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-fill-mode: both;
     animation-delay: var(--qe-enter-delay, 0ms);
+    will-change: transform, opacity, filter;
 }
 
-@keyframes qeResultEnter {
+/* Animacje sekcji */
+.qe-section-enter {
+    animation-duration: 520ms;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+    animation-fill-mode: both;
+    animation-delay: var(--qe-section-delay, 0ms);
+    will-change: transform, opacity, filter;
+}
+
+.qe-section-enter.qe-enter-left,
+.qe-result-enter.qe-enter-left {
+    animation-name: qeResultEnterLeft;
+}
+
+.qe-section-enter.qe-enter-right,
+.qe-result-enter.qe-enter-right {
+    animation-name: qeResultEnterRight;
+}
+
+.qe-section-enter.qe-enter-center {
+    animation-name: qeSectionEnterCenter;
+}
+
+/* Animacja wyjścia wyników */
+.qe-results-exiting {
+    pointer-events: none;
+    animation: qeResultsExit 180ms ease-in forwards;
+}
+
+@keyframes qeResultsExit {
+    from {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        filter: blur(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.98);
+        filter: blur(4px);
+    }
+}
+
+@keyframes qeResultEnterLeft {
     from {
         opacity: 0;
-        transform: translateY(10px) scale(0.99);
-        filter: blur(6px);
+        transform: translateX(-30px) scale(0.97);
+        filter: blur(8px);
     }
     to {
         opacity: 1;
-        transform: translateY(0px) scale(1);
-        filter: blur(0px);
+        transform: translateX(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+@keyframes qeResultEnterRight {
+    from {
+        opacity: 0;
+        transform: translateX(30px) scale(0.97);
+        filter: blur(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0) scale(1);
+        filter: blur(0);
+    }
+}
+
+@keyframes qeSectionEnterCenter {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+        filter: blur(10px);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+        filter: blur(0);
     }
 }
 
