@@ -4,6 +4,7 @@
     const TRIM_CHUNK = 750;
     const INITIAL_RENDER_LIMIT = 600;
     const APPEND_BATCH_LIMIT = 120;
+    const MIN_DESKTOP_WIDTH = 769;
 
     const state = {
         mounted: false,
@@ -12,6 +13,10 @@
         lastRenderedIndex: 0,
         renderScheduled: false,
         pendingClearConfirmUntil: 0,
+        pendingClearDbConfirmUntil: 0,
+        pendingClearRndConfirmUntil: 0,
+        clearDbBusy: false,
+        clearRndBusy: false,
         toastTimer: 0
     };
 
@@ -23,6 +28,9 @@
         panel: null,
         closeBtn: null,
         clearBtn: null,
+        clearDbBtn: null,
+        clearRndBtn: null,
+        matrixToggleBtn: null,
         countEl: null,
         list: null,
         toast: null
@@ -35,6 +43,7 @@
     function now() { return Date.now(); }
     function clamp(n, a, b) { return Math.min(b, Math.max(a, n)); }
     function raf(fn) { return window.requestAnimationFrame(fn); }
+    function isDesktopViewport() { try { return window.innerWidth >= MIN_DESKTOP_WIDTH; } catch { return false; } }
 
     function normalizeLevel(level) {
         const lvl = String(level || 'INFO').toUpperCase();
@@ -108,6 +117,7 @@
 
     function ensureMounted() {
         if (state.mounted) return;
+        if (!isDesktopViewport()) return;
         state.mounted = true;
 
         dom.host = document.createElement('div');
@@ -145,18 +155,21 @@
 .wrap[data-open="true"] .panel{opacity:1; visibility:visible; transform:translateY(0) scale(1)}
 
 .header{position:relative; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 10px 8px 12px; border-bottom:1px solid var(--border-color); background:rgba(0,0,0,0)}
-.title{display:flex; align-items:baseline; gap:8px; min-width:0}
-.titleName{font-weight:800; letter-spacing:0.2px; color:var(--text-color); white-space:nowrap}
-.count{font-weight:700; font-size:0.82rem; color:var(--secondary-text)}
+.title{display:flex; align-items:center; gap:8px; min-width:0}
+.titleName{font-weight:800; letter-spacing:0.2px; color:var(--text-color); white-space:nowrap; line-height:1}
+.count{font-weight:700; font-size:0.82rem; color:var(--secondary-text); line-height:1}
 
 .actions{display:flex; align-items:center; gap:8px}
-.matrix-easter-egg{appearance:none; border:0; background:transparent; padding:0; width:96px; height:32px; display:inline-flex; align-items:center; justify-content:center; opacity:0.75; cursor:pointer; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); transition:opacity 180ms ease, filter 300ms ease, transform 120ms ease}
-.matrix-easter-egg:hover{opacity:1; filter:brightness(1.08)}
-.matrix-easter-egg:active{transform:translate(-50%,-50%) translateY(1px)}
-.matrix-easter-egg svg{width:92px; height:28px; display:block}
-.matrix-easter-egg .matrix-pill-knob{transform:translateX(0px); transition:transform 300ms ease; transform-box:fill-box; transform-origin:center}
-.matrix-easter-egg[data-active="true"] .matrix-pill-knob{transform:translateX(44px)}
-.matrix-easter-egg:focus-visible{outline:2px solid var(--primary-color); outline-offset:3px}
+.matrix-toggle-dot{appearance:none; width:12px; height:12px; border-radius:999px; padding:0; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; flex:0 0 auto; transform:translateZ(0); --led-bright:#ff2e2e; --led-dim:#8d1616; --led-border-bright:rgba(255,46,46,0.55); --led-border-dim:rgba(255,46,46,0.22); --led-glow-bright:rgba(255,46,46,0.55); --led-glow-dim:rgba(255,46,46,0.14); border:1px solid var(--led-border-dim); background:var(--led-dim); box-shadow:0 0 0 1px rgba(0,0,0,0.45) inset, 0 0 10px var(--led-glow-dim); transition:filter 200ms ease, transform 120ms ease; animation:qe-led-blip 800ms steps(1,end) infinite}
+.matrix-toggle-dot:hover{filter:brightness(1.08)}
+.matrix-toggle-dot:active{transform:translateY(1px)}
+.matrix-toggle-dot:focus-visible{outline:2px solid var(--primary-color); outline-offset:3px}
+.matrix-toggle-dot[data-active="true"]{--led-bright:#00ff41; --led-dim:#0a7f2a; --led-border-bright:rgba(0,255,65,0.58); --led-border-dim:rgba(0,255,65,0.22); --led-glow-bright:rgba(0,255,65,0.62); --led-glow-dim:rgba(0,255,65,0.16)}
+
+@keyframes qe-led-blip{
+  0%, 74.999%{background:var(--led-dim); border-color:var(--led-border-dim); box-shadow:0 0 0 1px rgba(0,0,0,0.45) inset, 0 0 10px var(--led-glow-dim)}
+  75%, 100%{background:var(--led-bright); border-color:var(--led-border-bright); box-shadow:0 0 0 1px rgba(0,0,0,0.45) inset, 0 0 12px var(--led-glow-bright)}
+}
 .btn{appearance:none; border:1px solid var(--border-color); background:var(--state-hover); color:var(--text-color); border-radius:10px; padding:6px 10px; cursor:pointer; font-weight:800; line-height:1; display:inline-flex; align-items:center; gap:6px; transition:background 140ms ease, border-color 140ms ease, transform 120ms ease}
 .btn:hover{background:var(--state-active)}
 .btn:active{transform:translateY(1px)}
@@ -183,8 +196,13 @@
   .row{grid-template-columns:82px 56px 1fr; gap:8px}
 }
 
+@media (min-width: 769px){
+  .panel{width:min(590px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)))}
+}
+
 @media (prefers-reduced-motion: reduce){
-  .fab, .panel, .toast, .btn, .matrix-easter-egg, .matrix-easter-egg .matrix-pill-knob{transition:none !important}
+  .fab, .panel, .toast, .btn, .matrix-toggle-dot{transition:none !important}
+  .matrix-toggle-dot{animation:none !important}
 }
 
 @media (forced-colors: active){
@@ -233,45 +251,14 @@
         const actions = document.createElement('div');
         actions.className = 'actions';
 
-        const matrixBtn = (window.QE_MatrixTheme && typeof window.QE_MatrixTheme.createEasterEggButton === 'function')
-            ? window.QE_MatrixTheme.createEasterEggButton()
-            : (() => {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'matrix-easter-egg';
-                btn.setAttribute('aria-hidden', 'true');
-                btn.tabIndex = -1;
-                btn.dataset.active = window.isMatrixThemeActive ? 'true' : 'false';
-                btn.innerHTML = `<svg class="matrix-pill" viewBox="0 0 92 28" role="presentation" aria-hidden="true">
-  <defs>
-    <linearGradient id="pillBlue_fallback" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#0096c7"/>
-      <stop offset="1" stop-color="#00BFFF"/>
-    </linearGradient>
-    <linearGradient id="pillRed_fallback" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#c1121f"/>
-      <stop offset="1" stop-color="#FF0000"/>
-    </linearGradient>
-  </defs>
-  <rect x="1" y="1" width="90" height="26" rx="13" fill="rgba(0,0,0,0.35)" stroke="rgba(255,255,255,0.14)"/>
-  <path d="M14 2h32v24H14c-6.6 0-12-5.4-12-12S7.4 2 14 2Z" fill="url(#pillBlue_fallback)" opacity="0.92"/>
-  <path d="M46 2h32c6.6 0 12 5.4 12 12s-5.4 12-12 12H46V2Z" fill="url(#pillRed_fallback)" opacity="0.92"/>
-  <text x="23.5" y="18" text-anchor="middle" font-family="Courier New, monospace" font-size="10" font-weight="900" fill="rgba(0,0,0,0.75)">STAY</text>
-  <text x="68.5" y="18" text-anchor="middle" font-family="Courier New, monospace" font-size="10" font-weight="900" fill="rgba(0,0,0,0.75)">LEAVE</text>
-  <g class="matrix-pill-knob">
-    <rect x="4" y="4" width="40" height="20" rx="10" fill="rgba(0,0,0,0.55)" stroke="rgba(255,255,255,0.22)"/>
-  </g>
-</svg>`;
-                btn.addEventListener('click', () => {
-                    const next = window.QE_MatrixTheme?.toggle?.();
-                    if (typeof next === 'boolean') btn.dataset.active = next ? 'true' : 'false';
-                });
-                window.addEventListener('qe:matrix-theme-changed', (ev) => {
-                    const next = Boolean(ev && ev.detail && ev.detail.active);
-                    btn.dataset.active = next ? 'true' : 'false';
-                }, { passive: true });
-                return btn;
-            })();
+        const matrixToggleBtn = document.createElement('button');
+        matrixToggleBtn.type = 'button';
+        matrixToggleBtn.className = 'matrix-toggle-dot';
+        matrixToggleBtn.setAttribute('aria-label', 'Przełącz motyw Matrix');
+        matrixToggleBtn.dataset.active = (window.QE_MatrixTheme?.isActive?.() ?? window.isMatrixThemeActive) ? 'true' : 'false';
+        dom.matrixToggleBtn = matrixToggleBtn;
+
+        title.insertBefore(matrixToggleBtn, titleName);
 
         const clearBtn = document.createElement('button');
         clearBtn.className = 'btn btn--danger';
@@ -280,6 +267,20 @@
         clearBtn.innerHTML = trashIconSvg() + '<span>Wyczyść</span>';
         dom.clearBtn = clearBtn;
 
+        const clearDbBtn = document.createElement('button');
+        clearDbBtn.className = 'btn btn--danger';
+        clearDbBtn.type = 'button';
+        clearDbBtn.setAttribute('aria-label', 'Wyczyść bazę IndexedDB (store files)');
+        clearDbBtn.innerHTML = dbIconSvg() + '<span>clear db</span>';
+        dom.clearDbBtn = clearDbBtn;
+
+        const clearRndBtn = document.createElement('button');
+        clearRndBtn.className = 'btn btn--danger';
+        clearRndBtn.type = 'button';
+        clearRndBtn.setAttribute('aria-label', 'Wyczyść losowe rekordy z IndexedDB (store files)');
+        clearRndBtn.innerHTML = diceIconSvg() + '<span>clear rnd</span>';
+        dom.clearRndBtn = clearRndBtn;
+
         const closeBtn = document.createElement('button');
         closeBtn.className = 'btn btn--ghost';
         closeBtn.type = 'button';
@@ -287,8 +288,9 @@
         closeBtn.innerHTML = closeIconSvg();
         dom.closeBtn = closeBtn;
 
-        actions.appendChild(matrixBtn);
         actions.appendChild(clearBtn);
+        actions.appendChild(clearDbBtn);
+        actions.appendChild(clearRndBtn);
         actions.appendChild(closeBtn);
 
         header.appendChild(title);
@@ -319,7 +321,19 @@
         fab.addEventListener('click', () => setOpen(!state.open));
         closeBtn.addEventListener('click', () => setOpen(false));
         clearBtn.addEventListener('click', onClearClick);
+        clearDbBtn.addEventListener('click', onClearDbClick);
+        clearRndBtn.addEventListener('click', onClearRndClick);
         list.addEventListener('scroll', () => scheduleRender(), { passive: true });
+
+        matrixToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const next = window.QE_MatrixTheme?.toggle?.();
+            if (typeof next === 'boolean') matrixToggleBtn.dataset.active = next ? 'true' : 'false';
+        });
+        window.addEventListener('qe:matrix-theme-changed', (ev) => {
+            const next = Boolean(ev && ev.detail && ev.detail.active);
+            if (dom.matrixToggleBtn) dom.matrixToggleBtn.dataset.active = next ? 'true' : 'false';
+        }, { passive: true });
 
         document.addEventListener('keydown', (e) => {
             if (!state.open) return;
@@ -377,6 +391,106 @@
                 updateClearButton(false);
             }
         }, 1700);
+    }
+
+    function updateClearDbButton(confirming) {
+        if (!dom.clearDbBtn) return;
+        if (confirming) {
+            dom.clearDbBtn.innerHTML = checkIconSvg() + '<span>Potwierdź</span>';
+            dom.clearDbBtn.setAttribute('aria-label', 'Potwierdź czyszczenie IndexedDB (store files)');
+        } else {
+            dom.clearDbBtn.innerHTML = dbIconSvg() + '<span>clear db</span>';
+            dom.clearDbBtn.setAttribute('aria-label', 'Wyczyść bazę IndexedDB (store files)');
+        }
+    }
+
+    function updateClearRndButton(confirming) {
+        if (!dom.clearRndBtn) return;
+        if (confirming) {
+            dom.clearRndBtn.innerHTML = checkIconSvg() + '<span>Potwierdź</span>';
+            dom.clearRndBtn.setAttribute('aria-label', 'Potwierdź losowe czyszczenie IndexedDB (store files)');
+        } else {
+            dom.clearRndBtn.innerHTML = diceIconSvg() + '<span>clear rnd</span>';
+            dom.clearRndBtn.setAttribute('aria-label', 'Wyczyść losowe rekordy z IndexedDB (store files)');
+        }
+    }
+
+    function onClearDbClick() {
+        const t = now();
+        if (state.clearDbBusy) return;
+        if (t < state.pendingClearDbConfirmUntil) {
+            state.pendingClearDbConfirmUntil = 0;
+            updateClearDbButton(false);
+            runClearDb();
+            return;
+        }
+        state.pendingClearDbConfirmUntil = t + 1600;
+        updateClearDbButton(true);
+        window.setTimeout(() => {
+            if (now() >= state.pendingClearDbConfirmUntil) {
+                state.pendingClearDbConfirmUntil = 0;
+                updateClearDbButton(false);
+            }
+        }, 1700);
+    }
+
+    function onClearRndClick() {
+        const t = now();
+        if (state.clearRndBusy) return;
+        if (t < state.pendingClearRndConfirmUntil) {
+            state.pendingClearRndConfirmUntil = 0;
+            updateClearRndButton(false);
+            runClearRnd();
+            return;
+        }
+        state.pendingClearRndConfirmUntil = t + 1600;
+        updateClearRndButton(true);
+        window.setTimeout(() => {
+            if (now() >= state.pendingClearRndConfirmUntil) {
+                state.pendingClearRndConfirmUntil = 0;
+                updateClearRndButton(false);
+            }
+        }, 1700);
+    }
+
+    async function runClearDb() {
+        const btn = dom.clearDbBtn;
+        state.clearDbBusy = true;
+        if (btn) btn.disabled = true;
+        try {
+            const fn = window.QE_DevTools?.clearFilesStore;
+            if (typeof fn !== 'function') throw new Error('Brak QE_DevTools.clearFilesStore');
+            await fn();
+            showToast('Wyczyszczono IndexedDB (files)');
+            push('dev_clear_db', { ok: true }, 'INFO');
+        } catch (err) {
+            showToast('Błąd clear db');
+            push('dev_clear_db', { ok: false, message: err?.message ? String(err.message) : String(err) }, 'ERROR');
+        } finally {
+            state.clearDbBusy = false;
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function runClearRnd() {
+        const btn = dom.clearRndBtn;
+        state.clearRndBusy = true;
+        if (btn) btn.disabled = true;
+        try {
+            const fn = window.QE_DevTools?.clearRandomFiles;
+            if (typeof fn !== 'function') throw new Error('Brak QE_DevTools.clearRandomFiles');
+            const res = await fn({ fraction: 0.2 });
+            const deleted = Number(res?.deleted ?? 0) || 0;
+            const total = Number(res?.total ?? 0) || 0;
+            showToast(`Clear RND: ${deleted}/${total}`);
+            push('dev_clear_rnd', { ok: true, deleted, total }, 'INFO');
+        } catch (err) {
+            showToast('Błąd clear rnd');
+            push('dev_clear_rnd', { ok: false, message: err?.message ? String(err.message) : String(err) }, 'ERROR');
+        } finally {
+            state.clearRndBusy = false;
+            if (btn) btn.disabled = false;
+        }
     }
 
     function updateClearButton(confirming) {
@@ -510,6 +624,14 @@
 
     function trashIconSvg() {
         return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3a1 1 0 0 0-1 1v1H5a1 1 0 1 0 0 2h1v13a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7h1a1 1 0 1 0 0-2h-3V4a1 1 0 0 0-1-1H9Zm1 2h4v0H10v0Zm-2 2h8v13H8V7Zm2 2a1 1 0 0 0-1 1v8a1 1 0 1 0 2 0v-8a1 1 0 0 0-1-1Zm4 0a1 1 0 0 0-1 1v8a1 1 0 1 0 2 0v-8a1 1 0 0 0-1-1Z"/></svg>`;
+    }
+
+    function dbIconSvg() {
+        return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c-4.97 0-9 1.79-9 4v12c0 2.21 4.03 4 9 4s9-1.79 9-4V6c0-2.21-4.03-4-9-4Zm0 2c4.07 0 7 .99 7 2s-2.93 2-7 2-7-.99-7-2 2.93-2 7-2Zm0 6c4.07 0 7-.99 7-2v3c0 1.01-2.93 2-7 2s-7-.99-7-2V8c0 1.01 2.93 2 7 2Zm0 6c4.07 0 7-.99 7-2v3c0 1.01-2.93 2-7 2s-7-.99-7-2v-3c0 1.01 2.93 2 7 2Z"/></svg>`;
+    }
+
+    function diceIconSvg() {
+        return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v10h10V5H7Zm1.5 1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm-3.5 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm-3.5 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>`;
     }
 
     function checkIconSvg() {

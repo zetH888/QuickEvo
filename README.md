@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="./assets/hero.png" alt="QuickEvo — hero" width="100%" />
+  <img src="./assets/hero.png" alt="QuickEvo — hero" width="100%" style="pointer-events: none;" />
 </p>
 
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.0.0-blue)
+![Version](https://img.shields.io/badge/version-2.0.30-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -94,6 +94,8 @@ QuickEvo/
 Moduł `qe-debugger.js` udostępnia:
 
 - Panel floating w prawym górnym rogu (Shadow DOM)
+- Przyciski testowe: `clear db` (czyści magazyn `files` w IndexedDB) oraz `clear rnd` (usuwa losowo ~20% rekordów z magazynu `files`)
+- Debugger jest dostępny wyłącznie na desktopie (viewport >= 769px)
 - Funkcja `window.logAction(action, payload, level)` do logowania zdarzeń
 - Obiekt `window.QE_Debugger` z metodami: `open()`, `close()`, `toggle()`, `clear()`, `log()`, `benchmark()`
 - Wbudowane testy automatyczne uruchamiane przez parametr URL (`?test=1`)
@@ -131,4 +133,4 @@ Moduł `qe-debugger.js` udostępnia:
 
 ## Stan projektu
 
-Aktywny rozwój. Aktualna wersja: 2.0.0.
+Aktywny rozwój. Aktualna wersja: 2.0.30.

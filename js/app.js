@@ -227,7 +227,7 @@ const fileCountSpan = document.getElementById('file-count');
 const themeToggle = document.getElementById('theme-toggle');
 const themeIcon = document.getElementById('theme-icon');
 const importButton = document.getElementById('import-button');
-const importGoogleDriveButton = document.getElementById('import-google-drive-button');
+const googleDriveButton = document.getElementById('import-google-drive-button');
 const fileInput = document.getElementById('file-input');
 const uploadProgressContainer = document.getElementById('upload-progress-container');
 const uploadProgress = document.getElementById('upload-progress');
@@ -1035,9 +1035,9 @@ function setupImportListeners() {
         logAction('import', { phase: 'open_dialog' }, 'INFO');
         fileInput?.click();
     });
-    if (importGoogleDriveButton) importGoogleDriveButton.addEventListener('click', async () => {
-        logAction('import', { phase: 'open_google_picker' }, 'INFO');
-        await handleImportGoogleDrive();
+    if (googleDriveButton) googleDriveButton.addEventListener('click', async () => {
+        logAction('sync', { phase: 'start', source: 'toolbar' }, 'INFO');
+        await handleGoogleDriveSync({ source: 'toolbar' });
     });
     if (fileInput) {
         fileInput.addEventListener('change', async (e) => {
@@ -1238,7 +1238,7 @@ function setupLoadingContinueHandlers() {
         loadingContinueButton.addEventListener('click', continueToApp);
     }
     if (syncGDriveButton) {
-        syncGDriveButton.addEventListener('click', handleGoogleDriveSync);
+        syncGDriveButton.addEventListener('click', () => handleGoogleDriveSync({ source: 'welcome' }));
     }
 }
 
@@ -1472,7 +1472,7 @@ async function processImportFiles(accepted, summary) {
     for (const file of accepted) {
         const name = String(file.name || '').trim();
         if (!name) continue;
-        uploadStatus.textContent = `Importuję: ${formatFileName(name)}`;
+        setUploadStatusText(`Importuję: ${formatFileName(name)}`);
         if (uploadProgress) uploadProgress.value = Math.max(0, Math.min(95, (processed / accepted.length) * 100));
         try {
             await docsPutBlob(name, file);
@@ -1491,153 +1491,279 @@ async function processImportFiles(accepted, summary) {
 }
 
 /**
- * Obsługuje inicjalizację importu z Google Drive.
+ * Przełącza stan „zajętości” przycisków Google Drive, aby uniknąć uruchamiania wielu synchronizacji równocześnie.
  */
-async function handleImportGoogleDrive() {
-    const api = window.GoogleDriveImport;
-    if (!api) {
-        handleGoogleDriveUnavailable();
-        return;
-    }
-    setGoogleDriveLoadingState(true);
-    const summary = { files: [], records: 0, errors: 0, rejected: 0 };
-    const before = allData.length;
-    try {
-        const picked = await api.pickExcelFiles();
-        const pickedFiles = Array.isArray(picked?.files) ? picked.files : [];
-        if (pickedFiles.length === 0) {
-            handleGoogleDriveCancel();
-            return;
-        }
-        const accessToken = picked.accessToken;
-        const accepted = filterGoogleDriveFiles(pickedFiles, api);
-        summary.errors += (pickedFiles.length - accepted.length);
-        if (accepted.length === 0) {
-            uploadStatus.textContent = 'Google Drive: brak poprawnych plików (.xlsx/.xls).';
-            return;
-        }
-        const toImport = await resolveImportConflicts(accepted);
-        if (toImport.length === 0) {
-            logAction('import', { source: 'google_drive', phase: 'skipped_by_user' });
-            return;
-        }
-        await importFilesFromGoogleDrive(toImport, api, accessToken, summary);
-        finalizeGoogleDriveImport(summary, before);
-    } catch (err) {
-        handleGoogleDriveError(err);
-    } finally {
-        setGoogleDriveLoadingState(false);
-    }
+function setGoogleDriveSyncButtonsBusy(loading) {
+    const busy = String(Boolean(loading));
+    if (googleDriveButton) { googleDriveButton.setAttribute('aria-busy', busy); googleDriveButton.disabled = Boolean(loading); }
+    if (syncGDriveButton) { syncGDriveButton.setAttribute('aria-busy', busy); syncGDriveButton.disabled = Boolean(loading); }
+}
+
+let googleDriveSyncIsImporting = false;
+let googleDriveConnectSession = null;
+let googleDriveConnectSeq = 0;
+
+/**
+ * Formatuje timestamp (ms) do czytelnej postaci dla modala synchronizacji.
+ */
+function formatDriveTimestamp(ts) {
+    const n = Number(ts);
+    if (!Number.isFinite(n) || n <= 0) return '-';
+    try { return new Date(n).toLocaleString('pl-PL'); } catch { return String(n); }
 }
 
 /**
- * Importuje pliki z Google Drive przy użyciu tokena.
+ * Buduje treść modala z listą plików wykrytych jako zmienione.
  */
-async function importFilesFromGoogleDrive(accepted, api, accessToken, summary) {
-    let done = 0;
-    const total = accepted.length;
-    uploadStatus.textContent = `Google Drive: importuję ${total} plik(ów)...`;
-    await runWithConcurrency(accepted, 2, async (meta) => {
-        const name = String(meta.name).trim();
-        try {
-            uploadStatus.textContent = `Google Drive: pobieram ${formatFileName(name)}...`;
-            const ab = await api.downloadFileArrayBuffer(meta.id, accessToken);
-            if (Number(ab?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
-            await importSpreadsheetArrayBuffer(name, ab, meta.mimeType);
-            summary.files.push(name);
-        } catch (err) {
-            summary.errors += 1;
-            logAction('import', { source: 'google_drive', fileName: name, message: err.message }, 'ERROR');
-        } finally {
-            done += 1;
-            if (uploadProgress) uploadProgress.value = Math.round((done / total) * 100);
-        }
-    });
+function buildDriveChangesModalHtml(changed) {
+    const safeList = Array.isArray(changed) ? changed : [];
+    const items = safeList.map((f) => {
+        const name = escapeHtml(formatFileName(f?.name || ''));
+        const reasonRaw = String(f?.changeReason || '').trim() || 'Zmieniono';
+        const reason = escapeHtml(reasonRaw);
+        const prevTs = Number(f?.previousDriveModifiedAt);
+        const nextTs = Number(f?.driveModifiedAt);
+        const prev = Number.isFinite(prevTs) && prevTs > 0 ? escapeHtml(formatDriveTimestamp(prevTs)) : '';
+        const next = Number.isFinite(nextTs) && nextTs > 0 ? escapeHtml(formatDriveTimestamp(nextTs)) : '';
+        const prevRow = prev ? `<div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v">${prev}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v">Brak danych</span></div>`;
+        const nextRow = next ? `<div class="qe-drive-kv"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v">${next}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v">Brak danych</span></div>`;
+        return `<li class="qe-drive-change"><div class="qe-drive-change-head"><div class="qe-drive-change-name">${name}</div><div class="qe-drive-chip">${reason}</div></div><div class="qe-drive-change-meta">${prevRow}${nextRow}</div></li>`;
+    }).join('');
+
+    return `<div class="qe-drive-modal"><div class="qe-drive-summary">Wykryto <strong>${escapeHtml(safeList.length)}</strong> plik(ów) zmienionych od ostatniej synchronizacji.</div><ul class="qe-drive-changes">${items}</ul><div class="qe-drive-question">Nadpisać tylko te zmienione pliki?</div></div>`;
+}
+
+function buildDriveConnectingModalHtml(stageText) {
+    const stage = escapeHtml(String(stageText || '').trim() || 'Łączenie z Google Drive...');
+    return `<div class="qe-drive-connecting"><div class="qe-spinner" aria-hidden="true"></div><div class="qe-drive-connecting-title">${stage}</div><div class="qe-drive-connecting-sub">To może potrwać kilka sekund. Nie zamykaj aplikacji.</div><div class="qe-indeterminate" aria-hidden="true"><div class="qe-indeterminate-bar"></div></div></div>`;
+}
+
+function buildDriveNoChangesModalHtml() {
+    return `<div class="qe-drive-modal qe-drive-modal--ok"><div class="qe-drive-summary"><strong>Dane aktualne.</strong> Nie wykryto zmian w folderze Google Drive od ostatniej synchronizacji.</div></div>`;
 }
 
 /**
  * Rozpoczyna synchronizację z Google Drive dla wskazanego folderu.
  */
-async function startGoogleDriveSync(files, token) {
-    logAction('sync', { phase: 'process', count: files.length });
-    const toImport = await resolveImportConflicts(files);
-    if (toImport.length === 0) {
-        logAction('sync', { phase: 'skipped_by_user' });
-        return;
-    }
-    if (welcomeImportProgress) {
+async function startGoogleDriveSync(files, token, { source } = {}) {
+    const api = window.GoogleDriveImport;
+    const list = Array.isArray(files) ? files : [];
+    if (!api) throw new Error('Moduł Google Drive jest niedostępny');
+    if (list.length === 0) return;
+
+    googleDriveSyncIsImporting = true;
+    setGoogleDriveSyncButtonsBusy(true);
+    logAction('sync', { phase: 'process', count: list.length, source: source || 'unknown' });
+
+    const isWelcomeVisible = Boolean(loadingOverlay && !loadingOverlay.classList.contains('hidden'));
+    if (isWelcomeVisible && welcomeImportProgress) {
         welcomeImportProgress.classList.remove('hidden');
         clearElement(welcomeProgressList);
     }
-    setImportLoadingState(true, toImport.length);
+
+    uploadProgressContainer?.classList.remove('hidden');
+    if (uploadProgress) uploadProgress.value = 0;
+    setUploadStatusText(`Google Drive: synchronizacja ${list.length} plik(ów)...`, { animate: false });
+
     const summary = { files: [], records: 0, errors: 0 };
+    const before = allData.length;
+
     try {
-        const before = allData.length;
         let processed = 0;
-        for (const file of toImport) {
-            const name = file.name;
-            const progressItem = createWelcomeProgressItem(name);
-            welcomeProgressList.appendChild(progressItem);
-            progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-            setLoadingStatusText(`Pobieranie: ${formatFileName(name)}...`);
-            if (loadingProgressBar) {
-                loadingProgressBar.value = (processed / toImport.length) * 100;
-                if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(loadingProgressBar.value)}%`;
+        for (const file of list) {
+            const name = String(file?.name || '').trim();
+            const id = String(file?.id || '').trim();
+            if (!name || !id) continue;
+
+            const progressItem = isWelcomeVisible ? createWelcomeProgressItem(name) : null;
+            if (progressItem && welcomeProgressList) {
+                welcomeProgressList.appendChild(progressItem);
+                progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
             }
+
+            const displayName = formatFileName(name);
+            setLoadingStatusText(`Pobieranie: ${displayName}...`);
+            setUploadStatusText(`Google Drive: pobieram ${displayName}...`);
+
+            const percent = list.length > 0 ? (processed / list.length) * 100 : 0;
+            if (loadingProgressBar) {
+                loadingProgressBar.value = percent;
+                if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(percent)}%`;
+            }
+            if (uploadProgress) uploadProgress.value = Math.max(0, Math.min(95, percent));
+
             try {
-                const buffer = await window.GoogleDriveImport.downloadFileArrayBuffer(file.id, token);
+                const buffer = await api.downloadFileArrayBuffer(id, token);
+                if (Number(buffer?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
                 const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                await docsPutBlob(name, blob);
+                await docsPutBlob(name, blob, { driveModifiedAt: file?.driveModifiedAt ?? null });
                 removeFileData(name);
                 loadedFiles.delete(name);
                 await processFile(name);
                 loadedFiles.add(name);
                 summary.files.push(name);
-                updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
+                if (progressItem) updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
             } catch (err) {
                 summary.errors += 1;
-                logAction('sync', { fileName: name, message: err.message }, 'ERROR');
-                updateWelcomeProgressItem(progressItem, 0, 'Błąd', true);
+                logAction('sync', { fileName: name, message: err?.message ? String(err.message) : 'Błąd' }, 'ERROR');
+                if (progressItem) updateWelcomeProgressItem(progressItem, 0, 'Błąd', true);
             } finally {
                 processed += 1;
+                const nextPercent = list.length > 0 ? (processed / list.length) * 100 : 100;
+                if (loadingProgressBar) {
+                    loadingProgressBar.value = nextPercent;
+                    if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(nextPercent)}%`;
+                }
+                if (uploadProgress) uploadProgress.value = Math.round(nextPercent);
             }
         }
+
         finalizeFileImport(summary, before);
         setLoadingStatusText('Synchronizacja zakończona');
+        setUploadStatusText('Google Drive: synchronizacja zakończona.');
         if (loadingProgressBar) {
             loadingProgressBar.value = 100;
             if (loadingProgressMeta) loadingProgressMeta.textContent = '100%';
         }
     } catch (err) {
-        logAction('sync', { phase: 'fatal_error', message: err.message }, 'ERROR');
+        const msg = err?.message ? String(err.message) : 'Błąd synchronizacji';
+        logAction('sync', { phase: 'fatal_error', message: msg }, 'ERROR');
         setLoadingStatusText('Błąd synchronizacji');
+        setUploadStatusText(`Google Drive: ${msg}`);
+        showModal('Błąd synchronizacji', `Wystąpił błąd podczas synchronizacji z Google Drive: ${escapeHtml(msg)}`, [
+            { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
+        ]);
     } finally {
-        setImportLoadingState(false);
+        window.setTimeout(() => uploadProgressContainer?.classList.add('hidden'), 900);
+        setGoogleDriveSyncButtonsBusy(false);
+        googleDriveSyncIsImporting = false;
     }
 }
 
 /**
  * Obsługuje synchronizację z Google Drive (folder stały).
  */
-async function handleGoogleDriveSync() {
+async function handleGoogleDriveSync({ source } = {}) {
     const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
-    logAction('sync', { phase: 'start', folderId: FOLDER_ID });
+    const api = window.GoogleDriveImport;
+    if (!api) {
+        showModal('Google Drive', 'Synchronizacja jest niedostępna (brak modułu Google Drive).');
+        return;
+    }
+
+    if (googleDriveSyncIsImporting) {
+        showModal('Google Drive', 'Trwa synchronizacja plików. Poczekaj na zakończenie bieżącej operacji.');
+        return;
+    }
+
+    if (googleDriveConnectSession && !googleDriveConnectSession.cancelled) {
+        showModal('Google Drive', buildDriveConnectingModalHtml('Łączenie z Google Drive...'), [
+            { label: 'Anuluj', onClick: () => { try { googleDriveConnectSession.cancel(); } catch { } } }
+        ]);
+        return;
+    }
+
+    const sessionId = ++googleDriveConnectSeq;
+    const abortController = new AbortController();
+    const session = {
+        id: sessionId,
+        cancelled: false,
+        abortController,
+        cancel: () => {
+            if (session.cancelled) return;
+            session.cancelled = true;
+            try { abortController.abort(); } catch { }
+            if (googleDriveConnectSession && googleDriveConnectSession.id === sessionId) googleDriveConnectSession = null;
+            logAction('sync', { phase: 'cancelled', source: source || 'unknown' }, 'INFO');
+        }
+    };
+    googleDriveConnectSession = session;
+
+    logAction('sync', { phase: 'start', folderId: FOLDER_ID, source: source || 'unknown' });
     try {
+        showModal('Google Drive', buildDriveConnectingModalHtml('Łączenie z Google Drive...'), [
+            { label: 'Anuluj', onClick: () => session.cancel() }
+        ]);
         setLoadingStatusText('Łączenie z Google Drive...');
-        const token = await window.GoogleDriveImport.getAccessToken();
+        const token = await api.getAccessToken();
+        if (session.cancelled) return;
+
+        showModal('Google Drive', buildDriveConnectingModalHtml('Przeszukiwanie folderu na Google Drive...'), [
+            { label: 'Anuluj', onClick: () => session.cancel() }
+        ]);
         setLoadingStatusText('Przeszukiwanie folderów...');
-        const files = await window.GoogleDriveImport.crawlFolder(FOLDER_ID, token);
+        const files = await api.crawlFolder(FOLDER_ID, token, { signal: abortController.signal });
+        if (session.cancelled) return;
+
         if (files.length === 0) {
-            showModal('Brak plików', 'Nie znaleziono żadnych plików .xlsx w wskazanym folderze Google Drive.');
+            showModal('Google Drive', 'Nie znaleziono żadnych plików .xlsx/.xls w wskazanym folderze Google Drive.', [
+                { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
+            ]);
             return;
         }
-        showModal('Potwierdź synchronizację', `Znaleziono <strong>${files.length}</strong> plików .xlsx na Dysku Google. Czy chcesz rozpocząć import?`, [
-            { label: 'Rozpocznij import', class: 'modal-btn--primary', onClick: () => startGoogleDriveSync(files, token) },
-            { label: 'Anuluj', onClick: () => logAction('sync', { phase: 'cancelled' }) }
+
+        const existing = await docsListFiles();
+        if (existing.length === 0) {
+            hideModal();
+            await startGoogleDriveSync(files, token, { source: source || 'unknown' });
+            return;
+        }
+
+        showModal('Google Drive', buildDriveConnectingModalHtml('Analiza zmian...'), [
+            { label: 'Anuluj', onClick: () => session.cancel() }
+        ]);
+
+        const changed = [];
+        await runWithConcurrency(files, 8, async (file) => {
+            const name = String(file?.name || '').trim();
+            if (!name) return;
+
+            const record = await docsGetFileRecord(name);
+            if (!record) {
+                changed.push({ ...file, changeReason: 'Nowy plik', previousDriveModifiedAt: null });
+                return;
+            }
+
+            const prev = Number(record?.driveModifiedAt);
+            const next = Number(file?.driveModifiedAt);
+
+            if (!Number.isFinite(prev) || prev <= 0) {
+                changed.push({ ...file, changeReason: 'Brak zapisanej daty poprzedniej synchronizacji', previousDriveModifiedAt: null });
+                return;
+            }
+            if (!Number.isFinite(next) || next <= 0) {
+                changed.push({ ...file, changeReason: 'Brak daty modyfikacji z Google Drive', previousDriveModifiedAt: prev });
+                return;
+            }
+            if (next > prev) {
+                changed.push({ ...file, changeReason: 'Nowsza wersja na Google Drive', previousDriveModifiedAt: prev });
+            }
+        });
+
+        changed.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'pl', { sensitivity: 'base' }));
+
+        if (changed.length === 0) {
+            setLoadingStatusText('Dane aktualne.');
+            statusIndicator.textContent = 'Dane aktualne.';
+            showModal('Google Drive', buildDriveNoChangesModalHtml(), [
+                { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
+            ]);
+            return;
+        }
+
+        showModal('Synchronizacja Google Drive', buildDriveChangesModalHtml(changed), [
+            { label: 'Nadpisz zmienione', class: 'modal-btn--primary', onClick: () => startGoogleDriveSync(changed, token, { source: source || 'unknown' }) },
+            { label: 'Anuluj', onClick: () => { logAction('sync', { phase: 'cancelled', source: source || 'unknown' }); } }
         ]);
     } catch (err) {
-        logAction('sync', { phase: 'error', message: err.message }, 'ERROR');
-        showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${err.message}`);
+        if (session.cancelled || err?.name === 'AbortError') return;
+        const msg = err?.message ? String(err.message) : 'Błąd synchronizacji';
+        logAction('sync', { phase: 'error', message: msg }, 'ERROR');
+        showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${escapeHtml(msg)}`, [
+            { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
+        ]);
+    } finally {
+        if (googleDriveConnectSession && googleDriveConnectSession.id === sessionId) googleDriveConnectSession = null;
     }
 }
 
@@ -1977,18 +2103,6 @@ function filterImportFiles(files) {
         else accepted.push(f);
     }
     return { accepted, rejected };
-}
-
-/**
- * Filtruje pliki z Google Drive.
- */
-function filterGoogleDriveFiles(pickedFiles, api) {
-    return pickedFiles.filter(f => {
-        const name = String(f?.name || '');
-        const ok = typeof api.validateExcelFileName === 'function' ? api.validateExcelFileName(name) : (name.toLowerCase().endsWith('.xlsx') || name.toLowerCase().endsWith('.xls'));
-        if (!ok) logAction('import', { source: 'google_drive', fileName: name, reason: 'extension' }, 'WARN');
-        return ok;
-    }).map(f => ({ id: String(f.id), name: String(f.name), mimeType: String(f.mimeType) }));
 }
 
 /**
@@ -2986,68 +3100,44 @@ function finalizeLoad(loadStart, showProgress) {
     logAction('load', { ms: Math.round(performance.now() - loadStart), errors: loadErrors.length });
 }
 
+let uploadStatusSwapTimer = null;
+function setUploadStatusText(nextText, { animate = true } = {}) {
+    if (!uploadStatus) return;
+    const next = String(nextText ?? '');
+    if (!animate) {
+        uploadStatus.textContent = next;
+        uploadStatus.classList.remove('qe-text-swap-out');
+        uploadStatus.classList.add('qe-text-swap-in');
+        return;
+    }
+    if (uploadStatus.textContent === next) return;
+    if (uploadStatusSwapTimer) { window.clearTimeout(uploadStatusSwapTimer); uploadStatusSwapTimer = null; }
+    uploadStatus.classList.remove('qe-text-swap-in');
+    uploadStatus.classList.add('qe-text-swap-out');
+    uploadStatusSwapTimer = window.setTimeout(() => {
+        uploadStatus.textContent = next;
+        uploadStatus.classList.remove('qe-text-swap-out');
+        uploadStatus.classList.add('qe-text-swap-in');
+        uploadStatusSwapTimer = null;
+    }, 140);
+}
+
 /**
  * Finalizuje import plików.
  */
 async function finalizeFileImport(summary, before) {
     summary.records = Math.max(0, allData.length - before); if (uploadProgress) uploadProgress.value = 100;
-    uploadStatus.textContent = 'Import zakończony.'; logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
+    setUploadStatusText('Import zakończony.'); logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
     displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
     setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
     schedulePredictiveIndexRebuild({ reason: 'import_done' });
 }
 
 /**
- * Finalizuje import z Google Drive.
- */
-async function finalizeGoogleDriveImport(summary, before) {
-    summary.records = Math.max(0, allData.length - before); uploadStatus.textContent = 'Google Drive: import zakończony.';
-    logAction('import', { source: 'google_drive', files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-    displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
-    setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
-    schedulePredictiveIndexRebuild({ reason: 'gdrive_import_done' });
-}
-
-/**
- * Obsługuje niedostępność API Google Drive.
- */
-function handleGoogleDriveUnavailable() {
-    const msg = 'Import z Google Drive jest niedostępny (brak modułu).';
-    console.error(msg); logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
-    uploadProgressContainer.classList.remove('hidden'); uploadStatus.textContent = msg;
-    window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 1500);
-}
-
-/**
- * Obsługuje anulowanie importu z Google Drive.
- */
-function handleGoogleDriveCancel() {
-    uploadStatus.textContent = 'Google Drive: anulowano.'; logAction('import', { source: 'google_drive', phase: 'cancel' }, 'INFO');
-}
-
-/**
- * Obsługuje błąd połączenia z Google Drive.
- */
-function handleGoogleDriveError(err) {
-    const msg = err?.message ? String(err.message) : 'Błąd importu z Google Drive';
-    console.error(err); logAction('import', { source: 'google_drive', message: msg }, 'ERROR');
-    uploadStatus.textContent = `Google Drive: ${msg}`;
-}
-
-/**
- * Przełącza stan ładowania interfejsu Google Drive.
- */
-function setGoogleDriveLoadingState(loading) {
-    if (importGoogleDriveButton) { importGoogleDriveButton.setAttribute('aria-busy', String(loading)); importGoogleDriveButton.disabled = loading; }
-    if (loading) { uploadProgressContainer.classList.remove('hidden'); if (uploadProgress) uploadProgress.value = 0; uploadStatus.textContent = 'Google Drive: inicjalizacja...'; }
-    else window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
-}
-
-/**
  * Przełącza stan ładowania interfejsu importu.
  */
 function setImportLoadingState(loading, total = 0) {
-    if (loading) { uploadProgressContainer.classList.remove('hidden'); if (uploadProgress) uploadProgress.value = 0; uploadStatus.textContent = `Import: ${total} plik(ów)...`; }
+    if (loading) { uploadProgressContainer.classList.remove('hidden'); if (uploadProgress) uploadProgress.value = 0; setUploadStatusText(`Import: ${total} plik(ów)...`, { animate: false }); }
     else window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
 }
 
@@ -3519,15 +3609,130 @@ async function docsGetBlob(fileName) {
 }
 
 /**
+ * Pobiera rekord pliku (metadane) z bazy.
+ * Zwraca null, jeśli plik nie istnieje.
+ */
+async function docsGetFileRecord(fileName) {
+    const safe = String(fileName || '').trim();
+    if (!safe) return null;
+    const db = await openDocsDb();
+    return await new Promise((resolve, reject) => {
+        const req = db.transaction(DOCS_DB_STORE, 'readonly').objectStore(DOCS_DB_STORE).get(safe);
+        req.onsuccess = () => {
+            const r = req.result;
+            if (!r) { resolve(null); return; }
+            resolve({
+                name: String(r?.name ?? ''),
+                size: Number(r?.size ?? (r?.blob?.size ?? 0)),
+                updatedAt: Number(r?.updatedAt ?? 0),
+                driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null
+            });
+        };
+        req.onerror = () => reject(req.error);
+    });
+}
+
+/**
  * Zapisuje Blob pliku w bazie.
  */
-async function docsPutBlob(fileName, blob) {
+async function docsPutBlob(fileName, blob, { driveModifiedAt } = {}) {
     const safe = String(fileName || '').trim(); if (!safe) throw new Error('Brak nazwy pliku');
+    const normalizedDriveModifiedAt = (Number.isFinite(Number(driveModifiedAt)) && Number(driveModifiedAt) > 0) ? Number(driveModifiedAt) : null;
     const db = await openDocsDb();
     await new Promise((resolve, reject) => {
-        const req = db.transaction(DOCS_DB_STORE, 'readwrite').objectStore(DOCS_DB_STORE).put({ name: safe, blob, size: blob?.size ?? 0, updatedAt: Date.now() });
+        const req = db.transaction(DOCS_DB_STORE, 'readwrite').objectStore(DOCS_DB_STORE).put({
+            name: safe,
+            blob,
+            size: blob?.size ?? 0,
+            updatedAt: Date.now(),
+            driveModifiedAt: normalizedDriveModifiedAt
+        });
         req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
     });
+}
+
+async function docsClearFilesStore() {
+    const db = await openDocsDb();
+    await new Promise((resolve, reject) => {
+        const tx = db.transaction(DOCS_DB_STORE, 'readwrite');
+        const req = tx.objectStore(DOCS_DB_STORE).clear();
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+    });
+}
+
+async function docsDeleteFiles(fileNames) {
+    const names = Array.isArray(fileNames) ? fileNames.map(n => String(n || '').trim()).filter(Boolean) : [];
+    if (names.length === 0) return { deleted: 0 };
+    const db = await openDocsDb();
+    await new Promise((resolve, reject) => {
+        const tx = db.transaction(DOCS_DB_STORE, 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error('Błąd transakcji IndexedDB'));
+        tx.onabort = () => reject(tx.error || new Error('Transakcja IndexedDB przerwana'));
+        const store = tx.objectStore(DOCS_DB_STORE);
+        for (const name of names) store.delete(name);
+    });
+    return { deleted: names.length };
+}
+
+function pickRandomSample(list, count) {
+    const arr = Array.isArray(list) ? list.slice() : [];
+    const n = Math.max(0, Math.min(arr.length, Number(count) || 0));
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = (Math.random() * (i + 1)) | 0;
+        const tmp = arr[i];
+        arr[i] = arr[j];
+        arr[j] = tmp;
+    }
+    return arr.slice(0, n);
+}
+
+async function qeDevClearDbFilesStore() {
+    await docsClearFilesStore();
+    resetAppData();
+    clearResults();
+    setSearchEnabled(false);
+    if (fileCountSpan) fileCountSpan.textContent = '0';
+    if (statusIndicator) { statusIndicator.textContent = 'Baza wyczyszczona.'; statusIndicator.classList.remove('status--hint'); }
+    try { resetToInitialState({ source: 'dev_clear_db' }); } catch { }
+    schedulePredictiveIndexRebuild({ reason: 'dev_clear_db' });
+    return { ok: true };
+}
+
+async function qeDevClearRandomFiles({ fraction = 0.2 } = {}) {
+    const safeFraction = Math.max(0, Math.min(1, Number(fraction)));
+    const list = await docsListFiles();
+    const names = Array.isArray(list) ? list.map(r => String(r?.name ?? '').trim()).filter(Boolean) : [];
+    const total = names.length;
+    if (total === 0) return { ok: true, total: 0, deleted: 0 };
+    const count = Math.max(1, Math.floor(total * safeFraction));
+    const toDelete = pickRandomSample(names, count);
+    const res = await docsDeleteFiles(toDelete);
+    for (const name of toDelete) {
+        removeFileData(name);
+        loadedFiles.delete(name);
+    }
+    clearResults();
+    setSearchEnabled(allData.length > 0);
+    try { resetToInitialState({ source: 'dev_clear_rnd' }); } catch { }
+    if (fileCountSpan) fileCountSpan.textContent = String((await docsListFiles()).length);
+    if (statusIndicator) {
+        statusIndicator.textContent = allData.length > 0 ? 'Dane gotowe.' : 'Brak danych.';
+        statusIndicator.classList.toggle('status--hint', allData.length === 0);
+    }
+    schedulePredictiveIndexRebuild({ reason: 'dev_clear_rnd' });
+    return { ok: true, total, deleted: res?.deleted ?? toDelete.length };
+}
+
+try {
+    const api = Object.freeze({
+        clearFilesStore: qeDevClearDbFilesStore,
+        clearRandomFiles: qeDevClearRandomFiles
+    });
+    Object.defineProperty(window, 'QE_DevTools', { value: api, writable: false, configurable: false });
+} catch {
+    window.QE_DevTools = { clearFilesStore: qeDevClearDbFilesStore, clearRandomFiles: qeDevClearRandomFiles };
 }
 
 /**

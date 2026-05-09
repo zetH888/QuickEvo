@@ -1,39 +1,21 @@
 const CLIENT_ID = '254832331994-8hj0p8ffq977k9nh25bo2p893r0k8q0v.apps.googleusercontent.com';
-const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
 
 (function () {
-    const ROOT_FOLDER_ID = '1le9w7bFwWgSPjIoE4eWnT10nNI5-J0wa';
-
     const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
     const ALLOWED_EXTENSIONS = ['.xlsx', '.xls'];
-    const EXCEL_MIME_TYPES = [
-        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        'application/vnd.ms-excel'
-    ].join(',');
 
     const scriptPromises = new Map();
-    // Cache w RAM dla pobrań w tej sesji (unikamy ponownego pobierania tego samego pliku po fileId).
     const downloadCache = new Map();
 
     let tokenClient = null;
     let accessToken = '';
     let accessTokenExpiresAt = 0;
 
-    function logToApp(level, payload) {
-        try {
-            if (typeof window.logAction === 'function') window.logAction('google_drive', payload ?? null, level);
-        } catch {
-        }
-    }
-
     function loadScriptOnce(src, id) {
         if (scriptPromises.has(src)) return scriptPromises.get(src);
         const p = new Promise((resolve, reject) => {
             const existing = id ? document.getElementById(id) : null;
-            if (existing) {
-                resolve();
-                return;
-            }
+            if (existing) { resolve(); return; }
             const el = document.createElement('script');
             if (id) el.id = id;
             el.src = src;
@@ -48,32 +30,8 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
     }
 
     async function ensureGisLoaded() {
-        // Lazy-load: GIS ładuje się dopiero przy imporcie z Google Drive.
         await loadScriptOnce('https://accounts.google.com/gsi/client', 'qe-gsi-client');
         if (!window.google?.accounts?.oauth2) throw new Error('GIS: brak google.accounts.oauth2');
-    }
-
-    async function ensureGapiLoaded() {
-        // Lazy-load: Picker (api.js) ładuje się dopiero przy imporcie z Google Drive.
-        await loadScriptOnce('https://apis.google.com/js/api.js', 'qe-gapi');
-        if (!window.gapi) throw new Error('Google API: brak window.gapi');
-    }
-
-    async function ensurePickerLoaded() {
-        await ensureGapiLoaded();
-        await new Promise((resolve, reject) => {
-            try {
-                window.gapi.load('picker', {
-                    callback: () => resolve(),
-                    onerror: () => reject(new Error('Google Picker: błąd ładowania')),
-                    timeout: 7000,
-                    ontimeout: () => reject(new Error('Google Picker: timeout ładowania'))
-                });
-            } catch (err) {
-                reject(err);
-            }
-        });
-        if (!window.google?.picker) throw new Error('Google Picker: brak window.google.picker');
     }
 
     function getTokenClient() {
@@ -81,8 +39,7 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
         tokenClient = window.google.accounts.oauth2.initTokenClient({
             client_id: CLIENT_ID,
             scope: DRIVE_SCOPE,
-            callback: () => {
-            }
+            callback: () => { }
         });
         return tokenClient;
     }
@@ -114,10 +71,8 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
     async function getAccessToken() {
         if (accessToken && Date.now() < accessTokenExpiresAt) return accessToken;
         try {
-            // Najpierw próbujemy prompt='' (bez przymusowego wyświetlania zgody).
             return await requestAccessToken('');
-        } catch (err) {
-            // Fallback: prompt='consent' (wymusza interakcję użytkownika).
+        } catch {
             return await requestAccessToken('consent');
         }
     }
@@ -127,95 +82,28 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
         return ALLOWED_EXTENSIONS.some(ext => lower.endsWith(ext));
     }
 
-    function buildPicker(accessTokenValue, callback) {
-        const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
-            .setParent(ROOT_FOLDER_ID)
-            .setIncludeFolders(true)
-            .setSelectFolderEnabled(false)
-            .setMimeTypes(EXCEL_MIME_TYPES);
-
-        if (typeof view.setSelectableMimeTypes === 'function') {
-            view.setSelectableMimeTypes(EXCEL_MIME_TYPES);
-        }
-
-        if (google.picker.DocsViewMode && google.picker.DocsViewMode.LIST && typeof view.setMode === 'function') {
-            view.setMode(google.picker.DocsViewMode.LIST);
-        }
-
-        const builder = new google.picker.PickerBuilder()
-            .setSize(1050, 650)
-            .setOAuthToken(accessTokenValue)
-            .setDeveloperKey(API_KEY)
-            .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-            .addView(view)
-            .setCallback(callback);
-
-        if (google.picker.Feature && google.picker.Feature.SUPPORT_DRIVES) {
-            builder.enableFeature(google.picker.Feature.SUPPORT_DRIVES);
-        }
-
-        return builder.build();
+    function parseDriveModifiedAt(isoString) {
+        const raw = String(isoString || '').trim();
+        if (!raw) return null;
+        const ts = Date.parse(raw);
+        return Number.isFinite(ts) ? ts : null;
     }
 
-    async function pickExcelFiles() {
-        const token = await getAccessToken();
-        await ensurePickerLoaded();
-
-        return await new Promise((resolve, reject) => {
-            let finished = false;
-            const picker = buildPicker(token, (data) => {
-                try {
-                    const action = data?.[google.picker.Response.ACTION];
-                    if (action === google.picker.Action.CANCEL) {
-                        finished = true;
-                        resolve({ accessToken: token, files: [] });
-                        return;
-                    }
-                    if (action !== google.picker.Action.PICKED) return;
-
-                    const docs = Array.isArray(data?.[google.picker.Response.DOCUMENTS])
-                        ? data[google.picker.Response.DOCUMENTS]
-                        : [];
-
-                    const files = docs.map((d) => ({
-                        id: String(d?.[google.picker.Document.ID] || ''),
-                        name: String(d?.[google.picker.Document.NAME] || ''),
-                        mimeType: String(d?.[google.picker.Document.MIME_TYPE] || '')
-                    })).filter(f => f.id && f.name);
-
-                    finished = true;
-                    resolve({ accessToken: token, files });
-                } catch (err) {
-                    if (finished) return;
-                    finished = true;
-                    reject(err);
-                }
-            });
-            picker.setVisible(true);
-
-            window.setTimeout(() => {
-                if (finished) return;
-                logToApp('WARN', { phase: 'picker_timeout' });
-            }, 20000);
-        });
-    }
-
-    async function downloadFileArrayBuffer(fileId, token) {
+    async function downloadFileArrayBuffer(fileId, token, { signal } = {}) {
         const safeId = String(fileId || '').trim();
         if (!safeId) throw new Error('Brak fileId');
-
         if (downloadCache.has(safeId)) return downloadCache.get(safeId);
 
         const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(safeId)}?alt=media`;
         const res = await fetch(url, {
             method: 'GET',
             headers: { Authorization: `Bearer ${token}` },
-            cache: 'no-store'
+            cache: 'no-store',
+            signal
         });
         if (!res.ok) {
             let details = '';
-            try { details = await res.text(); } catch {
-            }
+            try { details = await res.text(); } catch { }
             const err = new Error(`Google Drive: błąd pobierania (${res.status})`);
             err.status = res.status;
             err.details = details;
@@ -227,44 +115,64 @@ const API_KEY = 'AIzaSyA6hqZ1wdUqMDJM9BJjLBpII73NUmJW-Mo';
     }
 
     /**
-     * Rekurencyjnie pobiera listę wszystkich plików .xlsx z folderu i jego podfolderów.
+     * Rekurencyjnie pobiera listę wszystkich plików .xlsx/.xls z folderu i jego podfolderów.
+     * Zwraca metadane z timestampem modyfikacji (driveModifiedAt) do logiki „importuj tylko zmienione”.
      * @param {string} folderId ID folderu startowego.
      * @param {string} token Access token.
-     * @returns {Promise<Array<Object>>} Lista plików.
+     * @returns {Promise<Array<{id:string,name:string,mimeType:string,driveModifiedAt:(number|null)}>>}
      */
-    async function crawlFolder(folderId, token) {
+    async function crawlFolder(folderId, token, { signal } = {}) {
         const files = [];
-        const queue = [folderId];
+        const queue = [String(folderId || '').trim()].filter(Boolean);
+        const authHeader = { Authorization: `Bearer ${token}` };
 
         while (queue.length > 0) {
             const currentFolderId = queue.shift();
-            // Zapytanie o pliki i foldery w bieżącym folderze
             const q = `'${currentFolderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or name contains '.xlsx' or name contains '.xls')`;
-            const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType)&pageSize=1000`;
 
-            const res = await fetch(url, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            let pageToken = '';
+            while (true) {
+                const params = new URLSearchParams();
+                params.set('q', q);
+                params.set('pageSize', '1000');
+                params.set('fields', 'nextPageToken,files(id,name,mimeType,modifiedTime)');
+                if (pageToken) params.set('pageToken', pageToken);
+                const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
 
-            if (!res.ok) {
-                const err = await res.json().catch(() => ({ error: { message: 'Nieznany błąd API' } }));
-                throw new Error(`Błąd listowania plików: ${err.error.message}`);
-            }
-
-            const data = await res.json();
-            for (const file of data.files || []) {
-                if (file.mimeType === 'application/vnd.google-apps.folder') {
-                    queue.push(file.id);
-                } else if (validateExcelFileName(file.name)) {
-                    files.push(file);
+                const res = await fetch(url, { headers: authHeader, cache: 'no-store', signal });
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({ error: { message: 'Nieznany błąd API' } }));
+                    throw new Error(`Błąd listowania plików: ${err?.error?.message ? String(err.error.message) : `HTTP ${res.status}`}`);
                 }
+
+                const data = await res.json().catch(() => ({}));
+                const list = Array.isArray(data?.files) ? data.files : [];
+                for (const file of list) {
+                    if (file?.mimeType === 'application/vnd.google-apps.folder' && file?.id) {
+                        queue.push(String(file.id));
+                        continue;
+                    }
+                    const name = String(file?.name || '').trim();
+                    const id = String(file?.id || '').trim();
+                    if (!name || !id) continue;
+                    if (!validateExcelFileName(name)) continue;
+                    files.push({
+                        id,
+                        name,
+                        mimeType: String(file?.mimeType || ''),
+                        driveModifiedAt: parseDriveModifiedAt(file?.modifiedTime)
+                    });
+                }
+
+                pageToken = data?.nextPageToken ? String(data.nextPageToken) : '';
+                if (!pageToken) break;
             }
         }
+
         return files;
     }
 
     window.GoogleDriveImport = Object.freeze({
-        pickExcelFiles,
         getAccessToken,
         downloadFileArrayBuffer,
         validateExcelFileName,
