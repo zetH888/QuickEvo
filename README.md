@@ -1,5 +1,7 @@
 <p align="center">
-  <img src="./assets/hero.png" alt="QuickEvo — hero" width="100%" style="pointer-events: none;" />
+  <picture>
+    <img src="./assets/hero.png" alt="QuickEvo — hero" width="100%" style="pointer-events: none;" />
+  </picture>
 </p>
 
 # QuickEvo
