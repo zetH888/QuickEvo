@@ -5,7 +5,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.0.30-blue)
+![Version](https://img.shields.io/badge/version-2.0.40-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -98,7 +98,14 @@ Moduł `qe-debugger.js` udostępnia:
 - Debugger jest dostępny wyłącznie na desktopie (viewport >= 769px)
 - Funkcja `window.logAction(action, payload, level)` do logowania zdarzeń
 - Obiekt `window.QE_Debugger` z metodami: `open()`, `close()`, `toggle()`, `clear()`, `log()`, `benchmark()`
-- Wbudowane testy automatyczne uruchamiane przez parametr URL (`?test=1`)
+- Wbudowane testy automatyczne uruchamiane przez parametr URL (`?test=1` lub `?test=true`)
+
+---
+
+## Bezpieczeństwo (podstawy)
+
+- Polityka CSP ogranicza źródła skryptów i połączeń sieciowych oraz blokuje osadzanie aplikacji w ramkach (ochrona przed clickjackingiem).
+- Biblioteka SheetJS (XLSX) ładowana z CDN ma ustawioną integralność SRI, co utrudnia podmianę skryptu w łańcuchu dostaw.
 
 ---
 

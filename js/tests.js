@@ -4,6 +4,7 @@
 const QuickEvoTests = {
     run() {
         console.log("%c--- QuickEvo Test Suite ---", "color: #0066cc; font-weight: bold; font-size: 1.2rem;");
+        this.testXlsxLoaded();
         this.testNormalization();
         this.testStatsFormatting();
         this.testFuzzySearch();
@@ -14,6 +15,11 @@ const QuickEvoTests = {
         this.testLegacySelfTests();
         this.testDebuggerModule();
         console.log("%c--- Tests Completed ---", "color: #0066cc; font-weight: bold;");
+    },
+
+    testXlsxLoaded() {
+        console.log("\nTesting XLSX Library:");
+        this.assert(typeof window.XLSX === 'object' && window.XLSX !== null, "XLSX jest dostępne globalnie (integrity/SRI nie blokuje ładowania)");
     },
 
     testLegacySelfTests() {
@@ -191,7 +197,24 @@ const QuickEvoTests = {
     }
 };
 
-// Auto-run if URL has ?test=true
-if (window.location.search.includes('test=true')) {
-    window.addEventListener('load', () => QuickEvoTests.run());
+function shouldAutoRunTests() {
+    try {
+        const params = new URLSearchParams(window.location.search || '');
+        const v = params.get('test');
+        return v === 'true' || v === '1';
+    } catch {
+        return (window.location.search || '').includes('test=true') || (window.location.search || '').includes('test=1');
+    }
+}
+
+if (shouldAutoRunTests()) {
+    const errors = [];
+    window.addEventListener('error', (e) => { errors.push({ type: 'error', message: String(e?.message || ''), source: String(e?.filename || ''), line: Number(e?.lineno || 0), col: Number(e?.colno || 0) }); });
+    window.addEventListener('unhandledrejection', (e) => { errors.push({ type: 'unhandledrejection', message: String(e?.reason?.message || e?.reason || ''), source: '' }); });
+
+    window.addEventListener('load', () => {
+        QuickEvoTests.run();
+        if (errors.length > 0) console.error('[QuickEvoTests] Wykryto błędy w trakcie uruchomienia testów:', errors);
+        else console.log('%c[QuickEvoTests] Brak błędów w konsoli podczas uruchomienia testów.', 'color: green; font-weight: bold;');
+    });
 }
