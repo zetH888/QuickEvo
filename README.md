@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.0.40-blue)
+![Version](https://img.shields.io/badge/version-2.0.90-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -45,6 +45,11 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Integracja z Google Drive (Picker API + OAuth2)
 - Synchronizacja folderów z rekursywnym pobieraniem plików .xlsx
 - Rozwiązywanie konfliktów przy synchronizacji
+- Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
+- Widok różnic pokazuje kontekst (2 linie przed/po) i prezentuje tylko tryb Side-by-side
+- Przycisk różnic działa jako przełącznik „Pokaż/Ukryj różnice”, a dla nowych plików status jest sygnalizowany czerwonym „X”
+- Niestandardowy pasek przewijania w oknie zmian Google Drive (premium overlay, pełna funkcjonalność przewijania)
+- Diff jest automatycznie blokowany dla nowych plików (brak sensu porównania) oraz ograniczany dla bardzo dużych plików (ochrona wydajności)
 - Trwałe przechowywanie w IndexedDB (praca offline)
 
 ### Interfejs
@@ -118,6 +123,16 @@ Moduł `qe-debugger.js` udostępnia:
 - Event delegation dla obsługi kliknięć na listach wyników
 - `ResizeObserver`, `MutationObserver` i `IntersectionObserver` do wykrywania overflow
 - Równoległy import z Google Drive z limitem 2 jednoczesnych połączeń
+- Lazy rendering kosztownych elementów w oknie zmian Google Drive (diff generowany dopiero na żądanie)
+
+---
+
+## Testy użyteczności (okno zmian Google Drive)
+
+- Lista zmian: przewijanie myszą/touchpadem, szybkie dojście do końca listy, brak „zacięć” przy 100+ plikach
+- Kafelki: rozwijanie pojedyncze i zbiorcze, poprawny stan po wielokrotnym przełączaniu, zachowanie fokusu klawiatury
+- Wydajność: sprawdzenie scenariusza 500+ plików (bez automatycznego generowania diff dla wszystkich)
+- Dostępność: `prefers-reduced-motion`, nawigacja klawiaturą (Tab/Shift+Tab, Enter/Space na kafelkach), widoczny focus
 - Czyszczenie indeksu z pamięci RAM przy usuwaniu plików
 
 ---
