@@ -1518,19 +1518,706 @@ function formatDriveTimestamp(ts) {
 function buildDriveChangesModalHtml(changed) {
     const safeList = Array.isArray(changed) ? changed : [];
     const items = safeList.map((f) => {
-        const name = escapeHtml(formatFileName(f?.name || ''));
+        const rawName = String(f?.name || '').trim();
+        const rawNameEsc = escapeHtml(rawName);
+        const name = escapeHtml(formatFileName(rawName));
+        const fileId = escapeHtml(String(f?.id || '').trim());
+        const isNewInDb = Boolean(f?.isNewInDb);
         const reasonRaw = String(f?.changeReason || '').trim() || 'Zmieniono';
         const reason = escapeHtml(reasonRaw);
         const prevTs = Number(f?.previousDriveModifiedAt);
         const nextTs = Number(f?.driveModifiedAt);
         const prev = Number.isFinite(prevTs) && prevTs > 0 ? escapeHtml(formatDriveTimestamp(prevTs)) : '';
         const next = Number.isFinite(nextTs) && nextTs > 0 ? escapeHtml(formatDriveTimestamp(nextTs)) : '';
-        const prevRow = prev ? `<div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v">${prev}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v">Brak danych</span></div>`;
-        const nextRow = next ? `<div class="qe-drive-kv"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v">${next}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v">Brak danych</span></div>`;
-        return `<li class="qe-drive-change"><div class="qe-drive-change-head"><div class="qe-drive-change-name">${name}</div><div class="qe-drive-chip">${reason}</div></div><div class="qe-drive-change-meta">${prevRow}${nextRow}</div></li>`;
+        const prevRow = prev ? `<div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">${prev}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">Brak danych</span></div>`;
+        const nextRow = next ? `<div class="qe-drive-kv"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">${next}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">Brak danych</span></div>`;
+        const chevron = `<svg class="qe-drive-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        const diffDisabled = isNewInDb ? ' disabled' : '';
+        const diffBtnLabel = isNewInDb ? 'Nowy plik — brak różnic' : 'Pokaż różnice';
+        const diffBtn = `<button class="qe-drive-diff-btn" type="button"${diffDisabled}>${diffBtnLabel}</button>`;
+        const diffStatus = `<div class="qe-drive-diff-status" aria-hidden="true">
+            <div class="qe-drive-diff-status-spinner" hidden><div class="qe-spinner" aria-hidden="true"></div></div>
+            <div class="qe-drive-diff-status-check" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7L10.2 17 4 10.8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+            <div class="qe-drive-diff-status-x" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg></div>
+        </div>`;
+        const diffState = isNewInDb ? 'blocked' : 'idle';
+        const diffShell = `<div class="qe-drive-diff" data-qe-diff-state="${diffState}" data-qe-diff-visible="0">
+            <div class="qe-drive-diff-actions">${diffBtn}${diffStatus}</div>
+            <div class="qe-drive-diff-body" hidden>
+                <div class="qe-drive-diff-error" hidden></div>
+                <div class="qe-drive-diff-view" data-qe-diff-view="side" hidden></div>
+            </div>
+        </div>`;
+        return `<li class="qe-drive-change" data-qe-drive-name="${rawNameEsc}" data-qe-drive-id="${fileId}" data-qe-drive-is-new="${isNewInDb ? '1' : '0'}">
+            <button class="qe-drive-change-toggle" type="button" aria-expanded="false">
+                <div class="qe-drive-change-head">
+                    <div class="qe-drive-change-name">${name}</div>
+                    <div class="qe-drive-change-right">
+                        <div class="qe-drive-chip">${reason}</div>
+                        ${chevron}
+                    </div>
+                </div>
+            </button>
+            <div class="qe-drive-change-panel" hidden>
+                <div class="qe-drive-change-meta">${prevRow}${nextRow}</div>
+                ${diffShell}
+            </div>
+        </li>`;
     }).join('');
 
-    return `<div class="qe-drive-modal"><div class="qe-drive-summary">Wykryto <strong>${escapeHtml(safeList.length)}</strong> plik(ów) zmienionych od ostatniej synchronizacji.</div><ul class="qe-drive-changes">${items}</ul><div class="qe-drive-question">Nadpisać tylko te zmienione pliki?</div></div>`;
+    const expandAllIcon = `<svg class="qe-drive-expandall-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.60"/><path d="M7 16l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+    return `<div class="qe-drive-modal" data-qe-drive-changes="1">
+        <div class="qe-drive-summary-row">
+            <div class="qe-drive-summary">Wykryto <strong>${escapeHtml(safeList.length)}</strong> plik(ów) zmienionych od ostatniej synchronizacji.</div>
+            <button class="qe-drive-expandall" type="button" aria-pressed="false" aria-label="Rozwiń wszystkie kafelki">${expandAllIcon}</button>
+        </div>
+        <div class="qe-drive-scroll-wrap">
+            <div class="qe-drive-scroll" tabindex="0">
+                <ul class="qe-drive-changes">${items}</ul>
+            </div>
+            <div class="qe-drive-scrollbar" aria-hidden="true">
+                <div class="qe-drive-scrollbar-thumb"></div>
+            </div>
+        </div>
+        <div class="qe-drive-question">Nadpisać zmienione pliki?</div>
+    </div>`;
+}
+
+let qeDriveChangesModalState = null;
+
+function qeBuildModalTitleHtml(title) {
+    const safe = escapeHtml(String(title ?? ''));
+    const hasDrive = safe.includes('Google Drive');
+    const html = hasDrive ? safe.replaceAll('Google Drive', '<span class="qe-modal-gdrive">Google Drive</span>') : safe;
+    return { html, hasDrive };
+}
+
+function qeTeardownDriveChangesModal() {
+    if (!qeDriveChangesModalState) return;
+    try { qeDriveChangesModalState.abortAll?.(); } catch { }
+    qeDriveChangesModalState = null;
+    try { modalOverlay?.classList.remove('modal-overlay--drive'); } catch { }
+}
+
+function qeInitDriveChangesModal({ files, token } = {}) {
+    const api = window.GoogleDriveImport;
+    const list = Array.isArray(files) ? files : [];
+    const accessToken = String(token || '').trim();
+    if (!modalOverlay || !api || !accessToken) return;
+    const root = modalContent?.querySelector?.('.qe-drive-modal[data-qe-drive-changes="1"]');
+    if (!root) return;
+
+    qeTeardownDriveChangesModal();
+    modalOverlay.classList.add('modal-overlay--drive');
+
+    const fileByDomId = new Map();
+    for (const f of list) {
+        const id = String(f?.id || '').trim();
+        const name = String(f?.name || '').trim();
+        if (!id || !name) continue;
+        fileByDomId.set(id, f);
+    }
+
+    const abortControllers = new Set();
+    const diffCache = new Map();
+    const inFlight = new WeakMap();
+    let detachScrollbar = null;
+
+    const abortAll = () => {
+        try { detachScrollbar?.(); } catch { }
+        for (const c of abortControllers) { try { c.abort(); } catch { } }
+        abortControllers.clear();
+    };
+
+    qeDriveChangesModalState = { abortAll };
+
+    const scrollEl = root.querySelector('.qe-drive-scroll');
+    const scrollbarEl = root.querySelector('.qe-drive-scrollbar');
+    const scrollbarThumb = root.querySelector('.qe-drive-scrollbar-thumb');
+    detachScrollbar = (scrollEl && scrollbarEl && scrollbarThumb) ? qeAttachOverlayScrollbar(scrollEl, scrollbarEl, scrollbarThumb) : null;
+
+    const expandAllBtn = root.querySelector('.qe-drive-expandall');
+    const items = Array.from(root.querySelectorAll('.qe-drive-change'));
+    for (const el of items) {
+        const isNew = String(el?.dataset?.qeDriveIsNew || '') === '1';
+        const diff = el.querySelector('.qe-drive-diff');
+        if (!diff) continue;
+        qeDriveDiffSetStatus(diff, isNew ? 'blocked' : 'idle');
+        diff.dataset.qeDiffVisible = '0';
+        const btn = diff.querySelector('.qe-drive-diff-btn');
+        if (btn && !btn.disabled && btn.textContent !== 'Pokaż różnice') btn.textContent = 'Pokaż różnice';
+    }
+
+    const setPanelInteractivity = (panelEl, enabled) => {
+        if (!panelEl) return;
+        try {
+            if ('inert' in panelEl) panelEl.inert = !enabled;
+        } catch { }
+        const focusables = panelEl.querySelectorAll('button, [href], input, select, textarea, [tabindex]');
+        for (const el of focusables) {
+            if (!(el instanceof HTMLElement)) continue;
+            const tag = String(el.tagName || '').toLowerCase();
+            const isButton = tag === 'button';
+            if (!enabled) {
+                if (!el.dataset.qePrevTabindex) el.dataset.qePrevTabindex = String(el.getAttribute('tabindex') ?? '');
+                el.setAttribute('tabindex', '-1');
+                if (isButton) {
+                    const btn = el;
+                    if (!btn.dataset.qePrevDisabled) btn.dataset.qePrevDisabled = btn.disabled ? '1' : '0';
+                    btn.disabled = true;
+                }
+            } else {
+                const prev = el.dataset.qePrevTabindex;
+                if (prev === '') el.removeAttribute('tabindex');
+                else if (prev) el.setAttribute('tabindex', prev);
+                else el.removeAttribute('tabindex');
+                delete el.dataset.qePrevTabindex;
+                if (isButton) {
+                    const btn = el;
+                    const wasDisabled = btn.dataset.qePrevDisabled === '1';
+                    btn.disabled = wasDisabled;
+                    delete btn.dataset.qePrevDisabled;
+                }
+            }
+        }
+    };
+
+    const syncPanelHeight = (itemEl, expanded) => {
+        const panel = itemEl?.querySelector?.('.qe-drive-change-panel');
+        if (!panel) return;
+        if (!expanded) {
+            panel.style.setProperty('--qe-drive-panel-max', '0px');
+            return;
+        }
+        const height = panel.scrollHeight;
+        panel.style.setProperty('--qe-drive-panel-max', `${height}px`);
+    };
+
+    const setExpanded = (itemEl, expanded, { animate = true } = {}) => {
+        const btn = itemEl?.querySelector?.('.qe-drive-change-toggle');
+        const panel = itemEl?.querySelector?.('.qe-drive-change-panel');
+        if (!btn || !panel) return;
+        const wasExpanded = itemEl.classList.contains('is-expanded');
+        const heightBefore = (!expanded && wasExpanded) ? panel.scrollHeight : 0;
+        btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        itemEl.classList.toggle('is-expanded', expanded);
+        if (!animate || prefersReducedMotion()) {
+            panel.hidden = !expanded;
+            panel.style.removeProperty('--qe-drive-panel-max');
+            setPanelInteractivity(panel, expanded);
+            if (expanded) syncPanelHeight(itemEl, true);
+            return;
+        }
+        panel.hidden = false;
+        if (expanded) {
+            setPanelInteractivity(panel, true);
+            panel.style.setProperty('--qe-drive-panel-max', '0px');
+            window.requestAnimationFrame(() => {
+                syncPanelHeight(itemEl, true);
+                scrollEl?.dispatchEvent?.(new Event('scroll'));
+            });
+            return;
+        }
+        panel.style.setProperty('--qe-drive-panel-max', `${heightBefore}px`);
+        void panel.offsetHeight;
+        const onEnd = (e) => {
+            if (e && e.propertyName !== 'max-height') return;
+            panel.removeEventListener('transitionend', onEnd);
+            if (!itemEl.classList.contains('is-expanded')) panel.hidden = true;
+            setPanelInteractivity(panel, false);
+            scrollEl?.dispatchEvent?.(new Event('scroll'));
+        };
+        panel.addEventListener('transitionend', onEnd);
+        panel.style.setProperty('--qe-drive-panel-max', '0px');
+    };
+
+    const computeExpandedState = () => items.every((el) => el.classList.contains('is-expanded'));
+
+    const updateExpandAllUi = () => {
+        if (!expandAllBtn) return;
+        const allExpanded = computeExpandedState();
+        expandAllBtn.setAttribute('aria-pressed', allExpanded ? 'true' : 'false');
+        expandAllBtn.setAttribute('aria-label', allExpanded ? 'Zwiń wszystkie kafelki' : 'Rozwiń wszystkie kafelki');
+        expandAllBtn.classList.toggle('is-expanded', allExpanded);
+    };
+
+    updateExpandAllUi();
+
+    expandAllBtn?.addEventListener?.('click', () => {
+        const next = !computeExpandedState();
+        for (const el of items) setExpanded(el, next, { animate: true });
+        updateExpandAllUi();
+        scrollEl?.dispatchEvent?.(new Event('scroll'));
+    });
+
+    root.addEventListener('click', async (ev) => {
+        const toggle = ev.target?.closest?.('.qe-drive-change-toggle');
+        if (toggle) {
+            const item = toggle.closest('.qe-drive-change');
+            const isExpanded = item?.classList?.contains('is-expanded');
+            setExpanded(item, !isExpanded, { animate: true });
+            updateExpandAllUi();
+            scrollEl?.dispatchEvent?.(new Event('scroll'));
+            return;
+        }
+
+        const diffBtn = ev.target?.closest?.('.qe-drive-diff-btn');
+        if (!diffBtn) return;
+        const itemEl = diffBtn.closest('.qe-drive-change');
+        const isNewInDb = String(itemEl?.dataset?.qeDriveIsNew || '') === '1';
+        const fileId = String(itemEl?.dataset?.qeDriveId || '').trim();
+        const fileName = String(itemEl?.dataset?.qeDriveName || '').trim();
+        const file = fileByDomId.get(fileId);
+        if (!fileId || !fileName || !file) return;
+
+        const diffContainer = itemEl.querySelector('.qe-drive-diff');
+        if (!diffContainer) return;
+        if (isNewInDb) {
+            qeDriveDiffSetStatus(diffContainer, 'blocked');
+            return;
+        }
+
+        const body = diffContainer.querySelector('.qe-drive-diff-body');
+        const visible = String(diffContainer.dataset.qeDiffVisible || '0') === '1';
+        if (visible) {
+            const inflight = inFlight.get(diffContainer);
+            if (diffContainer.dataset.qeDiffState === 'loading' && inflight) {
+                try { inflight.abort(); } catch { }
+            }
+            if (body) body.hidden = true;
+            diffContainer.dataset.qeDiffVisible = '0';
+            if (!diffBtn.disabled) diffBtn.textContent = 'Pokaż różnice';
+            if (itemEl?.classList?.contains('is-expanded')) syncPanelHeight(itemEl, true);
+            scrollEl?.dispatchEvent?.(new Event('scroll'));
+            return;
+        }
+
+        if (body) body.hidden = false;
+        diffContainer.dataset.qeDiffVisible = '1';
+        if (!diffBtn.disabled) diffBtn.textContent = 'Ukryj różnice';
+
+        const cacheKey = `${fileId}:${String(file?.driveModifiedAt ?? '')}:${String(file?.previousDriveModifiedAt ?? '')}`;
+        if (diffCache.has(cacheKey)) {
+            qeDriveDiffApplyResult(diffContainer, diffCache.get(cacheKey));
+            qeDriveDiffSetStatus(diffContainer, 'ready');
+            if (itemEl?.classList?.contains('is-expanded')) syncPanelHeight(itemEl, true);
+            return;
+        }
+
+        const abortController = new AbortController();
+        abortControllers.add(abortController);
+        inFlight.set(diffContainer, abortController);
+        try {
+            qeDriveDiffSetLoading(diffContainer, true);
+            qeDriveDiffSetStatus(diffContainer, 'loading');
+            const result = await qeComputeDriveFileDiff({
+                api,
+                token: accessToken,
+                fileId,
+                fileName,
+                signal: abortController.signal
+            });
+            diffCache.set(cacheKey, result);
+            qeDriveDiffApplyResult(diffContainer, result);
+            qeDriveDiffSetStatus(diffContainer, 'ready');
+            if (itemEl?.classList?.contains('is-expanded')) syncPanelHeight(itemEl, true);
+        } catch (err) {
+            if (err?.name === 'AbortError') return;
+            qeDriveDiffSetError(diffContainer, err?.message ? String(err.message) : 'Błąd generowania różnic');
+            qeDriveDiffSetStatus(diffContainer, 'error');
+            if (itemEl?.classList?.contains('is-expanded')) syncPanelHeight(itemEl, true);
+        } finally {
+            abortControllers.delete(abortController);
+            inFlight.delete(diffContainer);
+            qeDriveDiffSetLoading(diffContainer, false);
+            scrollEl?.dispatchEvent?.(new Event('scroll'));
+        }
+    }, { passive: true });
+}
+
+function qeDriveDiffSetLoading(container, loading) {
+    const body = container.querySelector('.qe-drive-diff-body');
+    const err = container.querySelector('.qe-drive-diff-error');
+    if (body) body.hidden = false;
+    if (err) err.hidden = true;
+    if (loading) container.dataset.qeDiffState = 'loading';
+    else if (container.dataset.qeDiffState === 'loading') container.dataset.qeDiffState = 'idle';
+}
+
+function qeDriveDiffSetStatus(container, status) {
+    const s = String(status || '').trim();
+    const spinnerWrap = container.querySelector('.qe-drive-diff-status-spinner');
+    const checkWrap = container.querySelector('.qe-drive-diff-status-check');
+    const xWrap = container.querySelector('.qe-drive-diff-status-x');
+    if (spinnerWrap) spinnerWrap.hidden = !(s === 'loading' || s === 'idle');
+    if (checkWrap) checkWrap.hidden = s !== 'ready';
+    if (xWrap) xWrap.hidden = !(s === 'blocked' || s === 'error');
+}
+
+function qeDriveDiffSetError(container, message) {
+    const body = container.querySelector('.qe-drive-diff-body');
+    const err = container.querySelector('.qe-drive-diff-error');
+    if (body) body.hidden = false;
+    if (err) { err.hidden = false; err.textContent = String(message || 'Błąd'); }
+    container.dataset.qeDiffState = 'error';
+}
+
+function qeDriveDiffApplyResult(container, result) {
+    const body = container.querySelector('.qe-drive-diff-body');
+    const err = container.querySelector('.qe-drive-diff-error');
+    if (body) body.hidden = false;
+    if (err) err.hidden = true;
+    container.dataset.qeDiffState = 'ready';
+    const side = container.querySelector('.qe-drive-diff-view[data-qe-diff-view="side"]');
+    if (side) setElementHtml(side, qeRenderSideBySideDiffHtml(result, { contextLines: 2 }));
+    if (side) side.hidden = false;
+}
+
+async function qeComputeDriveFileDiff({ api, token, fileId, fileName, signal } = {}) {
+    if (!api || !token || !fileId || !fileName) throw new Error('Brak danych do porównania');
+    if (signal?.aborted) throw new DOMException('Przerwano', 'AbortError');
+
+    const oldBlob = await docsGetBlob(fileName);
+    if (signal?.aborted) throw new DOMException('Przerwano', 'AbortError');
+    const newBuffer = await api.downloadFileArrayBuffer(fileId, token);
+    if (signal?.aborted) throw new DOMException('Przerwano', 'AbortError');
+
+    const MAX_DIFF_BYTES = 1_800_000;
+    const oldBytes = Number(oldBlob?.size || 0);
+    const newBytes = Number(newBuffer?.byteLength || 0);
+    if (!oldBlob) {
+        return { truncated: false, oldCount: 0, newCount: 0, ops: [], note: 'Brak poprzedniej wersji pliku w bazie. Widok różnic jest niedostępny.' };
+    }
+    if (oldBytes > MAX_DIFF_BYTES || newBytes > MAX_DIFF_BYTES) {
+        return { truncated: false, oldCount: 0, newCount: 0, ops: [], note: 'Plik jest zbyt duży, aby bezpiecznie wygenerować różnice w interfejsie (limit wydajności).' };
+    }
+
+    const [oldModel, newModel] = await Promise.all([
+        qeParseTableModelFromSource(oldBlob, fileName),
+        qeParseTableModelFromSource(newBuffer, fileName)
+    ]);
+
+    const MAX = 7000;
+    const old = qeTableModelToDiffLines(oldModel, { maxLines: MAX });
+    const next = qeTableModelToDiffLines(newModel, { maxLines: MAX });
+    const ops = qeComputeLineDiff(old.lines, next.lines);
+    const truncated = Boolean(old.clipped || next.clipped);
+    return {
+        truncated,
+        oldCount: Number(old.totalLines) || old.lines.length,
+        newCount: Number(next.totalLines) || next.lines.length,
+        ops,
+        note: truncated ? `Diff skrócony do ${MAX} linii na stronę dla wydajności.` : ''
+    };
+}
+
+async function qeParseTableModelFromSource(source, fileName) {
+    const workbook = await readWorkbook(source, fileName);
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
+    return buildTableModel(matrix);
+}
+
+function qeTableModelToDiffLines(model, { maxLines } = {}) {
+    if (!model || !Array.isArray(model.rows)) return { lines: [], clipped: false, totalLines: 0 };
+    const limit = Number.isFinite(Number(maxLines)) && Number(maxLines) > 0 ? Number(maxLines) : Infinity;
+    const lines = [];
+    let clipped = false;
+    const metaCount = Array.isArray(model.metaLines) ? model.metaLines.length : 0;
+    if (Array.isArray(model.metaLines) && model.metaLines.length > 0) {
+        for (const m of model.metaLines) {
+            if (lines.length >= limit) { clipped = true; break; }
+            lines.push(`META | ${String(m ?? '').trim()}`);
+        }
+    }
+    if (model.isCompleteStructure && model.headerMap) {
+        const totalLines = metaCount + 1 + model.rows.length;
+        if (lines.length < limit) lines.push('DANE | NR_PÓŁ | GODZ | ADRES | NAZWA PLACÓWKI | UWAGI');
+        else clipped = true;
+        const h = model.headerMap;
+        for (const row of model.rows) {
+            if (lines.length >= limit) { clipped = true; break; }
+            const cells = Array.isArray(row?.cells) ? row.cells : [];
+            const nr = String(cells[h.NR_POL] ?? '').trim();
+            const godz = String(cells[h.GODZ] ?? '').trim();
+            const adres = String(cells[h.ADRES] ?? '').trim();
+            const nazwa = String(cells[h.NAZWA_PLACOWKI] ?? '').trim();
+            const uwagi = String(cells[h.UWAGI] ?? '').trim();
+            const key = `R${Number(row?.originalRowIndex ?? 0) || 0}`.padEnd(6, ' ');
+            lines.push(`${key} | ${nr} | ${godz} | ${adres} | ${nazwa} | ${uwagi}`);
+        }
+        return { lines, clipped, totalLines };
+    }
+    const totalLines = metaCount + 1 + model.rows.length;
+    if (lines.length < limit) lines.push('DANE | (struktura niepełna)'); 
+    else clipped = true;
+    for (const row of model.rows) {
+        if (lines.length >= limit) { clipped = true; break; }
+        const cells = Array.isArray(row?.cells) ? row.cells : [];
+        const content = cells.filter(c => !isEmptyCell(c)).map(c => String(c ?? '').trim()).filter(Boolean).join(' | ');
+        const key = `R${Number(row?.originalRowIndex ?? 0) || 0}`.padEnd(6, ' ');
+        lines.push(`${key} | ${content}`);
+    }
+    return { lines, clipped, totalLines };
+}
+
+function qeComputeLineDiff(a, b) {
+    const A = Array.isArray(a) ? a : [];
+    const B = Array.isArray(b) ? b : [];
+    const N = A.length;
+    const M = B.length;
+    const max = N + M;
+    const v = new Map();
+    v.set(1, 0);
+    const trace = [];
+
+    for (let d = 0; d <= max; d++) {
+        const snapshot = new Map();
+        for (const [k, x] of v.entries()) snapshot.set(k, x);
+        trace.push(snapshot);
+
+        for (let k = -d; k <= d; k += 2) {
+            const kPlus = k + 1;
+            const kMinus = k - 1;
+            let x;
+            if (k === -d || (k !== d && (v.get(kMinus) ?? -Infinity) < (v.get(kPlus) ?? -Infinity))) {
+                x = v.get(kPlus) ?? 0;
+            } else {
+                x = (v.get(kMinus) ?? 0) + 1;
+            }
+            let y = x - k;
+            while (x < N && y < M && A[x] === B[y]) { x++; y++; }
+            v.set(k, x);
+            if (x >= N && y >= M) return qeBacktrackMyers(A, B, trace);
+        }
+    }
+    return qeBacktrackMyers(A, B, trace);
+}
+
+function qeBacktrackMyers(A, B, trace) {
+    let x = A.length;
+    let y = B.length;
+    const ops = [];
+
+    for (let d = trace.length - 1; d >= 0; d--) {
+        const v = trace[d];
+        const k = x - y;
+        const kPlus = k + 1;
+        const kMinus = k - 1;
+        let prevK;
+        if (k === -d || (k !== d && (v.get(kMinus) ?? -Infinity) < (v.get(kPlus) ?? -Infinity))) {
+            prevK = kPlus;
+        } else {
+            prevK = kMinus;
+        }
+        const prevX = v.get(prevK) ?? 0;
+        const prevY = prevX - prevK;
+        while (x > prevX && y > prevY) {
+            ops.push({ t: 'eq', a: A[x - 1], b: B[y - 1] });
+            x--; y--;
+        }
+        if (d === 0) break;
+        if (x === prevX) {
+            ops.push({ t: 'ins', b: B[y - 1] });
+            y--;
+        } else {
+            ops.push({ t: 'del', a: A[x - 1] });
+            x--;
+        }
+    }
+
+    ops.reverse();
+    return ops;
+}
+
+function qeComputeDiffContextSegments(ops, { contextLines } = {}) {
+    const list = Array.isArray(ops) ? ops : [];
+    const ctx = Math.max(0, Math.min(10, Number(contextLines) || 0));
+    if (list.length === 0) return [];
+    const segments = [];
+    for (let i = 0; i < list.length; i++) {
+        if (list[i]?.t === 'eq') continue;
+        let start = Math.max(0, i - ctx);
+        let end = Math.min(list.length - 1, i + ctx);
+        let j = i;
+        while (j <= end && j < list.length) {
+            if (list[j]?.t !== 'eq') end = Math.min(list.length - 1, j + ctx);
+            j += 1;
+        }
+        if (segments.length > 0) {
+            const last = segments[segments.length - 1];
+            if (start <= last.end + 1) {
+                last.end = Math.max(last.end, end);
+            } else {
+                segments.push({ start, end });
+            }
+        } else {
+            segments.push({ start, end });
+        }
+        i = end;
+    }
+    return segments;
+}
+
+function qeRenderSideBySideDiffHtml(result, { contextLines } = {}) {
+    const ops = Array.isArray(result?.ops) ? result.ops : [];
+    const note = String(result?.note || '').trim();
+    const segments = qeComputeDiffContextSegments(ops, { contextLines: Number(contextLines) || 2 });
+    const rows = [];
+    if (note) rows.push(`<div class="qe-drive-diff-note">${escapeHtml(note)}</div>`);
+    rows.push('<div class="qe-drive-diff-sbs"><div class="qe-drive-diff-sbs-head"><div class="qe-drive-diff-sbs-col">Poprzednio</div><div class="qe-drive-diff-sbs-col">Na Dysku</div></div><div class="qe-drive-diff-sbs-body">');
+    if (segments.length === 0) {
+        rows.push(`<div class="qe-drive-diff-sbs-row is-eq"><div class="qe-drive-diff-sbs-cell is-empty">Brak różnic</div><div class="qe-drive-diff-sbs-cell is-empty">Brak różnic</div></div>`);
+    } else {
+        let lastEnd = -1;
+        for (const seg of segments) {
+            if (lastEnd >= 0 && seg.start > lastEnd + 1) {
+                rows.push(`<div class="qe-drive-diff-sbs-row is-gap"><div class="qe-drive-diff-sbs-cell is-empty">…</div><div class="qe-drive-diff-sbs-cell is-empty">…</div></div>`);
+            }
+            for (let i = seg.start; i <= seg.end; i++) {
+                const op = ops[i];
+                if (!op) continue;
+                if (op.t === 'eq') {
+                    const line = escapeHtml(op.a);
+                    rows.push(`<div class="qe-drive-diff-sbs-row is-eq"><div class="qe-drive-diff-sbs-cell">${line}</div><div class="qe-drive-diff-sbs-cell">${line}</div></div>`);
+                } else if (op.t === 'del') {
+                    rows.push(`<div class="qe-drive-diff-sbs-row is-del"><div class="qe-drive-diff-sbs-cell">${escapeHtml(op.a)}</div><div class="qe-drive-diff-sbs-cell is-empty"></div></div>`);
+                } else if (op.t === 'ins') {
+                    rows.push(`<div class="qe-drive-diff-sbs-row is-ins"><div class="qe-drive-diff-sbs-cell is-empty"></div><div class="qe-drive-diff-sbs-cell">${escapeHtml(op.b)}</div></div>`);
+                }
+            }
+            lastEnd = seg.end;
+        }
+    }
+    rows.push('</div></div>');
+    return rows.join('\n');
+}
+
+function qeAttachOverlayScrollbar(scrollEl, trackEl, thumbEl) {
+    let raf = 0;
+    let hideTimer = 0;
+    let dragging = false;
+    let dragStartY = 0;
+    let dragStartScrollTop = 0;
+
+    const show = () => {
+        trackEl.classList.add('is-visible');
+        if (hideTimer) window.clearTimeout(hideTimer);
+        hideTimer = window.setTimeout(() => trackEl.classList.remove('is-visible'), 1100);
+    };
+
+    const update = () => {
+        raf = 0;
+        const height = scrollEl.clientHeight;
+        const total = scrollEl.scrollHeight;
+        const canScroll = total > height + 1;
+        trackEl.hidden = !canScroll;
+        if (!canScroll) return;
+
+        const ratio = height / total;
+        const thumbMin = 36;
+        const thumbH = Math.max(thumbMin, Math.round(height * ratio));
+        const maxThumbTop = Math.max(1, height - thumbH);
+        const maxScrollTop = Math.max(1, total - height);
+        const thumbTop = Math.round((scrollEl.scrollTop / maxScrollTop) * maxThumbTop);
+
+        thumbEl.style.height = `${thumbH}px`;
+        thumbEl.style.transform = `translateY(${thumbTop}px)`;
+    };
+
+    const schedule = () => {
+        if (raf) return;
+        raf = window.requestAnimationFrame(update);
+    };
+
+    const onScroll = () => { show(); schedule(); };
+
+    const onPointerDownThumb = (e) => {
+        dragging = true;
+        dragStartY = e.clientY;
+        dragStartScrollTop = scrollEl.scrollTop;
+        thumbEl.setPointerCapture?.(e.pointerId);
+        show();
+        e.preventDefault();
+    };
+
+    const onPointerMove = (e) => {
+        if (!dragging) return;
+        const height = scrollEl.clientHeight;
+        const total = scrollEl.scrollHeight;
+        const ratio = height / total;
+        const thumbMin = 36;
+        const thumbH = Math.max(thumbMin, Math.round(height * ratio));
+        const maxThumbTop = Math.max(1, height - thumbH);
+        const maxScrollTop = Math.max(1, total - height);
+        const deltaY = e.clientY - dragStartY;
+        const scrollDelta = (deltaY / maxThumbTop) * maxScrollTop;
+        scrollEl.scrollTop = dragStartScrollTop + scrollDelta;
+        show();
+        schedule();
+    };
+
+    const onPointerUp = (e) => {
+        if (!dragging) return;
+        dragging = false;
+        try { thumbEl.releasePointerCapture?.(e.pointerId); } catch { }
+        show();
+    };
+
+    const onTrackPointerDown = (e) => {
+        if (e.target === thumbEl) return;
+        const rect = trackEl.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        const height = scrollEl.clientHeight;
+        const total = scrollEl.scrollHeight;
+        const ratio = height / total;
+        const thumbMin = 36;
+        const thumbH = Math.max(thumbMin, Math.round(height * ratio));
+        const maxThumbTop = Math.max(1, height - thumbH);
+        const maxScrollTop = Math.max(1, total - height);
+        const targetThumbTop = Math.max(0, Math.min(maxThumbTop, y - (thumbH / 2)));
+        scrollEl.scrollTop = (targetThumbTop / maxThumbTop) * maxScrollTop;
+        show();
+        schedule();
+    };
+
+    const ro = new ResizeObserver(() => schedule());
+    ro.observe(scrollEl);
+
+    scrollEl.addEventListener('scroll', onScroll, { passive: true });
+    scrollEl.addEventListener('pointerenter', show, { passive: true });
+    scrollEl.addEventListener('pointermove', show, { passive: true });
+    trackEl.addEventListener('pointerenter', show, { passive: true });
+    trackEl.addEventListener('pointermove', show, { passive: true });
+    thumbEl.addEventListener('pointerdown', onPointerDownThumb);
+    trackEl.addEventListener('pointerdown', onTrackPointerDown);
+    const onTrackWheel = (e) => {
+        scrollEl.scrollTop += e.deltaY;
+        show();
+        schedule();
+        e.preventDefault();
+    };
+    trackEl.addEventListener('wheel', onTrackWheel, { passive: false });
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+
+    schedule();
+    return () => {
+        try { if (raf) window.cancelAnimationFrame(raf); } catch { }
+        try { if (hideTimer) window.clearTimeout(hideTimer); } catch { }
+        try { ro.disconnect(); } catch { }
+        try { scrollEl.removeEventListener('scroll', onScroll); } catch { }
+        try { scrollEl.removeEventListener('pointerenter', show); } catch { }
+        try { scrollEl.removeEventListener('pointermove', show); } catch { }
+        try { thumbEl.removeEventListener('pointerdown', onPointerDownThumb); } catch { }
+        try { trackEl.removeEventListener('pointerdown', onTrackPointerDown); } catch { }
+        try { trackEl.removeEventListener('wheel', onTrackWheel); } catch { }
+        try { trackEl.removeEventListener('pointerenter', show); } catch { }
+        try { trackEl.removeEventListener('pointermove', show); } catch { }
+        try { window.removeEventListener('pointermove', onPointerMove); } catch { }
+        try { window.removeEventListener('pointerup', onPointerUp); } catch { }
+    };
 }
 
 function buildDriveConnectingModalHtml(stageText) {
@@ -1720,7 +2407,7 @@ async function handleGoogleDriveSync({ source } = {}) {
 
             const record = await docsGetFileRecord(name);
             if (!record) {
-                changed.push({ ...file, changeReason: 'Nowy plik', previousDriveModifiedAt: null });
+                changed.push({ ...file, changeReason: 'Nowy plik', previousDriveModifiedAt: null, isNewInDb: true });
                 return;
             }
 
@@ -1728,15 +2415,15 @@ async function handleGoogleDriveSync({ source } = {}) {
             const next = Number(file?.driveModifiedAt);
 
             if (!Number.isFinite(prev) || prev <= 0) {
-                changed.push({ ...file, changeReason: 'Brak zapisanej daty poprzedniej synchronizacji', previousDriveModifiedAt: null });
+                changed.push({ ...file, changeReason: 'Brak zapisanej daty poprzedniej synchronizacji', previousDriveModifiedAt: null, isNewInDb: false });
                 return;
             }
             if (!Number.isFinite(next) || next <= 0) {
-                changed.push({ ...file, changeReason: 'Brak daty modyfikacji z Google Drive', previousDriveModifiedAt: prev });
+                changed.push({ ...file, changeReason: 'Brak daty modyfikacji z Google Drive', previousDriveModifiedAt: prev, isNewInDb: false });
                 return;
             }
             if (next > prev) {
-                changed.push({ ...file, changeReason: 'Nowsza wersja na Google Drive', previousDriveModifiedAt: prev });
+                changed.push({ ...file, changeReason: 'Nowsza wersja na Google Drive', previousDriveModifiedAt: prev, isNewInDb: false });
             }
         });
 
@@ -1755,6 +2442,7 @@ async function handleGoogleDriveSync({ source } = {}) {
             { label: 'Nadpisz zmienione', class: 'modal-btn--primary', onClick: () => startGoogleDriveSync(changed, token, { source: source || 'unknown' }) },
             { label: 'Anuluj', onClick: () => { logAction('sync', { phase: 'cancelled', source: source || 'unknown' }); } }
         ]);
+        qeInitDriveChangesModal({ files: changed, token });
     } catch (err) {
         if (session.cancelled || err?.name === 'AbortError') return;
         const msg = err?.message ? String(err.message) : 'Błąd synchronizacji';
@@ -2543,7 +3231,11 @@ function togglePreviewView(show, fileName, metaLines) {
  */
 function showModal(title, content, actions = []) {
     if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
-    modalTitle.textContent = title; setElementHtml(modalContent, content); clearElement(modalActions);
+    const { html, hasDrive } = qeBuildModalTitleHtml(title);
+    modalTitle.innerHTML = html;
+    modalTitle.classList.toggle('qe-modal-title--gdrive', Boolean(hasDrive));
+    setElementHtml(modalContent, content);
+    clearElement(modalActions);
     actions.forEach(action => {
         const btn = document.createElement('button'); btn.className = `modal-btn ${action.class || ''}`; btn.textContent = action.label;
         btn.onclick = () => { hideModal(); if (typeof action.onClick === 'function') action.onClick(); };
@@ -2556,6 +3248,7 @@ function showModal(title, content, actions = []) {
  * Ukrywa aktualnie wyświetlany modal.
  */
 function hideModal() {
+    qeTeardownDriveChangesModal();
     if (!modalOverlay) return; modalOverlay.classList.add('hidden'); modalOverlay.setAttribute('aria-hidden', 'true');
 }
 

@@ -10,6 +10,7 @@ const QuickEvoTests = {
         this.testFuzzySearch();
         this.testDeduplicationLogic();
         this.testUnifiedDeduplication();
+        this.testDriveDiff();
         this.testTitleCase();
         this.testCheckListOverflow();
         this.testLegacySelfTests();
@@ -57,6 +58,33 @@ const QuickEvoTests = {
             const res = window.QE_Debugger.benchmark({ count: 1200 });
             const ok = res && Number.isFinite(res.pushMs) && Number.isFinite(res.openMs) && res.count === 1200;
             this.assert(ok, "benchmark zwraca wynik i nie zawiesza renderowania");
+        }
+    },
+
+    testDriveDiff() {
+        console.log("\nTesting Drive Diff (Myers):");
+        this.assert(typeof window.qeComputeLineDiff === 'function', "qeComputeLineDiff jest dostępne globalnie");
+        if (typeof window.qeComputeLineDiff !== 'function') return;
+        const ops = window.qeComputeLineDiff(['a', 'b', 'c'], ['a', 'c', 'd']);
+        const del = ops.filter(o => o && o.t === 'del').length;
+        const ins = ops.filter(o => o && o.t === 'ins').length;
+        const eq = ops.filter(o => o && o.t === 'eq').length;
+        this.assert(del === 1, "Wykrywa usunięcie 1 linii");
+        this.assert(ins === 1, "Wykrywa dodanie 1 linii");
+        this.assert(eq === 2, "Zachowuje 2 linie wspólne");
+        this.assert(typeof window.qeComputeDiffContextSegments === 'function', "qeComputeDiffContextSegments jest dostępne globalnie");
+        if (typeof window.qeComputeDiffContextSegments === 'function') {
+            const segs = window.qeComputeDiffContextSegments([
+                { t: 'eq', a: '0' },
+                { t: 'eq', a: '1' },
+                { t: 'del', a: '2' },
+                { t: 'ins', b: '2x' },
+                { t: 'eq', a: '3' },
+                { t: 'eq', a: '4' },
+                { t: 'eq', a: '5' }
+            ], { contextLines: 2 });
+            const ok = Array.isArray(segs) && segs.length === 1 && segs[0].start === 0 && segs[0].end === 5;
+            this.assert(ok, "Kontekst 2 linie przed/po obejmuje poprawny zakres");
         }
     },
 
