@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.0.90-blue)
+![Version](https://img.shields.io/badge/version-2.0.110-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -46,7 +46,8 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Synchronizacja folderów z rekursywnym pobieraniem plików .xlsx
 - Rozwiązywanie konfliktów przy synchronizacji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
-- Widok różnic pokazuje kontekst (2 linie przed/po) i prezentuje tylko tryb Side-by-side
+- Widok różnic porównuje rekordy po stabilnym ID z pierwszej kolumny (Rxx), a nie po indeksie wiersza
+- Widok różnic prezentuje unified diff (styl Git/VSCode), pokazuje kontekst (3 rekordy przed/po), wyrównuje kolumny i obsługuje przewijanie poziome
 - Przycisk różnic działa jako przełącznik „Pokaż/Ukryj różnice”, a dla nowych plików status jest sygnalizowany czerwonym „X”
 - Niestandardowy pasek przewijania w oknie zmian Google Drive (premium overlay, pełna funkcjonalność przewijania)
 - Diff jest automatycznie blokowany dla nowych plików (brak sensu porównania) oraz ograniczany dla bardzo dużych plików (ochrona wydajności)

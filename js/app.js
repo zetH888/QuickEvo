@@ -1545,7 +1545,7 @@ function buildDriveChangesModalHtml(changed) {
             <div class="qe-drive-diff-actions">${diffBtn}${diffStatus}</div>
             <div class="qe-drive-diff-body" hidden>
                 <div class="qe-drive-diff-error" hidden></div>
-                <div class="qe-drive-diff-view" data-qe-diff-view="side" hidden></div>
+                <div class="qe-drive-diff-view" data-qe-diff-view="unified" hidden></div>
             </div>
         </div>`;
         return `<li class="qe-drive-change" data-qe-drive-name="${rawNameEsc}" data-qe-drive-id="${fileId}" data-qe-drive-is-new="${isNewInDb ? '1' : '0'}">
@@ -1868,9 +1868,9 @@ function qeDriveDiffApplyResult(container, result) {
     if (body) body.hidden = false;
     if (err) err.hidden = true;
     container.dataset.qeDiffState = 'ready';
-    const side = container.querySelector('.qe-drive-diff-view[data-qe-diff-view="side"]');
-    if (side) setElementHtml(side, qeRenderSideBySideDiffHtml(result, { contextLines: 2 }));
-    if (side) side.hidden = false;
+    const unified = container.querySelector('.qe-drive-diff-view[data-qe-diff-view="unified"]');
+    if (unified) setElementHtml(unified, qeRenderUnifiedRecordDiffHtml(result, { contextLines: 3 }));
+    if (unified) unified.hidden = false;
 }
 
 async function qeComputeDriveFileDiff({ api, token, fileId, fileName, signal } = {}) {
@@ -1897,18 +1897,264 @@ async function qeComputeDriveFileDiff({ api, token, fileId, fileName, signal } =
         qeParseTableModelFromSource(newBuffer, fileName)
     ]);
 
-    const MAX = 7000;
-    const old = qeTableModelToDiffLines(oldModel, { maxLines: MAX });
-    const next = qeTableModelToDiffLines(newModel, { maxLines: MAX });
-    const ops = qeComputeLineDiff(old.lines, next.lines);
-    const truncated = Boolean(old.clipped || next.clipped);
+    const old = qeTableModelToRecordList(oldModel);
+    const next = qeTableModelToRecordList(newModel);
+    const diff = qeComputeRecordDiff(old.records, next.records);
+    const truncated = false;
+    const noteParts = [];
+    if (old.warnings.length > 0 || next.warnings.length > 0) {
+        noteParts.push('Uwaga: wykryto nieprawidłowe lub zduplikowane ID w pierwszej kolumnie; diff może być mniej precyzyjny.');
+    }
     return {
         truncated,
-        oldCount: Number(old.totalLines) || old.lines.length,
-        newCount: Number(next.totalLines) || next.lines.length,
-        ops,
-        note: truncated ? `Diff skrócony do ${MAX} linii na stronę dla wydajności.` : ''
+        oldCount: old.records.length,
+        newCount: next.records.length,
+        ops: diff.ops,
+        note: noteParts.join(' ')
     };
+}
+
+function qeHashStringDjb2(input) {
+    const s = String(input ?? '');
+    let h = 5381;
+    for (let i = 0; i < s.length; i++) h = ((h << 5) + h) ^ s.charCodeAt(i);
+    return (h >>> 0).toString(36);
+}
+
+function qeTryNormalizeRecordId(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return null;
+    const upper = raw.toUpperCase();
+    if (/^R\d{1,6}$/i.test(upper)) return upper;
+    return null;
+}
+
+function qeExtractRecordIdFromRowCells(cells) {
+    const row = Array.isArray(cells) ? cells : [];
+    const first = qeTryNormalizeRecordId(row[0]);
+    if (first) return { id: first, idIndex: 0, warning: null };
+    for (let i = 0; i < row.length; i++) {
+        const v = qeTryNormalizeRecordId(row[i]);
+        if (v) return { id: v, idIndex: i, warning: 'ID nie znajduje się w pierwszej kolumnie.' };
+    }
+    return { id: null, idIndex: -1, warning: 'Brak ID w formacie Rxx.' };
+}
+
+function qeSelectRecordDataCells(model, rowCells, idIndex) {
+    const cells = Array.isArray(rowCells) ? rowCells : [];
+    const m = model && typeof model === 'object' ? model : null;
+    if (m?.isCompleteStructure && m?.headerMap) {
+        const h = m.headerMap;
+        const indices = [h.NR_POL, h.GODZ, h.ADRES, h.NAZWA_PLACOWKI, h.UWAGI]
+            .filter((v) => Number.isInteger(v) && v >= 0 && v !== idIndex);
+        return indices.map((i) => String(cells[i] ?? '').trim());
+    }
+    const out = [];
+    for (let i = 0; i < cells.length; i++) {
+        if (i === idIndex) continue;
+        out.push(String(cells[i] ?? '').trim());
+    }
+    return out;
+}
+
+function qeTableModelToRecordList(model) {
+    const rows = Array.isArray(model?.rows) ? model.rows : [];
+    const warnings = [];
+    const records = [];
+    for (const row of rows) {
+        const cells = Array.isArray(row?.cells) ? row.cells : [];
+        const { id, idIndex, warning } = qeExtractRecordIdFromRowCells(cells);
+        if (warning) warnings.push(warning);
+        const dataCells = qeSelectRecordDataCells(model, cells, idIndex);
+        const stableId = id ?? `?${qeHashStringDjb2(`${dataCells.join('\u241F')}`)}`;
+        records.push({
+            id: stableId,
+            dataCells,
+            originalRowIndex: Number(row?.originalRowIndex ?? 0) || 0
+        });
+    }
+
+    const seen = new Map();
+    for (const r of records) {
+        const base = String(r.id || '').trim();
+        const next = (seen.get(base) ?? 0) + 1;
+        seen.set(base, next);
+        if (next > 1) {
+            r.id = `${base}#${next}`;
+            warnings.push('Zduplikowane ID w pliku.');
+        }
+    }
+    return { records, warnings };
+}
+
+function qeComputeLcsIds(a, b) {
+    const A = Array.isArray(a) ? a : [];
+    const B = Array.isArray(b) ? b : [];
+    const n = A.length;
+    const m = B.length;
+    const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+    for (let i = n - 1; i >= 0; i--) {
+        for (let j = m - 1; j >= 0; j--) {
+            dp[i][j] = A[i] === B[j] ? (dp[i + 1][j + 1] + 1) : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+    }
+    const lcs = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+        if (A[i] === B[j]) {
+            lcs.push(A[i]);
+            i++; j++;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) i++;
+        else j++;
+    }
+    return lcs;
+}
+
+function qeDiffIdsUsingLcs(oldIds, newIds) {
+    const A = Array.isArray(oldIds) ? oldIds : [];
+    const B = Array.isArray(newIds) ? newIds : [];
+    const lcs = qeComputeLcsIds(A, B);
+    const ops = [];
+    let i = 0, j = 0, k = 0;
+    while (i < A.length || j < B.length) {
+        const target = k < lcs.length ? lcs[k] : null;
+        if (target !== null && i < A.length && j < B.length && A[i] === target && B[j] === target) {
+            ops.push({ t: 'eq', id: target });
+            i++; j++; k++;
+            continue;
+        }
+        if (i < A.length && (target === null || A[i] !== target)) {
+            ops.push({ t: 'del', id: A[i] });
+            i++;
+            continue;
+        }
+        if (j < B.length && (target === null || B[j] !== target)) {
+            ops.push({ t: 'ins', id: B[j] });
+            j++;
+            continue;
+        }
+        if (i < A.length) { ops.push({ t: 'del', id: A[i] }); i++; continue; }
+        if (j < B.length) { ops.push({ t: 'ins', id: B[j] }); j++; continue; }
+    }
+    return ops;
+}
+
+function qeComputeChangedCellIndices(oldCells, newCells) {
+    const A = Array.isArray(oldCells) ? oldCells : [];
+    const B = Array.isArray(newCells) ? newCells : [];
+    const max = Math.max(A.length, B.length);
+    const changed = [];
+    for (let i = 0; i < max; i++) {
+        const a = String(A[i] ?? '').trim();
+        const b = String(B[i] ?? '').trim();
+        if (a !== b) changed.push(i);
+    }
+    return changed;
+}
+
+function qeComputeRecordDiff(oldRecords, newRecords) {
+    const oldList = Array.isArray(oldRecords) ? oldRecords : [];
+    const newList = Array.isArray(newRecords) ? newRecords : [];
+    const oldById = new Map(oldList.map((r) => [String(r?.id ?? ''), r]));
+    const newById = new Map(newList.map((r) => [String(r?.id ?? ''), r]));
+    const oldIds = oldList.map((r) => String(r?.id ?? ''));
+    const newIds = newList.map((r) => String(r?.id ?? ''));
+
+    const baseOps = qeDiffIdsUsingLcs(oldIds, newIds);
+    const ops = [];
+    for (const op of baseOps) {
+        if (!op) continue;
+        if (op.t === 'eq') {
+            const id = String(op.id ?? '');
+            const a = oldById.get(id);
+            const b = newById.get(id);
+            const oldCells = a?.dataCells ?? [];
+            const newCells = b?.dataCells ?? [];
+            const changedIdxs = qeComputeChangedCellIndices(oldCells, newCells);
+            if (changedIdxs.length > 0) {
+                ops.push({ t: 'del', id, rec: a, changedIdxs });
+                ops.push({ t: 'ins', id, rec: b, changedIdxs });
+            } else {
+                ops.push({ t: 'eq', id, rec: a });
+            }
+        } else if (op.t === 'del') {
+            const id = String(op.id ?? '');
+            ops.push({ t: 'del', id, rec: oldById.get(id) ?? null });
+        } else if (op.t === 'ins') {
+            const id = String(op.id ?? '');
+            ops.push({ t: 'ins', id, rec: newById.get(id) ?? null });
+        }
+    }
+    return { ops };
+}
+
+function qeComputeUnifiedColumnWidths(ops, segments) {
+    const list = Array.isArray(ops) ? ops : [];
+    const segs = Array.isArray(segments) ? segments : [];
+    const widths = [];
+
+    for (const seg of segs) {
+        const start = Math.max(0, Number(seg?.start ?? 0) || 0);
+        const end = Math.min(list.length - 1, Number(seg?.end ?? -1) || -1);
+        for (let i = start; i <= end; i++) {
+            const op = list[i];
+            const rec = op?.rec && typeof op.rec === 'object' ? op.rec : null;
+            const dataCells = Array.isArray(rec?.dataCells) ? rec.dataCells : [];
+            if (dataCells.length > widths.length) widths.length = dataCells.length;
+            for (let c = 0; c < dataCells.length; c++) {
+                const len = String(dataCells[c] ?? '').trim().length;
+                widths[c] = Math.max(Number(widths[c] ?? 0), len);
+            }
+        }
+    }
+
+    for (let i = 0; i < widths.length; i++) widths[i] = Math.max(1, Number(widths[i] ?? 1) || 1);
+    return widths;
+}
+
+function qeRenderRecordLineHtml(op, colWidths) {
+    const t = String(op?.t || '');
+    const rec = op?.rec && typeof op.rec === 'object' ? op.rec : null;
+    const dataCells = Array.isArray(rec?.dataCells) ? rec.dataCells : [];
+    const changedIdxs = Array.isArray(op?.changedIdxs) ? op.changedIdxs : [];
+    const changedSet = new Set(changedIdxs.map((n) => Number(n)));
+
+    const cellsHtml = [];
+    const widths = Array.isArray(colWidths) ? colWidths : [];
+    const colCount = Math.max(widths.length, dataCells.length);
+    for (let i = 0; i < colCount; i++) {
+        const v = escapeHtml(String(dataCells[i] ?? '').trim());
+        const isChanged = changedSet.has(i);
+        const w = Math.max(1, Number(widths[i] ?? 1) || 1);
+        cellsHtml.push(`<span class="qe-drive-diff-cell${isChanged ? ' is-changed' : ''}" style="min-width:${w}ch;display:inline-block;">${v || '&nbsp;'}</span>`);
+        if (i < colCount - 1) cellsHtml.push(`<span class="qe-drive-diff-u-sep"> | </span>`);
+    }
+    const prefix = t === 'ins' ? '+' : (t === 'del' ? '-' : '&nbsp;');
+    const cls = t === 'ins' ? 'is-ins' : (t === 'del' ? 'is-del' : 'is-eq');
+    return `<div class="qe-drive-diff-u-row ${cls}"><div class="qe-drive-diff-u-prefix" aria-hidden="true">${prefix}</div><div class="qe-drive-diff-u-cells">${cellsHtml.join('')}</div></div>`;
+}
+
+function qeRenderUnifiedRecordDiffHtml(result, { contextLines } = {}) {
+    const ops = Array.isArray(result?.ops) ? result.ops : [];
+    const note = String(result?.note || '').trim();
+    const ctx = Math.max(0, Math.min(999, Number(contextLines) || 0));
+    const segments = ctx >= 999 ? (ops.length > 0 ? [{ start: 0, end: ops.length - 1 }] : []) : qeComputeDiffContextSegments(ops, { contextLines: ctx });
+    const widths = qeComputeUnifiedColumnWidths(ops, segments);
+    const rows = [];
+    if (note) rows.push(`<div class="qe-drive-diff-note">${escapeHtml(note)}</div>`);
+    rows.push('<div class="qe-drive-diff-unified"><div class="qe-drive-diff-unified-scroll"><div class="qe-drive-diff-unified-body">');
+    if (segments.length === 0) {
+        rows.push('<div class="qe-drive-diff-u-empty">Brak różnic</div>');
+    } else {
+        let lastEnd = -1;
+        for (const seg of segments) {
+            if (lastEnd >= 0 && seg.start > lastEnd + 1) rows.push('<div class="qe-drive-diff-u-gap">…</div>');
+            for (let i = seg.start; i <= seg.end; i++) rows.push(qeRenderRecordLineHtml(ops[i], widths));
+            lastEnd = seg.end;
+        }
+    }
+    rows.push('</div></div></div>');
+    return rows.join('\n');
 }
 
 async function qeParseTableModelFromSource(source, fileName) {
@@ -3151,7 +3397,6 @@ function showFilePreview(fileName, highlightRowIndex, options = { skipPush: fals
  * Renderuje nagłówek podglądu tabeli.
  */
 function renderPreviewHeader(thead, headers) {
-    const idxTh = document.createElement('th'); idxTh.textContent = '#'; thead.appendChild(idxTh);
     headers.forEach(h => { const th = document.createElement('th'); th.textContent = h || ''; thead.appendChild(th); });
 }
 
@@ -3163,7 +3408,6 @@ function renderPreviewBody(tbody, tableModel, highlightRowIndex) {
     tableModel.rows.forEach((rowObj) => {
         const tr = document.createElement('tr');
         if (rowObj.originalRowIndex === highlightRowIndex) { tr.classList.add('highlighted-row'); highlightedRowEl = tr; }
-        const tdNum = document.createElement('td'); tdNum.className = 'row-num'; tdNum.textContent = String(rowObj.originalRowIndex + 1); tr.appendChild(tdNum);
         rowObj.cells.forEach((cell, cellIdx) => {
             const td = document.createElement('td'); td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
             if (tableModel.headers[cellIdx]) {

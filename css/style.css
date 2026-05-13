@@ -2420,7 +2420,7 @@ footer {
 .qe-drive-diff-actions {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 10px;
     flex-wrap: wrap;
 }
@@ -2431,6 +2431,7 @@ footer {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    margin-left: auto;
     border-radius: 10px;
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2595,6 +2596,128 @@ footer {
     color: rgba(255, 150, 150, 0.92);
 }
 
+.qe-drive-diff-unified {
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.26);
+}
+
+.qe-drive-diff-unified-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-unified-scroll::-webkit-scrollbar {
+    height: 10px;
+}
+
+.qe-drive-diff-unified-scroll::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-unified-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.20);
+    border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-unified-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.qe-drive-diff-unified-body {
+    max-height: 280px;
+    overflow-y: auto;
+    overflow-x: visible;
+    width: max-content;
+    min-width: 100%;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.06);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 0.82rem;
+    line-height: 1.45;
+}
+
+.qe-drive-diff-unified-body::-webkit-scrollbar {
+    width: 10px;
+}
+
+.qe-drive-diff-unified-body::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-unified-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.20);
+    border-radius: 999px;
+    border: 2px solid rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-unified-body::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
+
+.qe-drive-diff-u-row {
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-u-prefix {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 6px 0;
+    color: rgba(255, 255, 255, 0.55);
+    user-select: none;
+}
+
+.qe-drive-diff-u-cells {
+    padding: 6px 10px;
+    white-space: pre;
+    color: rgba(255, 255, 255, 0.74);
+}
+
+.qe-drive-diff-u-row.is-ins .qe-drive-diff-u-cells {
+    color: rgba(140, 255, 185, 0.95);
+}
+
+.qe-drive-diff-u-row.is-del .qe-drive-diff-u-cells {
+    color: rgba(255, 150, 150, 0.92);
+}
+
+.qe-drive-diff-u-row.is-eq .qe-drive-diff-u-cells {
+    color: rgba(255, 255, 255, 0.70);
+}
+
+.qe-drive-diff-u-sep {
+    color: rgba(255, 255, 255, 0.30);
+}
+
+.qe-drive-diff-cell.is-changed {
+    border-radius: 6px;
+    padding: 0 4px;
+    background: rgba(47, 140, 255, 0.18);
+    box-shadow: inset 0 0 0 1px rgba(47, 140, 255, 0.22);
+}
+
+.qe-drive-diff-u-gap {
+    padding: 8px 10px;
+    text-align: center;
+    opacity: 0.55;
+    letter-spacing: 1px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.qe-drive-diff-u-empty {
+    padding: 10px;
+    color: rgba(255, 255, 255, 0.72);
+    font-weight: 800;
+}
+
 .qe-drive-diff-sbs {
     border-radius: 10px;
     overflow: hidden;
@@ -2703,7 +2826,8 @@ footer {
     .qe-modal-gdrive,
     .qe-drive-expandall,
     .qe-drive-chevron,
-    .qe-drive-diff-btn {
+    .qe-drive-diff-btn,
+    .qe-drive-diff-unified-scroll {
         transition: none !important;
     }
 }

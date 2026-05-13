@@ -11,6 +11,9 @@ const QuickEvoTests = {
         this.testDeduplicationLogic();
         this.testUnifiedDeduplication();
         this.testDriveDiff();
+        this.testDriveRecordDiffAcceptance();
+        this.testDriveDiffUi();
+        this.testPreviewIndexColumnHidden();
         this.testTitleCase();
         this.testCheckListOverflow();
         this.testLegacySelfTests();
@@ -86,6 +89,97 @@ const QuickEvoTests = {
             const ok = Array.isArray(segs) && segs.length === 1 && segs[0].start === 0 && segs[0].end === 5;
             this.assert(ok, "Kontekst 2 linie przed/po obejmuje poprawny zakres");
         }
+    },
+
+    testDriveRecordDiffAcceptance() {
+        console.log("\nTesting Drive Diff (rekordy po ID) — testy akceptacyjne:");
+        this.assert(typeof window.qeComputeRecordDiff === 'function', "qeComputeRecordDiff jest dostępne globalnie");
+        this.assert(typeof window.qeRenderUnifiedRecordDiffHtml === 'function', "qeRenderUnifiedRecordDiffHtml jest dostępne globalnie");
+        if (typeof window.qeComputeRecordDiff !== 'function') return;
+
+        const makeRec = (id, dataCells) => ({ id, dataCells: Array.isArray(dataCells) ? dataCells : [] });
+
+        {
+            const oldRecs = [makeRec('R21', ['A']), makeRec('R22', ['B'])];
+            const newRecs = [makeRec('R21', ['A']), makeRec('R99', ['X']), makeRec('R22', ['B'])];
+            const ops = window.qeComputeRecordDiff(oldRecs, newRecs).ops;
+            const ins = ops.filter(o => o && o.t === 'ins');
+            const del = ops.filter(o => o && o.t === 'del');
+            this.assert(ins.length === 1, "Dodanie rekordu między R21 a R22 generuje dokładnie 1 insert");
+            this.assert(del.length === 0, "Dodanie rekordu nie generuje delete");
+            this.assert(ins[0]?.id === 'R99', "Insert dotyczy poprawnego ID");
+        }
+
+        {
+            const oldRecs = [makeRec('R21', ['A']), makeRec('R22', ['B']), makeRec('R23', ['C'])];
+            const newRecs = [makeRec('R21', ['A']), makeRec('R23', ['C'])];
+            const ops = window.qeComputeRecordDiff(oldRecs, newRecs).ops;
+            const del = ops.filter(o => o && o.t === 'del' && (o.id === 'R22' || o.rec?.id === 'R22'));
+            const r23Eq = ops.some(o => o && o.t === 'eq' && (o.id === 'R23' || o.rec?.id === 'R23'));
+            this.assert(del.length === 1, "Usunięcie rekordu generuje dokładnie 1 delete dla usuwanego ID");
+            this.assert(r23Eq, "Usunięcie rekordu nie oznacza następnych jako zmienione");
+        }
+
+        {
+            const oldRecs = [makeRec('R21', ['A', 'B'])];
+            const newRecs = [makeRec('R21', ['A', 'C'])];
+            const ops = window.qeComputeRecordDiff(oldRecs, newRecs).ops;
+            const del = ops.find(o => o && o.t === 'del' && (o.id === 'R21' || o.rec?.id === 'R21'));
+            const ins = ops.find(o => o && o.t === 'ins' && (o.id === 'R21' || o.rec?.id === 'R21'));
+            const changed = Array.isArray(del?.changedIdxs) ? del.changedIdxs : [];
+            this.assert(Boolean(del) && Boolean(ins), "Modyfikacja rekordu generuje parę delete + insert");
+            this.assert(changed.length === 1 && changed[0] === 1, "Modyfikacja pojedynczej komórki oznacza tylko zmienione pole");
+
+            if (typeof window.qeRenderUnifiedRecordDiffHtml === 'function') {
+                const html = window.qeRenderUnifiedRecordDiffHtml({ ops }, { contextLines: 999 });
+                const hits = String(html || '').split('is-changed').length - 1;
+                this.assert(hits === 2, "Highlightowanie obejmuje tylko zmodyfikowaną komórkę (po jednej na linię -/+)");
+            }
+        }
+    },
+
+    testDriveDiffUi() {
+        console.log("\nTesting Drive Diff UI (unified) — układ i wyrównanie kolumn:");
+        this.assert(typeof window.qeRenderUnifiedRecordDiffHtml === 'function', "qeRenderUnifiedRecordDiffHtml jest dostępne globalnie");
+
+        if (typeof window.buildDriveChangesModalHtml === 'function') {
+            const html = window.buildDriveChangesModalHtml([{ name: 'test.xlsx', id: '1', isNewInDb: false, driveModifiedAt: Date.now(), previousDriveModifiedAt: Date.now() - 1000 }]);
+            this.assert(!String(html).includes('Kontekst'), "Nie renderuje przycisku/tekstu „Kontekst” w oknie różnic");
+            this.assert(!String(html).includes('qe-drive-diff-ctx-btn'), "Nie renderuje przycisku kontekstu (brak klasy qe-drive-diff-ctx-btn)");
+            this.assert(!String(html).includes('data-qe-diff-ctx'), "Nie renderuje atrybutu data-qe-diff-ctx");
+        }
+
+        if (typeof window.qeRenderUnifiedRecordDiffHtml !== 'function') return;
+        const makeRec = (id, dataCells) => ({ id, dataCells: Array.isArray(dataCells) ? dataCells : [] });
+        const ops = [
+            { t: 'eq', rec: makeRec('R21', ['A', 'BBBB']) },
+            { t: 'eq', rec: makeRec('R22', ['CC', 'D']) }
+        ];
+        const html = window.qeRenderUnifiedRecordDiffHtml({ ops }, { contextLines: 999 });
+        this.assert(String(html).includes('qe-drive-diff-unified-scroll'), "Zawiera kontener przewijania poziomego");
+        this.assert(String(html).includes('min-width:2ch'), "Dopasowuje szerokość kolumny do najdłuższej wartości (kolumna 1)");
+        this.assert(String(html).includes('min-width:4ch'), "Dopasowuje szerokość kolumny do najdłuższej wartości (kolumna 2)");
+        this.assert(!String(html).includes('R21'), "Nie renderuje jawnie ID/indeksu w pierwszej kolumnie diff");
+    },
+
+    testPreviewIndexColumnHidden() {
+        console.log("\nTesting Preview Table — brak kolumny indeksu:");
+        this.assert(typeof window.renderPreviewHeader === 'function', "renderPreviewHeader jest dostępne globalnie");
+        this.assert(typeof window.renderPreviewBody === 'function', "renderPreviewBody jest dostępne globalnie");
+        if (typeof window.renderPreviewHeader !== 'function' || typeof window.renderPreviewBody !== 'function') return;
+
+        const theadRow = document.createElement('tr');
+        window.renderPreviewHeader(theadRow, ['H1', 'H2', 'H3']);
+        this.assert(theadRow.children.length === 3, "Nagłówek podglądu nie zawiera dodatkowej kolumny indeksu");
+        this.assert(Array.from(theadRow.children).every(th => th.textContent !== '#'), "Nagłówek podglądu nie zawiera „#”");
+
+        const tbody = document.createElement('tbody');
+        const model = { headers: ['H1', 'H2'], rows: [{ originalRowIndex: 0, cells: ['A', 'B'] }], metaLines: [] };
+        window.renderPreviewBody(tbody, model, null);
+        const tr = tbody.querySelector('tr');
+        const tds = tr ? Array.from(tr.querySelectorAll('td')) : [];
+        this.assert(tds.length === 2, "Wiersz podglądu nie zawiera dodatkowej komórki indeksu");
+        this.assert(tds.every(td => !td.classList.contains('row-num')), "Wiersz podglądu nie renderuje komórki z klasą row-num");
     },
 
     testTitleCase() {
