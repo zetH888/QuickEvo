@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.1.050-blue)
+![Version](https://img.shields.io/badge/version-2.1.055-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -38,6 +38,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Wyniki pogrupowane według plików źródłowych
 - Zwijane sekcje kategorii tras (STANDARD, WIECZOREK, SOBOTA, NIEDZIELA)
 - Automatyczne wyświetlanie kierowcy przypisanego do trasy na bieżący dzień na podstawie pliku grafiku (CSV/XLSX)
+- Obsługa wielu kierowców przypisanych do tej samej trasy w jednym dniu (np. „Jan Kowalski i/lub Anna Nowak”) w formie estetycznych badge’y
 - Automatyczna normalizacja zapytań (ignorowanie polskich znaków diakrytycznych i wielkości liter)
 
 ### Import danych

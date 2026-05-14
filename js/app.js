@@ -284,7 +284,7 @@ let fullFileData = {};
 /**
  * Cache grafiku: mapowanie (YYYY-MM) -> dane grafiku oraz przypisania (data -> trasa -> kierowca).
  * Uwaga: trzymamy to celowo poza indeksami wyszukiwania, aby pliki grafiku nie wpływały na wyniki.
- * @type {Map<string, { key: string, year: number, month: number, fileName: string, byIsoDate: Map<string, Map<string, string>> }>}
+ * @type {Map<string, { key: string, year: number, month: number, fileName: string, byIsoDate: Map<string, Map<string, Set<string>>> }>}
  */
 let scheduleCacheByMonth = new Map();
 
@@ -1622,7 +1622,9 @@ async function parseScheduleSpreadsheet(source, fileName) {
             const byRoute = byIsoDate.get(iso);
             for (const routeCode of routes) {
                 if (!routeCode) continue;
-                if (!byRoute.has(routeCode)) byRoute.set(routeCode, driverName);
+                if (!byRoute.has(routeCode)) byRoute.set(routeCode, new Set());
+                const drivers = byRoute.get(routeCode);
+                if (drivers instanceof Set) drivers.add(driverName);
             }
         }
     }
@@ -1652,7 +1654,22 @@ function getDriverForRouteOnDate(routeCode, date) {
     const byRoute = cache.byIsoDate.get(iso);
     if (!byRoute) return null;
     const normalized = normalizeScheduleRouteCode(routeCode).replace(/\s+/g, '');
-    return byRoute.get(normalized) || null;
+    const drivers = byRoute.get(normalized);
+    if (!(drivers instanceof Set) || drivers.size === 0) return null;
+    const names = Array.from(drivers).map(normalizeDriverDisplayName).filter(Boolean);
+    names.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+    return names.length > 0 ? names : null;
+}
+
+function buildDriverBadgesHtml(driverNames) {
+    const names = Array.isArray(driverNames) ? driverNames.map(normalizeDriverDisplayName).filter(Boolean) : [];
+    if (names.length === 0) return '';
+    const parts = [];
+    for (let i = 0; i < names.length; i++) {
+        if (i > 0) parts.push('<span class="result-driver-sep">i/lub</span>');
+        parts.push(`<span class="result-driver-badge">${escapeHtml(names[i])}</span>`);
+    }
+    return parts.join('');
 }
 
 /**
@@ -3727,8 +3744,9 @@ function cssEscapeAttrValue(value) {
 function createResultGroupElement(group, index, query, { animateIn = false, enterDelayMs = 0 } = {}) {
     const routeName = formatRouteNameForResults(group.fileName);
     const routeCode = extractRouteCodeFromFileName(group.fileName);
-    const driverName = routeCode ? getDriverForRouteOnDate(routeCode, new Date()) : null;
-    const driverHtml = driverName ? `<span class="result-driver" aria-label="Kierowca z grafiku">— ${escapeHtml(driverName)}</span>` : '';
+    const driverNames = routeCode ? getDriverForRouteOnDate(routeCode, new Date()) : null;
+    const driverBadgesHtml = buildDriverBadgesHtml(driverNames);
+    const driverHtml = driverBadgesHtml ? `<span class="result-driver" aria-label="Kierowcy z grafiku">— ${driverBadgesHtml}</span>` : '';
     const groupDiv = document.createElement('div');
     
     // Określamy kierunek animacji na podstawie indeksu (parzyste z lewej, nieparzyste z prawej)
