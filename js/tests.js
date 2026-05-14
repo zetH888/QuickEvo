@@ -5,6 +5,7 @@ const QuickEvoTests = {
     run() {
         console.log("%c--- QuickEvo Test Suite ---", "color: #0066cc; font-weight: bold; font-size: 1.2rem;");
         this.testXlsxLoaded();
+        this.testScheduleParsing();
         this.testNormalization();
         this.testStatsFormatting();
         this.testFuzzySearch();
@@ -24,6 +25,32 @@ const QuickEvoTests = {
     testXlsxLoaded() {
         console.log("\nTesting XLSX Library:");
         this.assert(typeof window.XLSX === 'object' && window.XLSX !== null, "XLSX jest dostępne globalnie (integrity/SRI nie blokuje ładowania)");
+    },
+
+    testScheduleParsing() {
+        console.log("\nTesting Grafik Kierowców — parsowanie:");
+        this.assert(typeof window.parseScheduleFileNameYearMonth === 'function', "parseScheduleFileNameYearMonth jest dostępne globalnie");
+        this.assert(typeof window.parseScheduleCellToRoutes === 'function', "parseScheduleCellToRoutes jest dostępne globalnie");
+        this.assert(typeof window.extractRouteCodeFromFileName === 'function', "extractRouteCodeFromFileName jest dostępne globalnie");
+
+        if (typeof window.parseScheduleFileNameYearMonth === 'function') {
+            const meta = window.parseScheduleFileNameYearMonth('WARSZAWA MAJ 2026.csv');
+            this.assert(Boolean(meta && meta.year === 2026 && meta.month === 5), "Rozpoznaje nazwę pliku grafiku: WARSZAWA MAJ 2026.csv");
+        }
+
+        if (typeof window.parseScheduleCellToRoutes === 'function') {
+            const a = window.parseScheduleCellToRoutes('12/H');
+            const b = window.parseScheduleCellToRoutes('S - 5');
+            const c = window.parseScheduleCellToRoutes('21/D');
+            this.assert(Array.isArray(a) && a.includes('12') && a.includes('H'), 'Parsuje komórkę typu "12/H" (standard + wieczorek)');
+            this.assert(Array.isArray(b) && b.length === 1 && b[0] === 'S-5', 'Parsuje komórkę typu "S - 5" (sobota)');
+            this.assert(Array.isArray(c) && c.length === 1 && c[0] === '21', 'Ignoruje oznaczenie dnia w komórce typu "21/D"');
+        }
+
+        if (typeof window.extractRouteCodeFromFileName === 'function') {
+            const n1 = window.extractRouteCodeFromFileName('Trasa N - 1 (NIEDZIELA WOŁOMIN).xlsx');
+            this.assert(n1 === 'N-1', 'Wyciąga kod trasy z nazwy pliku: "Trasa N - 1 ..." -> N-1');
+        }
     },
 
     testLegacySelfTests() {

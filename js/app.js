@@ -281,6 +281,16 @@ let loadedFiles = new Set();
 /** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli. */
 let fullFileData = {}; 
 
+/**
+ * Cache grafiku: mapowanie (YYYY-MM) -> dane grafiku oraz przypisania (data -> trasa -> kierowca).
+ * Uwaga: trzymamy to celowo poza indeksami wyszukiwania, aby pliki grafiku nie wpływały na wyniki.
+ * @type {Map<string, { key: string, year: number, month: number, fileName: string, byIsoDate: Map<string, Map<string, string>> }>}
+ */
+let scheduleCacheByMonth = new Map();
+
+/** @type {Set<string>} Pliki grafiku, które zostały już przetworzone i mają wpis w cache. */
+let loadedScheduleFiles = new Set();
+
 /** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna. */
 let isSearchEnabled = false; 
 
@@ -1305,7 +1315,8 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
     const loadStart = performance.now();
 
     try {
-        const spreadsheetFiles = await getSpreadsheetFiles();
+        await loadScheduleFiles({ fullReload, showProgress });
+        const spreadsheetFiles = await getRouteSpreadsheetFiles();
         fileCountSpan.textContent = spreadsheetFiles.length;
         if (fullReload) resetAppData();
         const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter(f => !loadedFiles.has(f));
@@ -1331,15 +1342,17 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
 }
 
 /**
- * Pobiera listę plików arkuszy z bazy danych.
+ * Pobiera listę plików tras (arkuszy) z bazy danych.
+ * Pliki grafiku są celowo pomijane, aby nie zanieczyszczały indeksu wyszukiwania.
  */
-async function getSpreadsheetFiles() {
+async function getRouteSpreadsheetFiles() {
     statusIndicator.textContent = 'Sprawdzanie plików...';
     const files = await docsListFiles();
     const spreadsheetFiles = Array.isArray(files)
         ? files.map(f => String(f?.name ?? '')).filter(f => {
             const lower = f.toLowerCase();
-            return lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
+            const isSpreadsheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
+            return isSpreadsheet && !isScheduleFileName(f);
         })
         : [];
     spreadsheetFiles.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
@@ -1404,6 +1417,287 @@ async function parseSpreadsheet(source, fileName) {
     }
 }
 
+//////////////////////////////////////////////////
+// OBSŁUGA GRAFIKU KIEROWCÓW (TRASA -> KIEROWCA)
+//////////////////////////////////////////////////
+
+/**
+ * Zwraca konfigurację grafiku (kody tras/oznaczenia), jeśli jest dostępna.
+ */
+function getRouteScheduleConfig() {
+    const cfg = window.QE_RouteScheduleConfig;
+    if (cfg && typeof cfg === 'object') return cfg;
+    return {
+        monthsPl: {},
+        standard: [],
+        wieczorek: [],
+        sobota: [],
+        niedziela: [],
+        dayMarkers: [],
+        normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
+    };
+}
+
+function scheduleMonthKey(year, month) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return '';
+    return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+function isoDateFromParts(year, month, day) {
+    const y = Number(year);
+    const m = Number(month);
+    const d = Number(day);
+    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return '';
+    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * Rozpoznaje plik grafiku po formacie: "MIASTO MIESIĄC ROK.xlsx|xls|csv".
+ * Miasto jest ignorowane.
+ */
+function parseScheduleFileNameYearMonth(fileName) {
+    const name = String(fileName || '').trim();
+    if (!name) return null;
+    const extMatch = name.toLowerCase().match(/\.(xlsx|xls|csv)$/);
+    if (!extMatch) return null;
+
+    const base = name.replace(/\.(xlsx|xls|csv)$/i, '').trim();
+    const parts = base.split(/\s+/g).filter(Boolean);
+    if (parts.length < 3) return null;
+
+    const yearRaw = parts[parts.length - 1];
+    const monthRaw = parts[parts.length - 2];
+    const year = Number(yearRaw);
+    if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
+
+    const cfg = getRouteScheduleConfig();
+    const monthKey = String(fuzzyNormalizeText(monthRaw) || '').toUpperCase();
+    const month = Number(cfg.monthsPl?.[monthKey]);
+    if (!Number.isInteger(month) || month < 1 || month > 12) return null;
+
+    return { year, month, key: scheduleMonthKey(year, month) };
+}
+
+function isScheduleFileName(fileName) {
+    return Boolean(parseScheduleFileNameYearMonth(fileName));
+}
+
+function normalizeDriverDisplayName(value) {
+    const raw = value === null || value === undefined ? '' : String(value);
+    return raw.replace(/\s+/g, ' ').trim();
+}
+
+function normalizeScheduleRouteCode(value) {
+    const cfg = getRouteScheduleConfig();
+    const token = cfg.normalizeScheduleToken ? cfg.normalizeScheduleToken(value) : String(value ?? '').trim().toUpperCase();
+    return String(token || '').trim().toUpperCase();
+}
+
+/**
+ * Parsuje zawartość komórki grafiku i zwraca kody tras, które należy przypisać do kierowcy.
+ * Obsługuje formaty typu:
+ * - "2"
+ * - "J"
+ * - "16/F"
+ * - "O/23"
+ * - "S - 5"
+ * - "N - 2"
+ */
+function buildScheduleTokenSets() {
+    const cfg = getRouteScheduleConfig();
+    return {
+        standardSet: new Set((cfg.standard || []).map(s => normalizeScheduleRouteCode(s))),
+        wieczorekSet: new Set((cfg.wieczorek || []).map(s => normalizeScheduleRouteCode(s))),
+        sobotaSet: new Set((cfg.sobota || []).map(s => normalizeScheduleRouteCode(s))),
+        niedzielaSet: new Set((cfg.niedziela || []).map(s => normalizeScheduleRouteCode(s))),
+        markersSet: new Set((cfg.dayMarkers || []).map(s => normalizeScheduleRouteCode(s)))
+    };
+}
+
+function parseScheduleCellToRoutes(cellValue, tokenSets) {
+    const cfg = getRouteScheduleConfig();
+    const raw = cellValue === null || cellValue === undefined ? '' : String(cellValue);
+    const cleaned = raw.trim();
+    if (!cleaned) return [];
+
+    const sets = tokenSets && typeof tokenSets === 'object' ? tokenSets : buildScheduleTokenSets();
+    const standardSet = sets.standardSet;
+    const wieczorekSet = sets.wieczorekSet;
+    const sobotaSet = sets.sobotaSet;
+    const niedzielaSet = sets.niedzielaSet;
+    const markersSet = sets.markersSet;
+
+    const tokens = cleaned
+        .split('/')
+        .map(t => normalizeScheduleRouteCode(t))
+        .map(t => t.replace(/\s+/g, ''))
+        .map(t => t.replace(/[–—]/g, '-'))
+        .map(t => t.replace(/S-?(\d+)/i, 'S-$1'))
+        .map(t => t.replace(/N-?(\d+)/i, 'N-$1'))
+        .filter(Boolean);
+
+    const routes = [];
+    for (const tok of tokens) {
+        if (standardSet.has(tok) || wieczorekSet.has(tok) || sobotaSet.has(tok) || niedzielaSet.has(tok)) {
+            routes.push(tok);
+            continue;
+        }
+        if (/^S-\d+$/i.test(tok) && sobotaSet.has(tok.toUpperCase())) { routes.push(tok.toUpperCase()); continue; }
+        if (/^N-\d+$/i.test(tok) && niedzielaSet.has(tok.toUpperCase())) { routes.push(tok.toUpperCase()); continue; }
+        if (markersSet.has(tok)) continue;
+    }
+
+    return Array.from(new Set(routes));
+}
+
+function findScheduleHeaderRowIndex(matrix) {
+    const rows = Array.isArray(matrix) ? matrix : [];
+    for (let i = 0; i < rows.length; i++) {
+        const row = Array.isArray(rows[i]) ? rows[i] : [];
+        const first = row[0] === null || row[0] === undefined ? '' : String(row[0]);
+        const norm = fuzzyNormalizeText(first);
+        if (norm.includes('imie') && (norm.includes('nazw') || norm.includes('nazwisko'))) return i;
+    }
+    return -1;
+}
+
+function buildScheduleDayColumnMap(headerRow) {
+    const row = Array.isArray(headerRow) ? headerRow : [];
+    const map = new Map();
+    for (let col = 1; col < row.length; col++) {
+        const cell = row[col];
+        const n = Number(String(cell ?? '').trim());
+        if (Number.isInteger(n) && n >= 1 && n <= 31 && !map.has(n)) map.set(n, col);
+    }
+    return map;
+}
+
+function daysInMonth(year, month) {
+    const y = Number(year);
+    const m = Number(month);
+    if (!Number.isInteger(y) || !Number.isInteger(m)) return 31;
+    return new Date(y, m, 0).getDate();
+}
+
+function cacheScheduleAssignments({ year, month, key, fileName, byIsoDate }) {
+    if (!key) return;
+    scheduleCacheByMonth.set(key, { key, year, month, fileName, byIsoDate });
+}
+
+async function parseScheduleSpreadsheet(source, fileName) {
+    const meta = parseScheduleFileNameYearMonth(fileName);
+    if (!meta) throw new Error('Nieprawidłowa nazwa pliku grafiku');
+    const { year, month, key } = meta;
+
+    const workbook = await readWorkbook(source, fileName);
+    const firstSheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[firstSheetName];
+    const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
+
+    const headerIdx = findScheduleHeaderRowIndex(matrix);
+    if (headerIdx < 0) throw new Error('Nie znaleziono wiersza nagłówka grafiku ("IMIE I NAZWISKO")');
+
+    const headerRow = matrix[headerIdx];
+    const dayToCol = buildScheduleDayColumnMap(headerRow);
+    const maxDays = daysInMonth(year, month);
+    const byIsoDate = new Map();
+    const tokenSets = buildScheduleTokenSets();
+
+    for (let rowIdx = headerIdx + 1; rowIdx < matrix.length; rowIdx++) {
+        const row = Array.isArray(matrix[rowIdx]) ? matrix[rowIdx] : [];
+        const driverName = normalizeDriverDisplayName(row[0]);
+        if (!driverName) continue;
+
+        for (let day = 1; day <= maxDays; day++) {
+            const col = dayToCol.get(day);
+            if (!Number.isInteger(col)) continue;
+            const routes = parseScheduleCellToRoutes(row[col], tokenSets);
+            if (routes.length === 0) continue;
+
+            const iso = isoDateFromParts(year, month, day);
+            if (!iso) continue;
+            if (!byIsoDate.has(iso)) byIsoDate.set(iso, new Map());
+            const byRoute = byIsoDate.get(iso);
+            for (const routeCode of routes) {
+                if (!routeCode) continue;
+                if (!byRoute.has(routeCode)) byRoute.set(routeCode, driverName);
+            }
+        }
+    }
+
+    cacheScheduleAssignments({ year, month, key, fileName: String(fileName || ''), byIsoDate });
+    loadedScheduleFiles.add(String(fileName || '').trim());
+}
+
+async function processScheduleFile(fileName) {
+    const name = String(fileName || '').trim();
+    if (!name) return;
+    const blob = await docsGetBlob(name);
+    if (!blob) throw new Error('Nie można odczytać pliku grafiku z bazy');
+    await parseScheduleSpreadsheet(blob, name);
+}
+
+function getDriverForRouteOnDate(routeCode, date) {
+    const d = date instanceof Date ? date : new Date();
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    const day = d.getDate();
+    const key = scheduleMonthKey(year, month);
+    if (!key) return null;
+    const cache = scheduleCacheByMonth.get(key);
+    if (!cache || !cache.byIsoDate) return null;
+    const iso = isoDateFromParts(year, month, day);
+    const byRoute = cache.byIsoDate.get(iso);
+    if (!byRoute) return null;
+    const normalized = normalizeScheduleRouteCode(routeCode).replace(/\s+/g, '');
+    return byRoute.get(normalized) || null;
+}
+
+/**
+ * Wyciąga kod trasy z nazwy pliku (np. "TRASA 12 ...xlsx" -> "12", "Trasa N - 1 ..." -> "N-1").
+ */
+function extractRouteCodeFromFileName(fileName) {
+    const raw = String(fileName || '');
+    const match = raw.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
+    if (!match) return '';
+    const codeRaw = match[1] || '';
+    const normalized = String(codeRaw)
+        .replace(/[–—]/g, '-')
+        .replace(/\s*-\s*/g, '-')
+        .replace(/[^A-Za-zĄĆĘŁŃÓŚŹŻ0-9-]/g, '')
+        .toUpperCase();
+    return normalized;
+}
+
+async function loadScheduleFiles({ fullReload, showProgress } = { fullReload: false, showProgress: false }) {
+    try {
+        const all = await docsListFiles();
+        const scheduleFiles = Array.isArray(all)
+            ? all.map(f => String(f?.name ?? '')).filter(n => isScheduleFileName(n))
+            : [];
+        if (scheduleFiles.length === 0) return;
+
+        if (fullReload) {
+            scheduleCacheByMonth = new Map();
+            loadedScheduleFiles = new Set();
+        }
+
+        for (const name of scheduleFiles) {
+            if (!fullReload && loadedScheduleFiles.has(name)) continue;
+            try {
+                if (showProgress) setLoadingStatusText(`Wczytuję grafik: ${formatFileName(name)}`);
+                await processScheduleFile(name);
+            } catch (err) {
+                logAction('schedule', { fileName: name, message: err?.message ? String(err.message) : 'Błąd grafiku' }, 'WARN');
+            }
+        }
+    } catch (err) {
+        logAction('schedule', { phase: 'load_failed', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
+    }
+}
+
 /**
  * Odczytuje skoroszyt z różnych źródeł danych.
  */
@@ -1438,8 +1732,13 @@ async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
     await docsPutBlob(safeName, blob);
     removeFileData(safeName);
     loadedFiles.delete(safeName);
-    await parseSpreadsheet(arrayBuffer, safeName);
-    loadedFiles.add(safeName);
+    if (isScheduleFileName(safeName)) {
+        loadedScheduleFiles.delete(safeName);
+        await parseScheduleSpreadsheet(arrayBuffer, safeName);
+    } else {
+        await parseSpreadsheet(arrayBuffer, safeName);
+        loadedFiles.add(safeName);
+    }
 }
 
 /**
@@ -1477,9 +1776,14 @@ async function processImportFiles(accepted, summary) {
         try {
             await docsPutBlob(name, file);
             removeFileData(name);
-            loadedFiles.delete(name);
-            await processFile(name);
-            loadedFiles.add(name);
+            if (isScheduleFileName(name)) {
+                loadedScheduleFiles.delete(name);
+                await processScheduleFile(name);
+            } else {
+                loadedFiles.delete(name);
+                await processFile(name);
+                loadedFiles.add(name);
+            }
             summary.files.push(name);
         } catch (err) {
             summary.errors += 1;
@@ -2072,17 +2376,31 @@ function qeComputeRecordDiff(oldRecords, newRecords) {
             const newCells = b?.dataCells ?? [];
             const changedIdxs = qeComputeChangedCellIndices(oldCells, newCells);
             if (changedIdxs.length > 0) {
-                ops.push({ t: 'del', id, rec: a, changedIdxs });
-                ops.push({ t: 'ins', id, rec: b, changedIdxs });
+                ops.push({ t: 'del', id, rec: a, peerRec: b, changedIdxs });
+                ops.push({ t: 'ins', id, rec: b, peerRec: a, changedIdxs });
             } else {
                 ops.push({ t: 'eq', id, rec: a });
             }
         } else if (op.t === 'del') {
             const id = String(op.id ?? '');
-            ops.push({ t: 'del', id, rec: oldById.get(id) ?? null });
+            const oldRec = oldById.get(id) ?? null;
+            const newRec = newById.get(id) ?? null;
+            if (oldRec && newRec) {
+                const changedIdxs = qeComputeChangedCellIndices(oldRec?.dataCells ?? [], newRec?.dataCells ?? []);
+                ops.push({ t: 'del', id, rec: oldRec, peerRec: newRec, changedIdxs });
+            } else {
+                ops.push({ t: 'del', id, rec: oldRec });
+            }
         } else if (op.t === 'ins') {
             const id = String(op.id ?? '');
-            ops.push({ t: 'ins', id, rec: newById.get(id) ?? null });
+            const newRec = newById.get(id) ?? null;
+            const oldRec = oldById.get(id) ?? null;
+            if (oldRec && newRec) {
+                const changedIdxs = qeComputeChangedCellIndices(oldRec?.dataCells ?? [], newRec?.dataCells ?? []);
+                ops.push({ t: 'ins', id, rec: newRec, peerRec: oldRec, changedIdxs });
+            } else {
+                ops.push({ t: 'ins', id, rec: newRec });
+            }
         }
     }
     return { ops };
@@ -2115,23 +2433,84 @@ function qeComputeUnifiedColumnWidths(ops, segments) {
 function qeRenderRecordLineHtml(op, colWidths) {
     const t = String(op?.t || '');
     const rec = op?.rec && typeof op.rec === 'object' ? op.rec : null;
+    const peerRec = op?.peerRec && typeof op.peerRec === 'object' ? op.peerRec : null;
     const dataCells = Array.isArray(rec?.dataCells) ? rec.dataCells : [];
+    const peerCells = Array.isArray(peerRec?.dataCells) ? peerRec.dataCells : [];
     const changedIdxs = Array.isArray(op?.changedIdxs) ? op.changedIdxs : [];
     const changedSet = new Set(changedIdxs.map((n) => Number(n)));
 
     const cellsHtml = [];
     const widths = Array.isArray(colWidths) ? colWidths : [];
-    const colCount = Math.max(widths.length, dataCells.length);
+    const colCount = Math.max(widths.length, dataCells.length, peerCells.length);
     for (let i = 0; i < colCount; i++) {
-        const v = escapeHtml(String(dataCells[i] ?? '').trim());
-        const isChanged = changedSet.has(i);
+        const raw = String(dataCells[i] ?? '').trim();
+        const peer = String(peerCells[i] ?? '').trim();
+        const v = escapeHtml(raw);
         const w = Math.max(1, Number(widths[i] ?? 1) || 1);
-        cellsHtml.push(`<span class="qe-drive-diff-cell${isChanged ? ' is-changed' : ''}" style="min-width:${w}ch;display:inline-block;">${v || '&nbsp;'}</span>`);
+        let cellCls = 'qe-drive-diff-cell';
+        if ((t === 'del' || t === 'ins') && changedSet.has(i)) {
+            const isEmpty = raw.length === 0;
+            const isPeerEmpty = peer.length === 0;
+            if (t === 'ins') {
+                if (!isEmpty && isPeerEmpty) cellCls += ' is-changed is-cell-add';
+                else if (!isEmpty && !isPeerEmpty) cellCls += ' is-changed is-cell-add';
+            } else if (t === 'del') {
+                if (!isEmpty && isPeerEmpty) cellCls += ' is-changed is-cell-del';
+                else if (!isEmpty && !isPeerEmpty) cellCls += ' is-changed is-cell-del';
+            }
+        }
+        cellsHtml.push(`<span class="${cellCls}" style="min-width:${w}ch;display:inline-block;">${v || '&nbsp;'}</span>`);
         if (i < colCount - 1) cellsHtml.push(`<span class="qe-drive-diff-u-sep"> | </span>`);
     }
-    const prefix = t === 'ins' ? '+' : (t === 'del' ? '-' : '&nbsp;');
-    const cls = t === 'ins' ? 'is-ins' : (t === 'del' ? 'is-del' : 'is-eq');
+    const isCellLevel = (t === 'ins' || t === 'del') && changedIdxs.length > 0;
+    const prefix = isCellLevel ? '&nbsp;' : (t === 'ins' ? '+' : (t === 'del' ? '-' : '&nbsp;'));
+    const cls = isCellLevel ? 'is-eq' : (t === 'ins' ? 'is-ins' : (t === 'del' ? 'is-del' : 'is-eq'));
     return `<div class="qe-drive-diff-u-row ${cls}"><div class="qe-drive-diff-u-prefix" aria-hidden="true">${prefix}</div><div class="qe-drive-diff-u-cells">${cellsHtml.join('')}</div></div>`;
+}
+
+function qeRenderRecordModificationLineHtml(delOp, insOp, colWidths) {
+    const oldRec = delOp?.rec && typeof delOp.rec === 'object' ? delOp.rec : null;
+    const newRec = insOp?.rec && typeof insOp.rec === 'object' ? insOp.rec : null;
+    const oldCells = Array.isArray(oldRec?.dataCells) ? oldRec.dataCells : [];
+    const newCells = Array.isArray(newRec?.dataCells) ? newRec.dataCells : [];
+    const widths = Array.isArray(colWidths) ? colWidths : [];
+    const colCount = Math.max(widths.length, oldCells.length, newCells.length);
+    const cellsHtml = [];
+
+    for (let i = 0; i < colCount; i++) {
+        const rawOld = String(oldCells[i] ?? '').trim();
+        const rawNew = String(newCells[i] ?? '').trim();
+        const w = Math.max(1, Number(widths[i] ?? 1) || 1);
+
+        if (rawOld === rawNew) {
+            const v = escapeHtml(rawNew);
+            cellsHtml.push(`<span class="qe-drive-diff-cell" style="min-width:${w}ch;display:inline-block;">${v || '&nbsp;'}</span>`);
+        } else {
+            const oldEmpty = rawOld.length === 0;
+            const newEmpty = rawNew.length === 0;
+            if (oldEmpty && !newEmpty) {
+                const vNew = escapeHtml(rawNew);
+                cellsHtml.push(`<span class="qe-drive-diff-cell is-changed is-cell-add" style="min-width:${w}ch;display:inline-block;">${vNew || '&nbsp;'}</span>`);
+            } else if (!oldEmpty && newEmpty) {
+                const vOld = escapeHtml(rawOld);
+                cellsHtml.push(`<span class="qe-drive-diff-cell is-changed is-cell-del" style="min-width:${w}ch;display:inline-block;">${vOld || '&nbsp;'}</span>`);
+            } else {
+                const vOld = escapeHtml(rawOld);
+                const vNew = escapeHtml(rawNew);
+                cellsHtml.push(
+                    `<span class="qe-drive-diff-cell is-cell-mod" style="min-width:${w}ch;display:inline-block;">` +
+                    `<span class="qe-drive-diff-cell-delta is-old is-changed">${vOld || '&nbsp;'}</span>` +
+                    `<span class="qe-drive-diff-cell-arrow" aria-hidden="true">→</span>` +
+                    `<span class="qe-drive-diff-cell-delta is-new is-changed">${vNew || '&nbsp;'}</span>` +
+                    `</span>`
+                );
+            }
+        }
+
+        if (i < colCount - 1) cellsHtml.push(`<span class="qe-drive-diff-u-sep"> | </span>`);
+    }
+
+    return `<div class="qe-drive-diff-u-row is-eq"><div class="qe-drive-diff-u-prefix" aria-hidden="true">&nbsp;</div><div class="qe-drive-diff-u-cells">${cellsHtml.join('')}</div></div>`;
 }
 
 function qeRenderUnifiedRecordDiffHtml(result, { contextLines } = {}) {
@@ -2149,7 +2528,19 @@ function qeRenderUnifiedRecordDiffHtml(result, { contextLines } = {}) {
         let lastEnd = -1;
         for (const seg of segments) {
             if (lastEnd >= 0 && seg.start > lastEnd + 1) rows.push('<div class="qe-drive-diff-u-gap">…</div>');
-            for (let i = seg.start; i <= seg.end; i++) rows.push(qeRenderRecordLineHtml(ops[i], widths));
+            for (let i = seg.start; i <= seg.end; i++) {
+                const op = ops[i];
+                const next = i + 1 <= seg.end ? ops[i + 1] : null;
+                const isDelMod = op?.t === 'del' && Array.isArray(op?.changedIdxs) && op.changedIdxs.length > 0;
+                const isInsMod = next?.t === 'ins' && Array.isArray(next?.changedIdxs) && next.changedIdxs.length > 0;
+                const sameId = String(op?.id ?? '') && String(op?.id ?? '') === String(next?.id ?? '');
+                if (isDelMod && isInsMod && sameId) {
+                    rows.push(qeRenderRecordModificationLineHtml(op, next, widths));
+                    i += 1;
+                    continue;
+                }
+                rows.push(qeRenderRecordLineHtml(op, widths));
+            }
             lastEnd = seg.end;
         }
     }
@@ -2531,9 +2922,14 @@ async function startGoogleDriveSync(files, token, { source } = {}) {
                 const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
                 await docsPutBlob(name, blob, { driveModifiedAt: file?.driveModifiedAt ?? null });
                 removeFileData(name);
-                loadedFiles.delete(name);
-                await processFile(name);
-                loadedFiles.add(name);
+                if (isScheduleFileName(name)) {
+                    loadedScheduleFiles.delete(name);
+                    await processScheduleFile(name);
+                } else {
+                    loadedFiles.delete(name);
+                    await processFile(name);
+                    loadedFiles.add(name);
+                }
                 summary.files.push(name);
                 if (progressItem) updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
             } catch (err) {
@@ -3330,6 +3726,9 @@ function cssEscapeAttrValue(value) {
  */
 function createResultGroupElement(group, index, query, { animateIn = false, enterDelayMs = 0 } = {}) {
     const routeName = formatRouteNameForResults(group.fileName);
+    const routeCode = extractRouteCodeFromFileName(group.fileName);
+    const driverName = routeCode ? getDriverForRouteOnDate(routeCode, new Date()) : null;
+    const driverHtml = driverName ? `<span class="result-driver" aria-label="Kierowca z grafiku">— ${escapeHtml(driverName)}</span>` : '';
     const groupDiv = document.createElement('div');
     
     // Określamy kierunek animacji na podstawie indeksu (parzyste z lewej, nieparzyste z prawej)
@@ -3345,7 +3744,7 @@ function createResultGroupElement(group, index, query, { animateIn = false, ente
             <div class="result-content">${buildResultSummaryHtml(item, query, { isLab })}</div>
         </div>`;
     }).join('');
-    setElementHtml(groupDiv, `<div class="result-group-header"><span class="result-filename"><span class="result-route-name">${routeName}</span></span></div><div class="result-group-body">${rowsHtml}</div>`);
+    setElementHtml(groupDiv, `<div class="result-group-header"><span class="result-filename"><span class="result-route-name">${routeName}</span>${driverHtml}</span></div><div class="result-group-body">${rowsHtml}</div>`);
     return groupDiv;
 }
 
@@ -4065,7 +4464,7 @@ function setUploadStatusText(nextText, { animate = true } = {}) {
 async function finalizeFileImport(summary, before) {
     summary.records = Math.max(0, allData.length - before); if (uploadProgress) uploadProgress.value = 100;
     setUploadStatusText('Import zakończony.'); logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-    displayImportSummary(summary); fileCountSpan.textContent = String((await docsListFiles()).length);
+    displayImportSummary(summary); fileCountSpan.textContent = String((await getRouteSpreadsheetFiles()).length);
     setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
     schedulePredictiveIndexRebuild({ reason: 'import_done' });
 }
@@ -4628,6 +5027,8 @@ function pickRandomSample(list, count) {
 async function qeDevClearDbFilesStore() {
     await docsClearFilesStore();
     resetAppData();
+    scheduleCacheByMonth = new Map();
+    loadedScheduleFiles = new Set();
     clearResults();
     setSearchEnabled(false);
     if (fileCountSpan) fileCountSpan.textContent = '0';
@@ -4648,12 +5049,18 @@ async function qeDevClearRandomFiles({ fraction = 0.2 } = {}) {
     const res = await docsDeleteFiles(toDelete);
     for (const name of toDelete) {
         removeFileData(name);
-        loadedFiles.delete(name);
+        if (isScheduleFileName(name)) {
+            loadedScheduleFiles.delete(name);
+            const meta = parseScheduleFileNameYearMonth(name);
+            if (meta?.key) scheduleCacheByMonth.delete(meta.key);
+        } else {
+            loadedFiles.delete(name);
+        }
     }
     clearResults();
     setSearchEnabled(allData.length > 0);
     try { resetToInitialState({ source: 'dev_clear_rnd' }); } catch { }
-    if (fileCountSpan) fileCountSpan.textContent = String((await docsListFiles()).length);
+    if (fileCountSpan) fileCountSpan.textContent = String((await getRouteSpreadsheetFiles()).length);
     if (statusIndicator) {
         statusIndicator.textContent = allData.length > 0 ? 'Dane gotowe.' : 'Brak danych.';
         statusIndicator.classList.toggle('status--hint', allData.length === 0);
