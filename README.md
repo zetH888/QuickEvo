@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.5.0-blue)
+![Version](https://img.shields.io/badge/version-2.8.0-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -82,6 +82,8 @@ QuickEvo/
 │   ├── modules/         # Moduły ESM (dekompozycja app.js)
 │   │   ├── utils.js
 │   │   ├── search-engine.js
+│   │   ├── search/
+│   │   │   └── search-orchestrator.js
 │   │   ├── state.js
 │   │   ├── excel-processor.js
 │   │   ├── drive-service.js
@@ -89,6 +91,8 @@ QuickEvo/
 │   │   │   └── import-service.js
 │   │   ├── schedule/
 │   │   │   └── schedule-service.js
+│   │   ├── navigation/
+│   │   │   └── navigation-service.js
 │   │   └── storage/
 │   │       └── docs-db.js
 │   ├── qe-debugger.js   # Moduł debuggera (Shadow DOM)

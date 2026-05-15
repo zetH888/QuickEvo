@@ -14,6 +14,8 @@ import * as driveService from './modules/drive-service.js';
 import { docsClearFilesStore, docsDeleteFiles, docsFileExists, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from './modules/storage/docs-db.js';
 import { importLocalFiles } from './modules/import/import-service.js';
 import { createScheduleService } from './modules/schedule/schedule-service.js';
+import { createSearchOrchestrator } from './modules/search/search-orchestrator.js';
+import { createNavigationService } from './modules/navigation/navigation-service.js';
 import { LoadingTitleRotator, applyWelcomeElementsInitStateDom, clearWelcomeElementsInitStateDom, createLoadingProgressController, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScrollIndicatorController, createWelcomeProgressRenderer, getLoadingTitleCategoryForProgress, hideLoadingOverlayDom, highlightLabsInPreviewTableDom, prepareResultsListDom, scheduleWelcomeLogoEntranceDom, setLoadingStatusTextDom, setLoadingTitleTextDom, showLoadingErrorDom, showLoadingOverlayDom, updateResultsCountInfoDom } from './modules/ui-components.js';
 
 //////////////////////////////////////////////////
@@ -217,13 +219,9 @@ const LOADING_TITLE_MESSAGES = {
  * Cache dla wyników wyszukiwania (LRU).
  */
 let searchCache = null;
+let searchOrchestrator = null;
+let navigationService = null;
 
-/**
- * Stan indeksu podpowiedzi dla predykcji wpisywanej frazy.
- * Priorytety: adresy, nazwy placówek, nazwy tras.
- */
-let predictiveIndex = null;
-let predictiveIndexBuildTimer = null;
 let predictiveSuggestionsCache = null;
 let predictiveUiState = { raw: '', norm: '', options: [], index: 0, hidden: false };
 let predictiveIsComposing = false;
@@ -233,33 +231,6 @@ let predictiveIsComposing = false;
  * @type {WeakMap<SVGElement, Object>}
  */
 const logoOrbitControllers = new WeakMap();
-
-/**
- * Oblicza dystans Levenshteina między dwoma ciągami znaków (fuzzy matching).
- */
-function getLevenshteinDistance(a, b) {
-    if (a.length === 0) return b.length;
-    if (b.length === 0) return a.length;
-    const matrix = [];
-    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
-    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
-    for (let i = 1; i <= b.length; i++) {
-        for (let j = 1; j <= a.length; j++) {
-            if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
-            else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j] + 1);
-        }
-    }
-    return matrix[b.length][a.length];
-}
-
-/**
- * Oblicza podobieństwo (0.0 - 1.0) na podstawie dystansu Levenshteina.
- */
-function getFuzzyScore(query, text) {
-    const distance = getLevenshteinDistance(query, text);
-    const maxLength = Math.max(query.length, text.length);
-    return maxLength === 0 ? 1.0 : 1.0 - (distance / maxLength);
-}
 
 //////////////////////////////////////////////////
 // CACHE ELEMENTÓW DOM
@@ -783,88 +754,46 @@ function setupDragAndDropListeners() {
  * Konfiguruje obsługę nawigacji w aplikacji.
  */
 function setupNavigationListeners() {
-    backToSearchBtn.addEventListener('click', () => {
-        if (history.state && history.state.view === 'preview') {
-            history.back();
-        } else {
-            ensurePreviewController().showSearch();
-            logClientEvent('navigate', { to: 'search', fallback: true });
-        }
-    });
+    ensureNavigationService().attach({ backToSearchBtn, homeLink });
+}
 
-    if (homeLink) {
-        homeLink.addEventListener('click', (e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-            e.preventDefault();
-            if (history.state && history.state.view === 'home' && !history.state.search && !searchInput.value) {
-                return;
-            }
+function ensureNavigationService() {
+    if (navigationService) return navigationService;
+    navigationService = createNavigationService({
+        onLog: logAction,
+        onShowHome: ({ source }) => resetToInitialState({ source: source || 'navigation_home' }),
+        onShowPreview: ({ fileName, rowIndex, skipPush }) => showFilePreview(fileName, rowIndex, { skipPush: Boolean(skipPush) }),
+        onShowSearchView: ({ source }) => {
+            ensurePreviewController().showSearch();
+            logClientEvent('navigate', { to: 'search', source: String(source || '') });
+        },
+        onSetSearchInputValue: (value) => { if (searchInput) searchInput.value = String(value ?? ''); },
+        onPerformSearch: (q) => { if (isSearchEnabled) performSearch(String(q || '')); },
+        onClearSearchUi: () => {
+            clearResults();
+            statusIndicator.textContent = 'Dane gotowe.';
+            statusIndicator.classList.remove('status--hint');
+        },
+        onPageshowRestore: () => {
+            window.requestAnimationFrame(() => {
+                try {
+                    const ctrl = ensureScrollIndicatorController();
+                    ctrl.syncResultsEndIntersectionObserver();
+                    ctrl.update();
+                } catch { }
+            });
+        },
+        canOpenPreview: (fileName) => Boolean(fullFileData && fullFileData[String(fileName || '')]),
+        onHomeClick: () => {
+            if (history.state && history.state.view === 'home' && !history.state.search && !searchInput.value) return false;
             resetToInitialState({ source: 'home' });
             logClientEvent('navigate', { to: 'home' });
-            try { 
-                history.pushState({ view: 'home', search: false }, '', '#home'); 
-            } catch { }
-        });
-    }
-
-    window.addEventListener('popstate', (event) => {
-        const state = event.state;
-        logAction('navigation', { phase: 'popstate', state }, 'INFO');
-        if (!state) {
-            resetToInitialState({ source: 'popstate_empty' });
-            return;
-        }
-        if (state.view === 'preview') {
-            if (state.fileName && fullFileData[state.fileName]) {
-                showFilePreview(state.fileName, state.rowIndex, { skipPush: true });
-            } else if (state.fileName) {
-                resetToInitialState({ source: 'popstate_preview_missing_data' });
-            }
-        } else if (state.view === 'home') {
-            if (!filePreviewView.classList.contains('view-hidden')) {
-                ensurePreviewController().showSearch();
-            }
-            if (!state.search) {
-                if (searchInput.value) {
-                    searchInput.value = '';
-                    clearResults();
-                    statusIndicator.textContent = 'Dane gotowe.';
-                    statusIndicator.classList.remove('status--hint');
-                }
-            } else if (state.query && searchInput.value !== state.query) {
-                searchInput.value = state.query;
-                if (isSearchEnabled) performSearch(state.query);
-            }
-        }
+            return true;
+        },
+        shouldIgnoreHomeClick: (e) => Boolean(e?.metaKey || e?.ctrlKey || e?.shiftKey || e?.altKey),
+        onScrollTop: () => { try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { window.scrollTo(0, 0); } catch { } } }
     });
-
-    window.addEventListener('pageshow', (event) => {
-        const persisted = Boolean(event && event.persisted);
-        let navType = '';
-        try {
-            const navEntries = (performance.getEntriesByType && performance.getEntriesByType('navigation')) || [];
-            navType = navEntries[0] && navEntries[0].type ? String(navEntries[0].type) : '';
-        } catch { }
-
-        if (!persisted && navType !== 'back_forward') return;
-
-        logAction('navigation', { phase: 'pageshow', persisted, navType }, 'INFO');
-
-        window.requestAnimationFrame(() => {
-            try { void document.documentElement.offsetWidth; } catch { }
-            try { void document.body.offsetHeight; } catch { }
-
-            if (history.state && history.state.view === 'home') {
-                try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { window.scrollTo(0, 0); }
-            }
-
-            try {
-                const ctrl = ensureScrollIndicatorController();
-                ctrl.syncResultsEndIntersectionObserver();
-                ctrl.update();
-            } catch { }
-        });
-    }, { passive: true });
+    return navigationService;
 }
 
 /**
@@ -2706,7 +2635,7 @@ async function performSearch(query) {
     statusIndicator.classList.remove('status--hint');
     lastQuery = trimmedQuery;
     try {
-        matchedResults = await executeSearch(trimmedQuery);
+        matchedResults = await ensureSearchOrchestrator().executeSearch(trimmedQuery);
         if (matchedResults.length === 0) {
             handleNoSearchResults();
             return;
@@ -2719,37 +2648,20 @@ async function performSearch(query) {
     }
 }
 
-/**
- * Realizuje niskopoziomowe wyszukiwanie w danych.
- */
-async function executeSearch(query) {
-    return await qeGetSearchEngine().executeSearch({
-        query,
-        allData,
+function ensureSearchOrchestrator() {
+    if (searchOrchestrator) return searchOrchestrator;
+    searchOrchestrator = createSearchOrchestrator({
+        getAllData: () => allData,
+        searchEngine: qeGetSearchEngine(),
         searchCache,
-        getRouteCategoriesFromFileName
+        predictiveSuggestionsCache,
+        getRouteCategoriesFromFileName,
+        formatRouteNameForResults,
+        normalizeText,
+        fuzzyNormalizeText,
+        logAction
     });
-}
-
-/**
- * Sprawdza, czy element danych pasuje do zapytania.
- */
-function matchItem(item, lowerQuery, fuzzyQuery) {
-    return qeGetSearchEngine().matchItem(item, lowerQuery, fuzzyQuery);
-}
-
-/**
- * Grupuje wyniki wyszukiwania według nazw plików.
- */
-function groupSearchResults(filtered) {
-    return qeGetSearchEngine().groupSearchResults(filtered, { getRouteCategoriesFromFileName });
-}
-
-/**
- * Aktualizuje cache wyników wyszukiwania.
- */
-function updateSearchCache(query, results) {
-    qeGetSearchEngine().updateSearchCache(searchCache, query, results);
+    return searchOrchestrator;
 }
 
 //////////////////////////////////////////////////
@@ -2905,8 +2817,7 @@ function showFilePreview(fileName, highlightRowIndex, options = { skipPush: fals
     const tableModel = fullFileData[fileName];
     if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
     if (!options.skipPush) {
-        try { history.pushState({ view: 'preview', fileName, rowIndex: highlightRowIndex }, '', `#preview/${encodeURIComponent(fileName)}`); }
-        catch (e) { logAction('navigation', { error: 'pushState preview failed', msg: e.message }, 'WARN'); }
+        ensureNavigationService().pushPreview({ fileName, rowIndex: highlightRowIndex });
     }
     lastPreviewState = { fileName, rowIndex: highlightRowIndex };
     const highlightedRowEl = ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex });
@@ -3399,8 +3310,7 @@ function setImportLoadingState(loading, total = 0) {
  */
 function continueToApp() {
     stopLoadingScreen();
-    try { history.replaceState({ view: 'home', search: false }, '', '#home'); }
-    catch (e) { logAction('navigation', { error: 'replaceState failed', msg: e.message }, 'WARN'); }
+    ensureNavigationService().replaceHome({ search: false });
     const elapsed = performance.now() - DOM_READY_TS;
     window.setTimeout(() => {
         if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); }
@@ -3594,13 +3504,13 @@ function buildQuickEvoLogoSvg({ size }) {
  * Uruchamia animację orbity w logo.
  */
 function startLogoOrbit(svg, size) {
-    if (!svg || logoOrbitControllers.has(svg) || shouldReduceMotion()) return;
+    if (!svg || logoOrbitControllers.has(svg) || prefersReducedMotion()) return;
     const orbitGroup = svg.querySelector('g[data-qe-orbit="1"]'); if (!orbitGroup) return;
     const dotA = orbitGroup.querySelector('[data-qe-orbit-dot="a"]'), dotB = orbitGroup.querySelector('[data-qe-orbit-dot="b"]');
     if (!dotA || !dotB) return;
     let cfg = getLogoOrbitConfig(size), lastCfgTs = 0; const startTs = performance.now();
     const tick = (ts) => {
-        if (!svg.isConnected || shouldReduceMotion()) { logoOrbitControllers.delete(svg); return; }
+        if (!svg.isConnected || prefersReducedMotion()) { logoOrbitControllers.delete(svg); return; }
         if ((ts - lastCfgTs) > 700) { cfg = getLogoOrbitConfig(size); lastCfgTs = ts; }
         const t = (ts - startTs) / 1000, theta = cfg.dir * (t / cfg.period) * Math.PI * 2;
         dotA.setAttribute('cx', (cfg.radius * Math.cos(theta)).toFixed(2)); dotA.setAttribute('cy', (cfg.radius * Math.sin(theta)).toFixed(2));
@@ -3647,13 +3557,6 @@ function getLogoPalette() {
  */
 function parseCssNumber(value, fallback) {
     return qeGetUtils().parseCssNumber(value, fallback);
-}
-
-/**
- * Sprawdza, czy użytkownik preferuje zredukowany ruch.
- */
-function shouldReduceMotion() {
-    try { return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); } catch { return false; }
 }
 
 //////////////////////////////////////////////////
@@ -3883,15 +3786,13 @@ function queuePreviewReadyEvent(fileName) {
  * Obsługuje wejście wyszukiwania.
  */
 function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
-    const isSearchActive = query.length >= 3, currentHistoryState = history.state || {};
+    const isSearchActive = query.length >= 3;
     if (isSearchActive) {
-        if (!currentHistoryState.search) {
-            try { history.pushState({ view: 'home', search: true, query }, '', '#search'); } catch (e) { logAction('navigation', { error: 'pushState search failed', msg: e.message }, 'WARN'); }
-        } else try { history.replaceState({ view: 'home', search: true, query }, '', '#search'); } catch (e) { }
+        ensureNavigationService().setSearchState({ active: true, query });
         debouncedSearch(query); debouncedLogSearch(query);
     } else {
         debouncedSearch.cancel(); debouncedLogSearch.cancel();
-        if (currentHistoryState.search) try { history.replaceState({ view: 'home', search: false }, '', '#home'); } catch (e) { }
+        ensureNavigationService().setSearchState({ active: false, query: '' });
         if (query.length > 0) { statusIndicator.textContent = 'Wpisz minimum 3 znaki, aby wyszukać...'; statusIndicator.classList.add('status--hint'); }
         else { statusIndicator.textContent = 'Dane gotowe.'; statusIndicator.classList.remove('status--hint'); }
         clearResults();
@@ -3903,143 +3804,12 @@ function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
 //////////////////////////////////////////////////
 
 const PREDICT_MIN_CHARS = 2;
-const PREDICT_MAX_OPTIONS = 14;
-const PREDICT_BUCKET_PREFIX_LEN = 2;
-
-const PREDICT_TYPE_WEIGHT = Object.freeze({
-    address: 330,
-    facility: 300,
-    route: 270
-});
-
-const PREDICT_MATCH_WEIGHT = Object.freeze({
-    exactPrefix: 250,
-    exactWord: 200,
-    caseInsensitivePrefix: 150,
-    substring: 50,
-    fuzzy: 20
-});
 
 /**
  * Planista przebudowy indeksu podpowiedzi, aby nie wykonywać kosztownej pracy wielokrotnie podczas importu.
  */
 function schedulePredictiveIndexRebuild({ reason } = {}) {
-    if (predictiveIndexBuildTimer) window.clearTimeout(predictiveIndexBuildTimer);
-    predictiveIndexBuildTimer = window.setTimeout(() => {
-        predictiveIndexBuildTimer = null;
-        rebuildPredictiveIndex({ reason: reason || 'unknown' });
-    }, 0);
-}
-
-/**
- * Przebudowuje indeks podpowiedzi na podstawie aktualnie załadowanych danych.
- */
-function rebuildPredictiveIndex({ reason } = {}) {
-    const addressMap = new Map();
-    const facilityMap = new Map();
-    const routeMap = new Map();
-    const fileNames = new Set();
-
-    for (const item of (Array.isArray(allData) ? allData : [])) {
-        const safeFileName = String(item?.fileName || '').trim();
-        if (safeFileName) fileNames.add(safeFileName);
-
-        if (!item?.isComplete || !item?.headerMap || !Array.isArray(item?.cells)) continue;
-        const h = item.headerMap;
-
-        const address = String(item.cells[h.ADRES] || '').trim();
-        if (address) addPredictiveValueWithVariants(addressMap, address);
-
-        const facility = String(item.cells[h.NAZWA_PLACOWKI] || '').trim();
-        if (facility) addPredictiveValueWithVariants(facilityMap, facility);
-    }
-
-    for (const fn of fileNames) {
-        const routeName = String(formatRouteNameForResults(fn) || '').trim();
-        if (routeName) addPredictiveValueWithVariants(routeMap, routeName);
-    }
-
-    predictiveIndex = {
-        builtAt: Date.now(),
-        reason: String(reason || ''),
-        buckets: {
-            address: buildPredictiveBuckets(addressMap, 'address'),
-            facility: buildPredictiveBuckets(facilityMap, 'facility'),
-            route: buildPredictiveBuckets(routeMap, 'route')
-        }
-    };
-    predictiveSuggestionsCache.clear();
-}
-
-/**
- * Dodaje wartość do mapy deduplikującej po fuzzy-normalizacji.
- */
-function addPredictiveValue(map, rawValue) {
-    const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
-    if (!value) return;
-    const key = fuzzyNormalizeText(value);
-    if (!key) return;
-    const prev = map.get(key);
-    if (!prev) map.set(key, { value, count: 1 });
-    else prev.count += 1;
-}
-
-/**
- * Dodaje wartość i jej warianty tokenowe (np. „Jerozolimskie 96” z pełnego adresu),
- * aby predykcja działała także dla wpisywania od środka frazy.
- */
-function addPredictiveValueWithVariants(map, rawValue) {
-    const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
-    if (!value) return;
-    addPredictiveValue(map, value);
-
-    const tokenRe = /[^\s,.;:/\\\-–—()]+/g;
-    const matches = Array.from(value.matchAll(tokenRe));
-    if (matches.length <= 1) return;
-
-    const maxVariants = 8;
-    let added = 0;
-    for (let i = 1; i < matches.length && added < maxVariants; i++) {
-        const idx = matches[i]?.index;
-        if (typeof idx !== 'number' || idx < 0) continue;
-        const phrase = value.slice(idx).trimStart();
-        if (phrase.length < PREDICT_MIN_CHARS) continue;
-        addPredictiveValue(map, phrase);
-        added += 1;
-    }
-}
-
-/**
- * Buduje kubełki podpowiedzi na podstawie prefiksu, aby zapytania były szybkie.
- */
-function buildPredictiveBuckets(map, type) {
-    const bucketMaps = new Map();
-
-    const addToBucket = (bucketKey, cand) => {
-        const key = String(bucketKey || '').slice(0, PREDICT_BUCKET_PREFIX_LEN);
-        if (!key) return;
-        let inner = bucketMaps.get(key);
-        if (!inner) { inner = new Map(); bucketMaps.set(key, inner); }
-        inner.set(cand.fuzzy, cand);
-    };
-
-    for (const [fuzzy, meta] of map.entries()) {
-        const baseFuzzy = String(fuzzy || '');
-        if (!baseFuzzy) continue;
-        const cand = { type, value: meta.value, fuzzy, count: meta.count };
-        addToBucket(baseFuzzy, cand);
-
-        const tokens = baseFuzzy.split(/[\s,.;:/\\\-–—()]+/g).filter(t => t.length >= PREDICT_MIN_CHARS);
-        for (const t of tokens) addToBucket(t, cand);
-    }
-
-    const buckets = new Map();
-    for (const [k, inner] of bucketMaps.entries()) {
-        const list = Array.from(inner.values());
-        list.sort((a, b) => (b.count - a.count) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
-        buckets.set(k, list);
-    }
-    return buckets;
+    ensureSearchOrchestrator().schedulePredictiveIndexRebuild({ reason: reason || 'unknown' });
 }
 
 /**
@@ -4071,58 +3841,20 @@ function updatePredictiveSuggestions(query, { source } = {}) {
         return;
     }
 
-    if (!predictiveIndex) {
-        schedulePredictiveIndexRebuild({ reason: 'predictive_lazy' });
+    const res = ensureSearchOrchestrator().getPredictiveSuggestions(norm, { lazyReason: 'predictive_lazy' });
+    if (!res?.hasIndex) {
         predictiveUiState.hidden = true;
         hideGhostOverlay();
         return;
     }
 
-    const cached = predictiveSuggestionsCache.get(norm);
-    const options = cached || computePredictiveSuggestions(norm, PREDICT_MAX_OPTIONS);
-    if (!cached) predictiveSuggestionsCache.set(norm, options);
-
     ghostOverlay.classList.remove('qe-ghost-loading');
-    predictiveUiState.options = Array.isArray(options) ? options : [];
+    predictiveUiState.options = Array.isArray(res?.options) ? res.options : [];
     if (predictiveUiState.index >= predictiveUiState.options.length) predictiveUiState.index = 0;
 
     if (source === 'input') predictiveUiState.index = 0;
 
     renderGhostOverlay();
-}
-
-/**
- * Wylicza listę podpowiedzi z priorytetem: adresy, placówki, trasy.
- */
-function computePredictiveSuggestions(query, limit) {
-    const q = String(query || '').trim();
-    const qf = fuzzyNormalizeText(q);
-    if (!qf || qf.length < PREDICT_MIN_CHARS || !predictiveIndex?.buckets) return [];
-
-    const bucketKey = qf.slice(0, PREDICT_BUCKET_PREFIX_LEN);
-    if (!bucketKey) return [];
-
-    const scored = [];
-    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.address?.get(bucketKey), q, qf, 'address');
-    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.facility?.get(bucketKey), q, qf, 'facility');
-    scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.route?.get(bucketKey), q, qf, 'route');
-
-    scored.sort((a, b) => (b.score - a.score) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
-
-    const out = [];
-    const seen = new Set();
-    for (const row of scored) {
-        const v = String(row.value || '').trim();
-        if (!v) continue;
-        if (!predictiveCandidateStartsWithQuery(q, v)) continue;
-        if (v.length <= q.length) continue;
-        const k = fuzzyNormalizeText(v);
-        if (!k || seen.has(k)) continue;
-        seen.add(k);
-        out.push(v);
-        if (out.length >= (Number(limit || 0) || PREDICT_MAX_OPTIONS)) break;
-    }
-    return out;
 }
 
 function predictiveCandidateStartsWithQuery(query, candidate) {
@@ -4132,62 +3864,6 @@ function predictiveCandidateStartsWithQuery(query, candidate) {
     const qf = fuzzyNormalizeText(q);
     const cf = fuzzyNormalizeText(c);
     return cf.startsWith(qf);
-}
-
-/**
- * Oblicza wagę dla kandydata na podstawie dopasowania do zapytania.
- */
-function scorePredictiveCandidatesInto(target, candidates, q, qf, type) {
-    const list = Array.isArray(candidates) ? candidates : [];
-    if (list.length === 0) return;
-
-    const typeWeight = PREDICT_TYPE_WEIGHT[type] || 0;
-    const maxScan = 2000; // Zwiększony limit skanowania dla lepszej jakości
-    
-    for (let i = 0; i < list.length && i < maxScan; i++) {
-        const c = list[i];
-        const value = String(c?.value || '');
-        const fuzzyValue = String(c?.fuzzy || '');
-        if (!value || !fuzzyValue) continue;
-
-        let matchWeight = 0;
-        
-        // 1. Exact prefix match (z uwzględnieniem wielkości liter jeśli to możliwe, ale tu mamy głównie fuzzy)
-        if (value.startsWith(q)) {
-            matchWeight = PREDICT_MATCH_WEIGHT.exactPrefix;
-        } 
-        // 2. Exact word match / Case-insensitive prefix
-        else if (fuzzyValue.startsWith(qf)) {
-            matchWeight = PREDICT_MATCH_WEIGHT.caseInsensitivePrefix;
-        }
-        // 3. Exact word match (początek słowa wewnątrz frazy)
-        else if (fuzzyValue.includes(` ${qf}`)) {
-            matchWeight = PREDICT_MATCH_WEIGHT.exactWord;
-        }
-        // 4. Substring match
-        else if (fuzzyValue.includes(qf)) {
-            matchWeight = PREDICT_MATCH_WEIGHT.substring;
-        }
-        // 5. Fuzzy match (jeśli zapytanie jest wystarczająco długie)
-        else if (qf.length >= 4) {
-            const fuzzyScore = getFuzzyScore(qf, fuzzyValue);
-            if (fuzzyScore > 0.7) {
-                matchWeight = PREDICT_MATCH_WEIGHT.fuzzy * fuzzyScore;
-            } else {
-                continue;
-            }
-        } else {
-            continue;
-        }
-
-        // Dodatkowa premia za częstotliwość (logarytmiczna)
-        const freqBonus = Math.min(50, Math.round(Math.log2(Math.max(1, Number(c.count || 1))) * 10));
-        
-        target.push({ 
-            value: c.value, 
-            score: typeWeight + matchWeight + freqBonus 
-        });
-    }
 }
 
 function renderGhostOverlay() {
@@ -4255,7 +3931,6 @@ function handlePredictiveKeydown(e) {
     const raw = String(searchInput.value || '');
     const norm = raw.trim();
     if (norm.length < PREDICT_MIN_CHARS || raw !== norm) return;
-    if (!predictiveIndex) { schedulePredictiveIndexRebuild({ reason: 'predictive_lazy_keydown' }); return; }
 
     updatePredictiveSuggestions(raw, { source: 'keydown' });
 
