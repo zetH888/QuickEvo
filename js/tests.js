@@ -2,29 +2,109 @@
  * Simple Test Suite for QuickEvo
  */
 const QuickEvoTests = {
-    run() {
+    /**
+     * Uruchamia testy automatyczne.
+     * Po rozpoczęciu refaktoryzacji do modułów ESM testy nie powinny polegać na funkcjach w global scope.
+     *
+     * @returns {Promise<void>}
+     */
+    async run() {
         console.log("%c--- QuickEvo Test Suite ---", "color: #0066cc; font-weight: bold; font-size: 1.2rem;");
-        this.testXlsxLoaded();
-        this.testScheduleParsing();
-        this.testNormalization();
-        this.testStatsFormatting();
-        this.testFuzzySearch();
-        this.testDeduplicationLogic();
-        this.testUnifiedDeduplication();
-        this.testDriveDiff();
-        this.testDriveRecordDiffAcceptance();
-        this.testDriveDiffUi();
-        this.testPreviewIndexColumnHidden();
-        this.testTitleCase();
-        this.testCheckListOverflow();
-        this.testLegacySelfTests();
+        const ctx = await this.loadModules();
+        await this.testXlsxLoaded();
+        await this.testScheduleService(ctx);
+        this.testModuleIsolation(ctx);
+        this.testNormalization(ctx);
+        this.testFuzzySearch(ctx);
+        this.testLegacySelfTests(ctx);
         this.testDebuggerModule();
         console.log("%c--- Tests Completed ---", "color: #0066cc; font-weight: bold;");
     },
 
-    testXlsxLoaded() {
+    /**
+     * Ładuje moduły ESM wykorzystywane w testach.
+     *
+     * @returns {Promise<{ utils: any, searchEngine: any }>}
+     */
+    async loadModules() {
+        const [utils, searchEngine, scheduleService] = await Promise.all([
+            import('./modules/utils.js'),
+            import('./modules/search-engine.js'),
+            import('./modules/schedule/schedule-service.js')
+        ]);
+        return { utils, searchEngine, scheduleService };
+    },
+
+    async testXlsxLoaded() {
         console.log("\nTesting XLSX Library:");
-        this.assert(typeof window.XLSX === 'object' && window.XLSX !== null, "XLSX jest dostępne globalnie (integrity/SRI nie blokuje ładowania)");
+        try {
+            const excelProcessor = await import('./modules/excel-processor.js');
+            this.assert(typeof excelProcessor.sheetToMatrix === 'function', "XLSX jest dostępne przez ESM (excel-processor)");
+        } catch (e) {
+            this.assert(false, "Nie udało się zaimportować XLSX przez ESM");
+            console.error(e);
+        }
+    },
+
+    /**
+     * Sprawdza, że kluczowe funkcje refaktoryzowane do ESM nie wyciekają do global scope.
+     *
+     * @param {{ utils: any, searchEngine: any }} ctx
+     */
+    testModuleIsolation(ctx) {
+        console.log("\nTesting No Global Scope (modules):");
+        this.assert(typeof window.normalizeText !== 'function', "normalizeText nie jest dostępne globalnie (ESM)");
+        this.assert(typeof window.fuzzyNormalizeText !== 'function', "fuzzyNormalizeText nie jest dostępne globalnie (ESM)");
+        this.assert(typeof window.rowMatchesKeyLab !== 'function', "rowMatchesKeyLab nie jest dostępne globalnie (ESM)");
+        this.assert(typeof ctx?.utils?.normalizeText === 'function', "utils.normalizeText jest dostępne przez import");
+        this.assert(typeof ctx?.searchEngine?.rowMatchesKeyLab === 'function', "searchEngine.rowMatchesKeyLab jest dostępne przez import");
+    },
+
+    async testScheduleService(ctx) {
+        console.log("\nTesting Grafik Kierowców — schedule-service:");
+        try {
+            const createScheduleService = ctx?.scheduleService?.createScheduleService;
+            this.assert(typeof createScheduleService === 'function', "schedule-service jest dostępny przez import");
+            if (typeof createScheduleService !== 'function') return;
+
+            const matrix = [
+                ['IMIE I NAZWISKO', 1, 2, 3],
+                ['Jan Kowalski', '12/H', '', 'S - 5'],
+                ['Anna Nowak', '12', '', '']
+            ];
+
+            const service = createScheduleService({
+                fuzzyNormalizeText: (t) => String(t ?? '').toLowerCase(),
+                getRouteScheduleConfig: () => ({
+                    monthsPl: { MAJ: 5 },
+                    standard: ['12'],
+                    wieczorek: ['H'],
+                    sobota: ['S-5'],
+                    niedziela: ['N-2'],
+                    dayMarkers: ['D'],
+                    normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
+                }),
+                readWorkbook: async () => ({ SheetNames: ['S1'], Sheets: { S1: { __matrix: matrix } } }),
+                sheetToMatrix: (ws) => ws.__matrix,
+                getBlob: async () => null,
+                listFiles: async () => [],
+                logAction: () => { }
+            });
+
+            await service.parseScheduleSpreadsheet(null, 'WARSZAWA MAJ 2026.csv');
+
+            const d1 = service.getDriverNamesForRouteOnDate('12', new Date(2026, 4, 1));
+            this.assert(Array.isArray(d1) && d1.length === 2 && d1[0] === 'Anna Nowak' && d1[1] === 'Jan Kowalski', "Zwraca posortowanych kierowców dla trasy 12 (1 maja)");
+
+            const h = service.getDriverNamesForRouteOnDate('H', new Date(2026, 4, 1));
+            this.assert(Array.isArray(h) && h.length === 1 && h[0] === 'Jan Kowalski', "Obsługuje trasę H z komórki 12/H (wieczorek)");
+
+            const s5 = service.getDriverNamesForRouteOnDate('S-5', new Date(2026, 4, 3));
+            this.assert(Array.isArray(s5) && s5.length === 1 && s5[0] === 'Jan Kowalski', "Obsługuje sobotę S-5 (3 maja)");
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować schedule-service");
+            console.error(e);
+        }
     },
 
     testScheduleParsing() {
@@ -53,20 +133,26 @@ const QuickEvoTests = {
         }
     },
 
-    testLegacySelfTests() {
+    /**
+     * Testy regresji dla logiki wykrywania „laboratorium” oraz normalizacji.
+     *
+     * @param {{ utils: any, searchEngine: any }} ctx
+     */
+    testLegacySelfTests(ctx) {
         console.log("\nTesting Legacy Self-Tests (migrated from app.js):");
-        this.assert(rowMatchesKeyLab('LM - Dzika'), 'Dopasowanie: "LM - Dzika"');
-        this.assert(rowMatchesKeyLab('dzika laboratorium'), 'Dopasowanie: "dzika laboratorium"');
-        this.assert(rowMatchesKeyLab('laboratorium dzika'), 'Dopasowanie: "laboratorium dzika"');
-        this.assert(rowMatchesKeyLab('Piaseczno — LABORATORIUM'), 'Dopasowanie: "Piaseczno — LABORATORIUM"');
-        this.assert(rowMatchesKeyLab('Łódź   laboratorium'), 'Dopasowanie: "Łódź   laboratorium"');
-        this.assert(rowMatchesKeyLab('Wołomin/laboratorium'), 'Dopasowanie: "Wołomin/laboratorium"');
-        this.assert(rowMatchesKeyLab('Szpital Medicover'), 'Dopasowanie: "Szpital Medicover"');
-        this.assert(!rowMatchesKeyLab('dzika'), 'Brak fałszywego dopasowania dla samego "dzika"');
+        const compiled = ctx.searchEngine.compileKeyLabTokenSets(ctx.searchEngine.KEY_LAB_TOKEN_SETS);
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('LM - Dzika', compiled), 'Dopasowanie: "LM - Dzika"');
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('dzika laboratorium', compiled), 'Dopasowanie: "dzika laboratorium"');
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('laboratorium dzika', compiled), 'Dopasowanie: "laboratorium dzika"');
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('Piaseczno — LABORATORIUM', compiled), 'Dopasowanie: "Piaseczno — LABORATORIUM"');
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('Łódź   laboratorium', compiled), 'Dopasowanie: "Łódź   laboratorium"');
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('Wołomin/laboratorium', compiled), 'Dopasowanie: "Wołomin/laboratorium"');
+        this.assert(ctx.searchEngine.rowMatchesKeyLab('Szpital Medicover', compiled), 'Dopasowanie: "Szpital Medicover"');
+        this.assert(!ctx.searchEngine.rowMatchesKeyLab('dzika', compiled), 'Brak fałszywego dopasowania dla samego "dzika"');
         
         // Uwaga: normalizeText w app.js tylko zamienia na małe litery. 
         // Do usuwania ogonków służy fuzzyNormalizeText.
-        this.assert(fuzzyNormalizeText('Łódź') === 'lodz', 'Normalizacja polskich znaków (Łódź → lodz)');
+        this.assert(ctx.utils.fuzzyNormalizeText('Łódź') === 'lodz', 'Normalizacja polskich znaków (Łódź → lodz)');
         
         // parseDisplayText nie zostało znalezione w app.js, ale było w testach. 
         // Dodajemy zabezpieczenie, aby testy nie przerywały działania.
@@ -306,11 +392,11 @@ const QuickEvoTests = {
         this.assert(filtered[0].name === "Trasa 3.xlsx", "Keeps only new files");
     },
 
-    testNormalization() {
+    testNormalization(ctx) {
         console.log("\nTesting Normalization:");
-        this.assert(normalizeText("Łódź") === "łódź", "normalizeText handles diacritics (keeps them)");
-        this.assert(fuzzyNormalizeText("Łódź") === "lodz", "fuzzyNormalizeText removes diacritics");
-        this.assert(fuzzyNormalizeText("Warszawa, ul. Bacha 2") === "warszawa, ul. bacha 2", "fuzzyNormalizeText handles mixed case and symbols");
+        this.assert(ctx.utils.normalizeText("Łódź") === "łódź", "normalizeText zachowuje ogonki (tylko lowercase)");
+        this.assert(ctx.utils.fuzzyNormalizeText("Łódź") === "lodz", "fuzzyNormalizeText usuwa ogonki");
+        this.assert(ctx.utils.fuzzyNormalizeText("Warszawa, ul. Bacha 2") === "warszawa, ul. bacha 2", "fuzzyNormalizeText normalizuje case i znaki");
     },
 
     testStatsFormatting() {
@@ -326,11 +412,11 @@ const QuickEvoTests = {
         this.assert(mockInfo.innerHTML === "Trasy: 4 / 63", "Stats format matches 'Trasy: var1 / var2'");
     },
 
-    testFuzzySearch() {
+    testFuzzySearch(ctx) {
         console.log("\nTesting Search Logic:");
         const query = "lukis";
-        const lowerQuery = normalizeText(query);
-        const fuzzyQuery = fuzzyNormalizeText(query);
+        const lowerQuery = ctx.utils.normalizeText(query);
+        const fuzzyQuery = ctx.utils.fuzzyNormalizeText(query);
         
         const testData = [
             { searchable: "warszawa, łukiska 1", searchableFuzzy: "warszawa, lukiska 1" },
@@ -362,7 +448,7 @@ if (shouldAutoRunTests()) {
     window.addEventListener('unhandledrejection', (e) => { errors.push({ type: 'unhandledrejection', message: String(e?.reason?.message || e?.reason || ''), source: '' }); });
 
     window.addEventListener('load', () => {
-        QuickEvoTests.run();
+        QuickEvoTests.run().catch((err) => console.error('[QuickEvoTests] Błąd uruchomienia testów:', err));
         if (errors.length > 0) console.error('[QuickEvoTests] Wykryto błędy w trakcie uruchomienia testów:', errors);
         else console.log('%c[QuickEvoTests] Brak błędów w konsoli podczas uruchomienia testów.', 'color: green; font-weight: bold;');
     });

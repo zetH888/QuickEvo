@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.1.055-blue)
+![Version](https://img.shields.io/badge/version-2.5.0-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -22,7 +22,8 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 ## Architektura
 
 - **Client-Side Only** — cała logika biznesowa działa w przeglądarce użytkownika
-- **Modułowa struktura** — oddzielne pliki JS/CSS dla Google Drive, debuggera i testów
+- **Modułowa struktura** — wydzielone moduły (m.in. integracja z Google Drive, debugger) oraz postępująca dekompozycja `app.js` do `js/modules/` (m.in. kontrolery UI w `ui-components.js`, w tym scroll-indicator)
+- **Refaktoryzacja (instrukcja ciągła)** — `decomposition_next.md` opisuje dotychczasowy postęp i kolejne etapy do pełnej dekompozycji
 - **Shadow DOM** — debugger korzysta z izolowanego Shadow DOM, co zapobiega konfliktom stylów
 
 ***
@@ -78,6 +79,18 @@ QuickEvo/
 ├── js/
 │   ├── app.js           # Logika aplikacji
 │   ├── googleDrive.js   # Moduł integracji z Google Drive
+│   ├── modules/         # Moduły ESM (dekompozycja app.js)
+│   │   ├── utils.js
+│   │   ├── search-engine.js
+│   │   ├── state.js
+│   │   ├── excel-processor.js
+│   │   ├── drive-service.js
+│   │   ├── import/
+│   │   │   └── import-service.js
+│   │   ├── schedule/
+│   │   │   └── schedule-service.js
+│   │   └── storage/
+│   │       └── docs-db.js
 │   ├── qe-debugger.js   # Moduł debuggera (Shadow DOM)
 │   └── tests.js         # Pakiet testów automatycznych
 └── README.md

@@ -6,6 +6,16 @@
  * Wykorzystuje IndexedDB do przechowywania plików i Web Workers (opcjonalnie) do przetwarzania.
  */
 
+import * as utils from './modules/utils.js';
+import * as searchEngine from './modules/search-engine.js';
+import * as state from './modules/state.js';
+import * as excelProcessor from './modules/excel-processor.js';
+import * as driveService from './modules/drive-service.js';
+import { docsClearFilesStore, docsDeleteFiles, docsFileExists, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from './modules/storage/docs-db.js';
+import { importLocalFiles } from './modules/import/import-service.js';
+import { createScheduleService } from './modules/schedule/schedule-service.js';
+import { LoadingTitleRotator, applyWelcomeElementsInitStateDom, clearWelcomeElementsInitStateDom, createLoadingProgressController, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScrollIndicatorController, createWelcomeProgressRenderer, getLoadingTitleCategoryForProgress, hideLoadingOverlayDom, highlightLabsInPreviewTableDom, prepareResultsListDom, scheduleWelcomeLogoEntranceDom, setLoadingStatusTextDom, setLoadingTitleTextDom, showLoadingErrorDom, showLoadingOverlayDom, updateResultsCountInfoDom } from './modules/ui-components.js';
+
 //////////////////////////////////////////////////
 // STAŁE GLOBALNE, KONFIGURACJA, IMPORTY
 //////////////////////////////////////////////////
@@ -13,27 +23,6 @@
 const ROUTE_CATEGORIES_ORDER = Object.freeze(['STANDARD', 'WIECZOREK', 'SOBOTA', 'NIEDZIELA']);
 const ROUTE_CATEGORY_STORAGE_PREFIX = 'qe:routeCategoryCollapsed:';
 const routeCategoryCache = new Map();
-
-/**
- * Zestaw tokenów do wykrywania wierszy związanych z laboratorium.
- * @type {Array<Array<string>>}
- */
-const KEY_LAB_TOKEN_SETS = [
-    ['dzika', 'laboratorium'],
-    ['dzika', 'lm'],
-    ['piaseczno', 'laboratorium'],
-    ['lodz', 'laboratorium'],
-    ['wolomin', 'laboratorium'],
-    ['szpital', 'medicover'],
-    ['wilanow', 'laboratorium']
-];
-
-/**
- * Nazwa i wersja bazy danych IndexedDB.
- */
-const DOCS_DB_NAME = 'quickevo_docs_v2';
-const DOCS_DB_VERSION = 2;
-const DOCS_DB_STORE = 'files';
 
 /**
  * Limit rozmiaru pliku podczas importu (5MB).
@@ -52,13 +41,94 @@ const svgDomParser = new DOMParser();
  */
 const memoryStorage = new Map();
 
+/**
+ * Referencje do modułów ESM.
+ *
+ * @type {{ utils: any, searchEngine: any, state: any, excelProcessor: any, driveService: any }}
+ */
+const qeModules = { utils, searchEngine, state, excelProcessor, driveService };
+
+/**
+ * Stan aplikacji przekazywany do modułów.
+ * Jest inicjalizowany w `qeBootstrap()` i przechowywany wyłącznie wewnątrz tego pliku (brak global scope).
+ *
+ * @type {ReturnType<any> | null}
+ */
+let appState = null;
+
+/**
+ * Uruchamia aplikację po załadowaniu modułów ESM oraz zainicjalizowaniu stanu.
+ * W przypadku błędu startu, blokuje inicjalizację i pokazuje komunikat awaryjny.
+ *
+ * @returns {Promise<void>}
+ */
+async function qeBootstrap() {
+    try {
+        appState = qeModules.state.createAppState();
+        searchCache = appState.search.searchCache;
+        predictiveSuggestionsCache = appState.predictive.predictiveSuggestionsCache;
+        compiledKeyLabTokenSets = appState.search.compiledKeyLabTokenSets;
+
+        const onDomReady = () => {
+            welcomeLogoDomContentLoadedTs = performance.now();
+            scheduleWelcomeLogoEntrance();
+        };
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', onDomReady, { once: true });
+        else onDomReady();
+
+        await init();
+    } catch (err) {
+        console.error(err);
+        alert('Nie udało się uruchomić aplikacji. Odśwież stronę i spróbuj ponownie.');
+    }
+}
+
+/**
+ * Zapewnia dostęp do modułu utils i umożliwia wczesne wykrycie błędów inicjalizacji.
+ *
+ * @returns {any}
+ */
+function qeGetUtils() {
+    if (!qeModules.utils) throw new Error('Moduł utils nie został załadowany.');
+    return qeModules.utils;
+}
+
+/**
+ * Zapewnia dostęp do modułu search-engine i umożliwia wczesne wykrycie błędów inicjalizacji.
+ *
+ * @returns {any}
+ */
+function qeGetSearchEngine() {
+    if (!qeModules.searchEngine) throw new Error('Moduł search-engine nie został załadowany.');
+    return qeModules.searchEngine;
+}
+
+/**
+ * Zapewnia dostęp do modułu excel-processor i umożliwia wczesne wykrycie błędów inicjalizacji.
+ *
+ * @returns {any}
+ */
+function qeGetExcelProcessor() {
+    if (!qeModules.excelProcessor) throw new Error('Moduł excel-processor nie został załadowany.');
+    return qeModules.excelProcessor;
+}
+
+/**
+ * Zapewnia dostęp do modułu drive-service i umożliwia wczesne wykrycie błędów inicjalizacji.
+ *
+ * @returns {any}
+ */
+function qeGetDriveService() {
+    if (!qeModules.driveService) throw new Error('Moduł drive-service nie został załadowany.');
+    return qeModules.driveService;
+}
+
 const DOM_READY_TS = performance.now();
 
 const WELCOME_LOGO_ENTER_DELAY_MS = 420;
 const WELCOME_SEQUENCE_UNLOCK_AFTER_MS = 1750;
 const WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS = 650;
 const BOOT_WATCHDOG_MS = 8000;
-const DOCS_DB_OPEN_TIMEOUT_MS = 6000;
 
 /**
  * Konfiguracja „premium” dla ekranu ładowania:
@@ -144,33 +214,9 @@ const LOADING_TITLE_MESSAGES = {
 };
 
 /**
- * Implementacja prostego cache'u LRU (Least Recently Used).
- */
-class LRUCache {
-    constructor(limit = 100) {
-        this.limit = limit;
-        this.cache = new Map();
-    }
-    get(key) {
-        if (!this.cache.has(key)) return undefined;
-        const val = this.cache.get(key);
-        this.cache.delete(key);
-        this.cache.set(key, val);
-        return val;
-    }
-    set(key, value) {
-        if (this.cache.has(key)) this.cache.delete(key);
-        else if (this.cache.size >= this.limit) this.cache.delete(this.cache.keys().next().value);
-        this.cache.set(key, value);
-    }
-    has(key) { return this.cache.has(key); }
-    clear() { this.cache.clear(); }
-}
-
-/**
  * Cache dla wyników wyszukiwania (LRU).
  */
-let searchCache = new LRUCache(100);
+let searchCache = null;
 
 /**
  * Stan indeksu podpowiedzi dla predykcji wpisywanej frazy.
@@ -178,7 +224,7 @@ let searchCache = new LRUCache(100);
  */
 let predictiveIndex = null;
 let predictiveIndexBuildTimer = null;
-let predictiveSuggestionsCache = new LRUCache(150);
+let predictiveSuggestionsCache = null;
 let predictiveUiState = { raw: '', norm: '', options: [], index: 0, hidden: false };
 let predictiveIsComposing = false;
 
@@ -259,6 +305,26 @@ const ghostOverlay = document.getElementById('qe-ghost');
 const ghostPrefix = document.getElementById('qe-ghost-prefix');
 const ghostSuffix = document.getElementById('qe-ghost-suffix');
 
+/** @type {{ show: Function, hide: Function } | null} */
+let modalController = null;
+
+/** @type {{ showSearch: Function, showPreview: Function } | null} */
+let previewController = null;
+
+/** @type {{ ensureSections: Function, updateCounts: Function, syncHeights: Function, toggleCategory: Function } | null} */
+let resultsCategoryController = null;
+
+/** @type {{ createGroupElement: Function } | null} */
+let resultsRenderer = null;
+
+/** @type {{ createItem: Function, updateItem: Function } | null} */
+let welcomeProgressRenderer = null;
+
+/** @type {{ renderHeaderLogo: Function, refreshWelcomeGraphicIfPresent: Function, lazyLoadWelcomeGraphic: Function } | null} */
+let logoRenderer = null;
+
+let scrollIndicatorController = null;
+
 //////////////////////////////////////////////////
 // KLUCZOWY STAN APLIKACJI
 //////////////////////////////////////////////////
@@ -280,16 +346,7 @@ let loadedFiles = new Set();
 
 /** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli. */
 let fullFileData = {}; 
-
-/**
- * Cache grafiku: mapowanie (YYYY-MM) -> dane grafiku oraz przypisania (data -> trasa -> kierowca).
- * Uwaga: trzymamy to celowo poza indeksami wyszukiwania, aby pliki grafiku nie wpływały na wyniki.
- * @type {Map<string, { key: string, year: number, month: number, fileName: string, byIsoDate: Map<string, Map<string, Set<string>>> }>}
- */
-let scheduleCacheByMonth = new Map();
-
-/** @type {Set<string>} Pliki grafiku, które zostały już przetworzone i mają wpis w cache. */
-let loadedScheduleFiles = new Set();
+let scheduleService = null;
 
 /** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna. */
 let isSearchEnabled = false; 
@@ -312,51 +369,10 @@ let debouncedSearchRef = null;
 /** @type {Function|null} Referencja do debounce dla logowania wyszukiwań. */
 let debouncedLogSearchRef = null; 
 
-/** @type {number} Aktualna wartość paska postępu w ekranie ładowania. */
-let loadingProgressValue = 0;
-
-/** @type {number} Wartość wyświetlana (wygładzona) paska postępu w ekranie ładowania. */
-let loadingProgressDisplayValue = 0;
-
-/** @type {number} ID animacji requestAnimationFrame dla paska postępu. */
-let loadingProgressRaf = 0;
-
-/** @type {number} Timestamp ostatniej klatki animacji paska postępu. */
-let loadingProgressLastFrameTs = 0;
-
 /**
- * Stan „systemowej” symulacji progresu (celowo nieregularny, aby wyglądał naturalnie).
- * @type {{
- *   runId: number,
- *   pauseUntilTs: number,
- *   pauseTimerId: number | null,
- *   nextMicroStopAtTs: number,
- *   nextJumpAtTs: number,
- *   speedDriftUntilTs: number,
- *   speedMultiplier: number,
- *   boostUntilTs: number,
- *   lastTargetValue: number,
- *   profile: {
- *     fastPps: number,
- *     midPps: number,
- *     cruisePps: number,
- *     tailPps: number,
- *     finalPps: number
- *   } | null
- * } }
+ * Kontroler animacji paska postępu na ekranie ładowania.
  */
-let loadingProgressSim = {
-    runId: 0,
-    pauseUntilTs: 0,
-    pauseTimerId: null,
-    nextMicroStopAtTs: 0,
-    nextJumpAtTs: 0,
-    speedDriftUntilTs: 0,
-    speedMultiplier: 1,
-    boostUntilTs: 0,
-    lastTargetValue: 0,
-    profile: null
-};
+let loadingProgressController = null;
 
 /** @type {boolean} Flaga zakończenia animacji ładowania. */
 let loadingProgressDone = false;
@@ -372,9 +388,6 @@ let loadingStartedAt = 0;
 
 /** @type {number} Licznik instancji loga dla unikalnych ID SVG. */
 let logoInstanceCounter = 0;
-
-/** @type {Promise|null} Obietnica otwarcia bazy danych. */
-let docsDbPromise = null;
 
 /** @type {Object} Ostatni stan podglądu pliku. */
 let lastPreviewState = { fileName: null, rowIndex: null };
@@ -425,60 +438,11 @@ function prefersReducedMotion() {
 }
 
 function clampNumber(v, min, max) {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return min;
-    return Math.min(max, Math.max(min, n));
-}
-
-function getLoadingTitleCategoryForProgress(progressPercent) {
-    const p = clampNumber(progressPercent, 0, 100);
-    if (p >= 100) return 'powitalne';
-    if (p <= 20) return 'startowe';
-    if (p <= 50) return 'techniczne';
-    if (p <= 80) return 'absurdalne';
-    return 'finalizujace';
-}
-
-function pickRandomNonRepeating(items, lastValue) {
-    if (!Array.isArray(items) || items.length === 0) return '';
-    if (items.length === 1) return items[0];
-    let next = items[Math.floor(Math.random() * items.length)];
-    if (typeof lastValue === 'string' && lastValue.length > 0) {
-        let guard = 0;
-        while (next === lastValue && guard < 12) {
-            next = items[Math.floor(Math.random() * items.length)];
-            guard += 1;
-        }
-    }
-    return next;
-}
-
-function randomIntInclusive(min, max) {
-    const a = Math.ceil(Number(min));
-    const b = Math.floor(Number(max));
-    if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
-    if (a > b) return a;
-    return Math.floor(a + Math.random() * (b - a + 1));
-}
-
-function randomFloat(min, max) {
-    const a = Number(min), b = Number(max);
-    if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
-    if (a > b) return a;
-    return a + Math.random() * (b - a);
+    return qeGetUtils().clampNumber(v, min, max);
 }
 
 function isLoadingVisualFinishAllowed() {
     return Boolean(loadingProgressDone && (loadingDataReady || loadingFailed));
-}
-
-function getSoftCapLeadAllowance(displayPercent) {
-    const p = clampNumber(displayPercent, 0, 100);
-    if (p < 25) return 10;
-    if (p < 60) return 7;
-    if (p < 85) return 5;
-    if (p < 95) return 3;
-    return 1.5;
 }
 
 function setPendingFinalLoadingStatusText(finalText, interimText) {
@@ -491,7 +455,8 @@ function setPendingFinalLoadingStatusText(finalText, interimText) {
 function syncPendingFinalLoadingStatusText() {
     if (!pendingLoadingStatusFinalization) return;
     if (!loadingProgressDone) return;
-    const canFinalizeVisual = prefersReducedMotion() ? (loadingProgressValue >= 100) : (loadingProgressDisplayValue >= 100);
+    const ctrl = ensureLoadingProgressController();
+    const canFinalizeVisual = prefersReducedMotion() ? (ctrl.getTargetPercent() >= 100) : (ctrl.getDisplayPercent() >= 100);
     if (canFinalizeVisual) {
         if (!pendingLoadingStatusFinalization.applied) {
             pendingLoadingStatusFinalization.applied = true;
@@ -502,290 +467,27 @@ function syncPendingFinalLoadingStatusText() {
     if (!pendingLoadingStatusFinalization.applied) setLoadingStatusText(pendingLoadingStatusFinalization.interimText);
 }
 
-function setLoadingTitleContent(el, nextText) {
-    if (!el) return;
-    const raw = String(nextText || '').trim();
-    if (raw.length === 0) return;
-    const normalized = raw.replace(/[✅✔🗸]/g, '✓');
-    let hasCheck = false;
-    const frag = document.createDocumentFragment();
-    for (const ch of Array.from(normalized)) {
-        if (ch === '✓') {
-            hasCheck = true;
-            const s = document.createElement('span');
-            s.className = 'qe-check';
-            s.textContent = ch;
-            frag.appendChild(s);
-            continue;
-        }
-        frag.appendChild(document.createTextNode(ch));
-    }
-    el.replaceChildren(frag);
-    el.classList.toggle('qe-title-has-check', hasCheck);
-}
-
-async function animateLoadingTitleSwap(el, nextText, { reducedMotion } = {}) {
-    if (!el) return;
-    const text = String(nextText || '').trim();
-    if (text.length === 0) return;
-    if (reducedMotion) { setLoadingTitleContent(el, text); el.style.opacity = '1'; return; }
-
-    const fade = (from, to, durationMs) => new Promise((resolve) => {
-        try {
-            if (typeof el.animate === 'function') {
-                const anim = el.animate(
-                    [{ opacity: from }, { opacity: to }],
-                    { duration: durationMs, easing: 'ease', fill: 'forwards' }
-                );
-                anim.addEventListener('finish', () => resolve(), { once: true });
-                anim.addEventListener('cancel', () => resolve(), { once: true });
-            } else {
-                el.style.transition = `opacity ${durationMs}ms ease`;
-                el.style.opacity = String(to);
-                window.setTimeout(() => resolve(), durationMs);
-            }
-        } catch {
-            el.style.opacity = String(to);
-            window.setTimeout(() => resolve(), durationMs);
-        }
+function ensureLoadingProgressController() {
+    if (loadingProgressController) return loadingProgressController;
+    loadingProgressController = createLoadingProgressController({
+        els: { loadingOverlay, loadingProgressMeta, loadingProgressBar },
+        updateContinueAvailability: updateLoadingContinueAvailability,
+        syncPendingFinalLoadingStatusText,
+        isVisualFinishAllowed: isLoadingVisualFinishAllowed,
+        prefersReducedMotion,
+        softCapBeforeFinish: LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH,
+        microStopMinMs: LOADING_PROGRESS_MICROSTOP_MIN_MS,
+        microStopMaxMs: LOADING_PROGRESS_MICROSTOP_MAX_MS,
+        jumpMin: LOADING_PROGRESS_JUMP_MIN,
+        jumpMax: LOADING_PROGRESS_JUMP_MAX
     });
-
-    await fade(1, 0, LOADING_TITLE_FADE_OUT_MS);
-    setLoadingTitleContent(el, text);
-    await fade(0, 1, LOADING_TITLE_FADE_IN_MS);
-    el.style.opacity = '1';
-}
-
-/**
- * Rotuje losowe komunikaty w tytule ekranu ładowania, synchronizując pulę komunikatów z postępem.
- */
-class LoadingTitleRotator {
-    /**
-     * @param {{ el: HTMLElement|null, getProgress: () => number }} cfg
-     */
-    constructor(cfg) {
-        this._el = cfg?.el || null;
-        this._getProgress = typeof cfg?.getProgress === 'function' ? cfg.getProgress : (() => 0);
-        this._reducedMotion = prefersReducedMotion();
-        this._timer = null;
-        this._running = false;
-        this._lastMessage = '';
-        this._animSeq = 0;
-    }
-
-    start() {
-        if (this._running) return;
-        if (!this._el) return;
-        this._running = true;
-        this._reducedMotion = prefersReducedMotion();
-        this._scheduleNext({ immediate: true });
-    }
-
-    stop() {
-        this._running = false;
-        this._animSeq += 1;
-        if (this._timer !== null) {
-            window.clearTimeout(this._timer);
-            this._timer = null;
-        }
-        if (this._el) {
-            this._el.style.opacity = '1';
-        }
-    }
-
-    _scheduleNext({ immediate } = {}) {
-        if (!this._running) return;
-        if (!this._el) return;
-
-        const delay = immediate
-            ? 0
-            : Math.floor(LOADING_TITLE_INTERVAL_MIN_MS + Math.random() * (LOADING_TITLE_INTERVAL_MAX_MS - LOADING_TITLE_INTERVAL_MIN_MS));
-
-        if (this._timer !== null) window.clearTimeout(this._timer);
-        this._timer = window.setTimeout(() => {
-            this._timer = null;
-            void this._tick();
-        }, delay);
-    }
-
-    async _tick() {
-        if (!this._running) return;
-        if (!this._el) return;
-
-        const progress = clampNumber(this._getProgress(), 0, 100);
-        const category = getLoadingTitleCategoryForProgress(progress);
-        const pool = LOADING_TITLE_MESSAGES[category] || [];
-        const next = pickRandomNonRepeating(pool, this._lastMessage);
-        if (!next) {
-            if (progress >= 100) { this.stop(); return; }
-            this._scheduleNext();
-            return;
-        }
-
-        const seq = (this._animSeq += 1);
-        await animateLoadingTitleSwap(this._el, next, { reducedMotion: this._reducedMotion });
-        if (!this._running) return;
-        if (seq !== this._animSeq) return;
-        this._lastMessage = next;
-        if (progress >= 100) { this.stop(); return; }
-        this._scheduleNext();
-    }
-}
-
-function setLoadingProgressDisplayPercent(percent) {
-    const next = clampNumber(percent, 0, 100);
-    loadingProgressDisplayValue = next;
-    if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(next)}%`;
-    if (loadingProgressBar) loadingProgressBar.value = next;
-    updateLoadingContinueAvailability();
-    syncPendingFinalLoadingStatusText();
-}
-
-function stopLoadingProgressAnimation() {
-    if (!loadingProgressRaf) return;
-    window.cancelAnimationFrame(loadingProgressRaf);
-    loadingProgressRaf = 0;
-    loadingProgressLastFrameTs = 0;
-    if (loadingProgressSim.pauseTimerId !== null) {
-        window.clearTimeout(loadingProgressSim.pauseTimerId);
-        loadingProgressSim.pauseTimerId = null;
-    }
-}
-
-function kickLoadingProgressAnimation() {
-    if (loadingProgressRaf) return;
-    loadingProgressLastFrameTs = performance.now();
-    loadingProgressRaf = window.requestAnimationFrame(stepLoadingProgressAnimation);
-}
-
-function stepLoadingProgressAnimation(ts) {
-    loadingProgressRaf = 0;
-    if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
-
-    const display = clampNumber(loadingProgressDisplayValue, 0, 100);
-    if (prefersReducedMotion()) {
-        const target = clampNumber(loadingProgressValue, 0, 100);
-        setLoadingProgressDisplayPercent(target);
-        return;
-    }
-
-    const dt = Math.max(0, ts - (loadingProgressLastFrameTs || ts));
-    loadingProgressLastFrameTs = ts;
-
-    const rawTarget = clampNumber(loadingProgressValue, 0, 100);
-    const finishAllowed = isLoadingVisualFinishAllowed();
-    const hardCap = finishAllowed ? 100 : LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH;
-    const lead = getSoftCapLeadAllowance(display);
-    const cap = clampNumber(Math.min(hardCap, Math.max(display, rawTarget + lead)), 0, 100);
-
-    const sim = loadingProgressSim;
-    const now = ts;
-
-    if (sim.profile === null) {
-        sim.profile = {
-            fastPps: randomFloat(22, 34),
-            midPps: randomFloat(10, 18),
-            cruisePps: randomFloat(6, 12),
-            tailPps: randomFloat(1.2, 3.6),
-            finalPps: randomFloat(18, 34)
-        };
-    }
-
-    if (rawTarget > sim.lastTargetValue) {
-        const delta = rawTarget - sim.lastTargetValue;
-        if (delta >= 6) {
-            sim.boostUntilTs = Math.max(sim.boostUntilTs, now + randomIntInclusive(450, 1100));
-        }
-        sim.lastTargetValue = rawTarget;
-    }
-
-    if (sim.pauseUntilTs > 0 && now < sim.pauseUntilTs) {
-        if (sim.pauseTimerId === null) {
-            const remaining = Math.max(0, sim.pauseUntilTs - now);
-            sim.pauseTimerId = window.setTimeout(() => {
-                sim.pauseTimerId = null;
-                kickLoadingProgressAnimation();
-            }, Math.min(remaining + 12, 220));
-        }
-        return;
-    }
-
-    if (sim.pauseTimerId !== null) {
-        window.clearTimeout(sim.pauseTimerId);
-        sim.pauseTimerId = null;
-    }
-
-    if (now >= sim.speedDriftUntilTs) {
-        sim.speedMultiplier = randomFloat(0.82, 1.22);
-        sim.speedDriftUntilTs = now + randomIntInclusive(260, 720);
-        if (display < 85 && Math.random() < 0.22) {
-            sim.boostUntilTs = Math.max(sim.boostUntilTs, now + randomIntInclusive(280, 720));
-        }
-    }
-
-    if (now >= sim.nextMicroStopAtTs) {
-        sim.nextMicroStopAtTs = now + randomIntInclusive(420, 1350);
-        const p = display;
-        const stopChance = p < 20 ? 0.12 : (p < 60 ? 0.22 : (p < 85 ? 0.18 : 0.10));
-        const nearCap = (cap - display) < 1.2;
-        if (!nearCap && Math.random() < stopChance) {
-            sim.pauseUntilTs = now + randomIntInclusive(LOADING_PROGRESS_MICROSTOP_MIN_MS, LOADING_PROGRESS_MICROSTOP_MAX_MS);
-            kickLoadingProgressAnimation();
-            return;
-        }
-    }
-
-    let basePps;
-    if (display < 25) basePps = sim.profile.fastPps;
-    else if (display < 60) basePps = sim.profile.midPps;
-    else if (display < 85) basePps = sim.profile.cruisePps;
-    else if (display < 97) basePps = sim.profile.tailPps;
-    else basePps = sim.profile.tailPps * 0.75;
-
-    const boost = (now < sim.boostUntilTs) ? randomFloat(1.35, 1.95) : 1;
-    const requestedSpeedPps = basePps * sim.speedMultiplier * boost;
-
-    let next = display;
-
-    if (finishAllowed && rawTarget >= 100 && display >= 97) {
-        next = Math.min(100, display + (dt / 1000) * sim.profile.finalPps);
-    } else {
-        next = Math.min(cap, display + (dt / 1000) * requestedSpeedPps);
-    }
-
-    if (now >= sim.nextJumpAtTs) {
-        const minGap = display < 25 ? 260 : (display < 85 ? 340 : 520);
-        const maxGap = display < 25 ? 720 : (display < 85 ? 980 : 1320);
-        sim.nextJumpAtTs = now + randomIntInclusive(minGap, maxGap);
-
-        const room = cap - next;
-        if (room > 0.8 && Math.random() < 0.78) {
-            const maxJump = display >= 85 ? 2 : LOADING_PROGRESS_JUMP_MAX;
-            const jump = Math.min(room, randomIntInclusive(LOADING_PROGRESS_JUMP_MIN, maxJump));
-            if (jump >= 0.9) {
-                next = Math.min(cap, next + jump);
-            }
-        }
-    }
-
-    if (next !== display) setLoadingProgressDisplayPercent(next);
-    if (next < cap) kickLoadingProgressAnimation();
-}
-
-function applyLoadingProgressTargetPercent(percent) {
-    const target = clampNumber(percent, 0, 100);
-    loadingProgressValue = target;
-    if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
-    if (prefersReducedMotion()) {
-        setLoadingProgressDisplayPercent(target);
-        return;
-    }
-    kickLoadingProgressAnimation();
+    return loadingProgressController;
 }
 
 function updateLoadingContinueAvailability() {
     if (!loadingContinueButton || !loadingOverlay) return;
-    const canContinue = Boolean(loadingProgressDone && (loadingDataReady || loadingFailed) && (loadingFailed || loadingProgressDisplayValue >= 100));
+    const display = ensureLoadingProgressController().getDisplayPercent();
+    const canContinue = Boolean(loadingProgressDone && (loadingDataReady || loadingFailed) && (loadingFailed || display >= 100));
     loadingContinueButton.disabled = !canContinue;
     if (canContinue) loadingOverlay.setAttribute('aria-busy', 'false');
 }
@@ -794,7 +496,16 @@ function ensureLoadingTitleRotator() {
     if (loadingTitleRotator) return loadingTitleRotator;
     loadingTitleRotator = new LoadingTitleRotator({
         el: loadingTitleText,
-        getProgress: () => loadingProgressDisplayValue
+        getProgress: () => ensureLoadingProgressController().getDisplayPercent(),
+        getMessagesForProgress: (progress) => {
+            const category = getLoadingTitleCategoryForProgress(progress);
+            return LOADING_TITLE_MESSAGES[category] || [];
+        },
+        prefersReducedMotion,
+        fadeOutMs: LOADING_TITLE_FADE_OUT_MS,
+        fadeInMs: LOADING_TITLE_FADE_IN_MS,
+        intervalMinMs: LOADING_TITLE_INTERVAL_MIN_MS,
+        intervalMaxMs: LOADING_TITLE_INTERVAL_MAX_MS
     });
     return loadingTitleRotator;
 }
@@ -802,33 +513,15 @@ function ensureLoadingTitleRotator() {
 function startLoadingOverlayDynamicEffects() {
     if (!loadingOverlay || loadingOverlay.classList.contains('hidden')) return;
     ensureLoadingTitleRotator().start();
-    applyLoadingProgressTargetPercent(loadingProgressValue);
+    ensureLoadingProgressController().start();
 }
 
 function applyWelcomeElementsInitState() {
-    if (!loadingOverlay) return;
-    const welcomeText = document.getElementById('welcome-text');
-    const loadingActions = loadingOverlay.querySelector('.loading-actions');
-    const nodes = [welcomeText, loadingStatusText, loadingOverlay.querySelector('.loading-progress'), loadingActions, loadingError].filter(Boolean);
-    for (const el of nodes) {
-        el.style.opacity = '0';
-        el.style.transform = 'translateY(12px) scale(0.992)';
-        el.style.filter = 'blur(12px)';
-    }
-    if (loadingActions) loadingActions.style.pointerEvents = 'none';
+    applyWelcomeElementsInitStateDom({ loadingOverlay, loadingStatusTextEl: loadingStatusText, loadingErrorEl: loadingError });
 }
 
 function clearWelcomeElementsInitState() {
-    if (!loadingOverlay) return;
-    const welcomeText = document.getElementById('welcome-text');
-    const loadingActions = loadingOverlay.querySelector('.loading-actions');
-    const nodes = [welcomeText, loadingStatusText, loadingOverlay.querySelector('.loading-progress'), loadingActions, loadingError].filter(Boolean);
-    for (const el of nodes) {
-        el.style.opacity = '';
-        el.style.transform = '';
-        el.style.filter = '';
-    }
-    if (loadingActions) loadingActions.style.pointerEvents = '';
+    clearWelcomeElementsInitStateDom({ loadingOverlay, loadingStatusTextEl: loadingStatusText, loadingErrorEl: loadingError });
 }
 
 function forceWelcomeSequenceDone() {
@@ -846,11 +539,6 @@ function forceWelcomeSequenceDone() {
 // FUNKCJE INICJALIZACYJNE
 //////////////////////////////////////////////////
 
-document.addEventListener('DOMContentLoaded', () => {
-    welcomeLogoDomContentLoadedTs = performance.now();
-    scheduleWelcomeLogoEntrance();
-}, { once: true });
-
 /**
  * Główna funkcja startowa aplikacji.
  */
@@ -863,8 +551,8 @@ async function init() {
     compileKeyLabTokenSets();
     setupWelcomeOverlayParallax();
 
-    lazyLoadWelcomeGraphic();
-    renderHeaderLogo();
+    ensureLogoRenderer().lazyLoadWelcomeGraphic(document.getElementById('welcome-graphic'));
+    ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
 
     setSearchEnabled(false);
     startLoadingScreen();
@@ -952,8 +640,8 @@ function setupTheme() {
         // Przy aktywnym MATRIX® blokujemy przełącznik dark/light, aby nie mieszać dwóch systemów styli.
         updateThemeToggleLock();
         // Prze-renderowanie logo zapewnia spójne kolory w headerze i na ekranie powitalnym.
-        renderHeaderLogo();
-        refreshWelcomeGraphicIfPresent();
+        ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
+        ensureLogoRenderer().refreshWelcomeGraphicIfPresent(document.getElementById('welcome-graphic'));
     }, { passive: true });
 
     function updateThemeToggleLock() {
@@ -995,8 +683,8 @@ function applyTheme(theme) {
     document.body.classList.remove('light-theme', 'dark-theme');
     document.body.classList.add(theme + '-theme');
     themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
-    renderHeaderLogo();
-    refreshWelcomeGraphicIfPresent();
+    ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
+    ensureLogoRenderer().refreshWelcomeGraphicIfPresent(document.getElementById('welcome-graphic'));
 }
 
 /**
@@ -1099,8 +787,7 @@ function setupNavigationListeners() {
         if (history.state && history.state.view === 'preview') {
             history.back();
         } else {
-            filePreviewView.classList.add('view-hidden');
-            searchView.classList.remove('view-hidden');
+            ensurePreviewController().showSearch();
             logClientEvent('navigate', { to: 'search', fallback: true });
         }
     });
@@ -1135,7 +822,7 @@ function setupNavigationListeners() {
             }
         } else if (state.view === 'home') {
             if (!filePreviewView.classList.contains('view-hidden')) {
-                togglePreviewView(false);
+                ensurePreviewController().showSearch();
             }
             if (!state.search) {
                 if (searchInput.value) {
@@ -1171,8 +858,11 @@ function setupNavigationListeners() {
                 try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { window.scrollTo(0, 0); }
             }
 
-            try { syncResultsEndIntersectionObserver(); } catch { }
-            try { updateScrollIndicator(); } catch { }
+            try {
+                const ctrl = ensureScrollIndicatorController();
+                ctrl.syncResultsEndIntersectionObserver();
+                ctrl.update();
+            } catch { }
         });
     }, { passive: true });
 }
@@ -1202,10 +892,11 @@ function setupMutationObserver() {
 
     const debouncedUpdate = debounce(() => {
         syncRouteCategorySectionHeights();
-        syncResultsEndIntersectionObserver();
-        updateScrollIndicator();
+        const ctrl = ensureScrollIndicatorController();
+        ctrl.syncResultsEndIntersectionObserver();
+        ctrl.update();
     }, 120);
-    const scrollContainer = getResultsScrollContainer();
+    const scrollContainer = ensureScrollIndicatorController().getScrollContainer();
 
     if (resultsListOverflowObservers.mutation) {
         try { resultsListOverflowObservers.mutation.disconnect(); } catch { }
@@ -1224,13 +915,11 @@ function setupMutationObserver() {
         resultsListOverflowObservers.resize.observe(scrollContainer);
     }
 
-    ensureResultsEndIntersectionObserver();
-
     if (!resultsListOverflowObservers.attached) {
         resultsListOverflowObservers.attached = true;
-        resultsListOverflowObservers.onWindowScroll = () => updateScrollIndicator();
+        resultsListOverflowObservers.onWindowScroll = () => ensureScrollIndicatorController().update();
         resultsListOverflowObservers.onWindowResize = () => debouncedUpdate();
-        resultsListOverflowObservers.onListScroll = () => updateScrollIndicator();
+        resultsListOverflowObservers.onListScroll = () => ensureScrollIndicatorController().update();
 
         window.addEventListener('scroll', resultsListOverflowObservers.onWindowScroll, { passive: true });
         window.addEventListener('resize', resultsListOverflowObservers.onWindowResize, { passive: true });
@@ -1404,11 +1093,7 @@ async function processFile(fileName) {
  */
 async function parseSpreadsheet(source, fileName) {
     try {
-        const workbook = await readWorkbook(source, fileName);
-        const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
-        const tableModel = buildTableModel(matrix);
+        const tableModel = await qeGetExcelProcessor().parseTableModelFromSource(source, fileName);
         fullFileData[fileName] = tableModel;
         addTableRows(tableModel, fileName);
     } catch (err) {
@@ -1421,244 +1106,55 @@ async function parseSpreadsheet(source, fileName) {
 // OBSŁUGA GRAFIKU KIEROWCÓW (TRASA -> KIEROWCA)
 //////////////////////////////////////////////////
 
-/**
- * Zwraca konfigurację grafiku (kody tras/oznaczenia), jeśli jest dostępna.
- */
-function getRouteScheduleConfig() {
-    const cfg = window.QE_RouteScheduleConfig;
-    if (cfg && typeof cfg === 'object') return cfg;
-    return {
-        monthsPl: {},
-        standard: [],
-        wieczorek: [],
-        sobota: [],
-        niedziela: [],
-        dayMarkers: [],
-        normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
-    };
+function ensureScheduleService() {
+    if (scheduleService) return scheduleService;
+    scheduleService = createScheduleService({
+        fuzzyNormalizeText,
+        readWorkbook,
+        sheetToMatrix: (worksheet) => qeGetExcelProcessor().sheetToMatrix(worksheet),
+        getBlob: docsGetBlob,
+        listFiles: docsListFiles,
+        logAction
+    });
+    return scheduleService;
 }
 
-function scheduleMonthKey(year, month) {
-    const y = Number(year);
-    const m = Number(month);
-    if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return '';
-    return `${y}-${String(m).padStart(2, '0')}`;
-}
-
-function isoDateFromParts(year, month, day) {
-    const y = Number(year);
-    const m = Number(month);
-    const d = Number(day);
-    if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return '';
-    return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
-/**
- * Rozpoznaje plik grafiku po formacie: "MIASTO MIESIĄC ROK.xlsx|xls|csv".
- * Miasto jest ignorowane.
- */
 function parseScheduleFileNameYearMonth(fileName) {
-    const name = String(fileName || '').trim();
-    if (!name) return null;
-    const extMatch = name.toLowerCase().match(/\.(xlsx|xls|csv)$/);
-    if (!extMatch) return null;
-
-    const base = name.replace(/\.(xlsx|xls|csv)$/i, '').trim();
-    const parts = base.split(/\s+/g).filter(Boolean);
-    if (parts.length < 3) return null;
-
-    const yearRaw = parts[parts.length - 1];
-    const monthRaw = parts[parts.length - 2];
-    const year = Number(yearRaw);
-    if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
-
-    const cfg = getRouteScheduleConfig();
-    const monthKey = String(fuzzyNormalizeText(monthRaw) || '').toUpperCase();
-    const month = Number(cfg.monthsPl?.[monthKey]);
-    if (!Number.isInteger(month) || month < 1 || month > 12) return null;
-
-    return { year, month, key: scheduleMonthKey(year, month) };
+    return ensureScheduleService().parseScheduleFileNameYearMonth(fileName);
 }
 
 function isScheduleFileName(fileName) {
-    return Boolean(parseScheduleFileNameYearMonth(fileName));
+    return ensureScheduleService().isScheduleFileName(fileName);
+}
+
+async function parseScheduleSpreadsheet(source, fileName) {
+    return await ensureScheduleService().parseScheduleSpreadsheet(source, fileName);
+}
+
+async function processScheduleFile(fileName) {
+    return await ensureScheduleService().processScheduleFile(fileName);
+}
+
+function invalidateScheduleFile(fileName) {
+    ensureScheduleService().invalidateScheduleFile(fileName);
+}
+
+async function loadScheduleFiles({ fullReload, showProgress } = { fullReload: false, showProgress: false }) {
+    return await ensureScheduleService().loadScheduleFiles({
+        fullReload: Boolean(fullReload),
+        showProgress: Boolean(showProgress),
+        onStatusText: (text) => setLoadingStatusText(text),
+        formatFileName
+    });
+}
+
+function getDriverForRouteOnDate(routeCode, date) {
+    return ensureScheduleService().getDriverNamesForRouteOnDate(routeCode, date);
 }
 
 function normalizeDriverDisplayName(value) {
     const raw = value === null || value === undefined ? '' : String(value);
     return raw.replace(/\s+/g, ' ').trim();
-}
-
-function normalizeScheduleRouteCode(value) {
-    const cfg = getRouteScheduleConfig();
-    const token = cfg.normalizeScheduleToken ? cfg.normalizeScheduleToken(value) : String(value ?? '').trim().toUpperCase();
-    return String(token || '').trim().toUpperCase();
-}
-
-/**
- * Parsuje zawartość komórki grafiku i zwraca kody tras, które należy przypisać do kierowcy.
- * Obsługuje formaty typu:
- * - "2"
- * - "J"
- * - "16/F"
- * - "O/23"
- * - "S - 5"
- * - "N - 2"
- */
-function buildScheduleTokenSets() {
-    const cfg = getRouteScheduleConfig();
-    return {
-        standardSet: new Set((cfg.standard || []).map(s => normalizeScheduleRouteCode(s))),
-        wieczorekSet: new Set((cfg.wieczorek || []).map(s => normalizeScheduleRouteCode(s))),
-        sobotaSet: new Set((cfg.sobota || []).map(s => normalizeScheduleRouteCode(s))),
-        niedzielaSet: new Set((cfg.niedziela || []).map(s => normalizeScheduleRouteCode(s))),
-        markersSet: new Set((cfg.dayMarkers || []).map(s => normalizeScheduleRouteCode(s)))
-    };
-}
-
-function parseScheduleCellToRoutes(cellValue, tokenSets) {
-    const cfg = getRouteScheduleConfig();
-    const raw = cellValue === null || cellValue === undefined ? '' : String(cellValue);
-    const cleaned = raw.trim();
-    if (!cleaned) return [];
-
-    const sets = tokenSets && typeof tokenSets === 'object' ? tokenSets : buildScheduleTokenSets();
-    const standardSet = sets.standardSet;
-    const wieczorekSet = sets.wieczorekSet;
-    const sobotaSet = sets.sobotaSet;
-    const niedzielaSet = sets.niedzielaSet;
-    const markersSet = sets.markersSet;
-
-    const tokens = cleaned
-        .split('/')
-        .map(t => normalizeScheduleRouteCode(t))
-        .map(t => t.replace(/\s+/g, ''))
-        .map(t => t.replace(/[–—]/g, '-'))
-        .map(t => t.replace(/S-?(\d+)/i, 'S-$1'))
-        .map(t => t.replace(/N-?(\d+)/i, 'N-$1'))
-        .filter(Boolean);
-
-    const routes = [];
-    for (const tok of tokens) {
-        if (standardSet.has(tok) || wieczorekSet.has(tok) || sobotaSet.has(tok) || niedzielaSet.has(tok)) {
-            routes.push(tok);
-            continue;
-        }
-        if (/^S-\d+$/i.test(tok) && sobotaSet.has(tok.toUpperCase())) { routes.push(tok.toUpperCase()); continue; }
-        if (/^N-\d+$/i.test(tok) && niedzielaSet.has(tok.toUpperCase())) { routes.push(tok.toUpperCase()); continue; }
-        if (markersSet.has(tok)) continue;
-    }
-
-    return Array.from(new Set(routes));
-}
-
-function findScheduleHeaderRowIndex(matrix) {
-    const rows = Array.isArray(matrix) ? matrix : [];
-    for (let i = 0; i < rows.length; i++) {
-        const row = Array.isArray(rows[i]) ? rows[i] : [];
-        const first = row[0] === null || row[0] === undefined ? '' : String(row[0]);
-        const norm = fuzzyNormalizeText(first);
-        if (norm.includes('imie') && (norm.includes('nazw') || norm.includes('nazwisko'))) return i;
-    }
-    return -1;
-}
-
-function buildScheduleDayColumnMap(headerRow) {
-    const row = Array.isArray(headerRow) ? headerRow : [];
-    const map = new Map();
-    for (let col = 1; col < row.length; col++) {
-        const cell = row[col];
-        const n = Number(String(cell ?? '').trim());
-        if (Number.isInteger(n) && n >= 1 && n <= 31 && !map.has(n)) map.set(n, col);
-    }
-    return map;
-}
-
-function daysInMonth(year, month) {
-    const y = Number(year);
-    const m = Number(month);
-    if (!Number.isInteger(y) || !Number.isInteger(m)) return 31;
-    return new Date(y, m, 0).getDate();
-}
-
-function cacheScheduleAssignments({ year, month, key, fileName, byIsoDate }) {
-    if (!key) return;
-    scheduleCacheByMonth.set(key, { key, year, month, fileName, byIsoDate });
-}
-
-async function parseScheduleSpreadsheet(source, fileName) {
-    const meta = parseScheduleFileNameYearMonth(fileName);
-    if (!meta) throw new Error('Nieprawidłowa nazwa pliku grafiku');
-    const { year, month, key } = meta;
-
-    const workbook = await readWorkbook(source, fileName);
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
-
-    const headerIdx = findScheduleHeaderRowIndex(matrix);
-    if (headerIdx < 0) throw new Error('Nie znaleziono wiersza nagłówka grafiku ("IMIE I NAZWISKO")');
-
-    const headerRow = matrix[headerIdx];
-    const dayToCol = buildScheduleDayColumnMap(headerRow);
-    const maxDays = daysInMonth(year, month);
-    const byIsoDate = new Map();
-    const tokenSets = buildScheduleTokenSets();
-
-    for (let rowIdx = headerIdx + 1; rowIdx < matrix.length; rowIdx++) {
-        const row = Array.isArray(matrix[rowIdx]) ? matrix[rowIdx] : [];
-        const driverName = normalizeDriverDisplayName(row[0]);
-        if (!driverName) continue;
-
-        for (let day = 1; day <= maxDays; day++) {
-            const col = dayToCol.get(day);
-            if (!Number.isInteger(col)) continue;
-            const routes = parseScheduleCellToRoutes(row[col], tokenSets);
-            if (routes.length === 0) continue;
-
-            const iso = isoDateFromParts(year, month, day);
-            if (!iso) continue;
-            if (!byIsoDate.has(iso)) byIsoDate.set(iso, new Map());
-            const byRoute = byIsoDate.get(iso);
-            for (const routeCode of routes) {
-                if (!routeCode) continue;
-                if (!byRoute.has(routeCode)) byRoute.set(routeCode, new Set());
-                const drivers = byRoute.get(routeCode);
-                if (drivers instanceof Set) drivers.add(driverName);
-            }
-        }
-    }
-
-    cacheScheduleAssignments({ year, month, key, fileName: String(fileName || ''), byIsoDate });
-    loadedScheduleFiles.add(String(fileName || '').trim());
-}
-
-async function processScheduleFile(fileName) {
-    const name = String(fileName || '').trim();
-    if (!name) return;
-    const blob = await docsGetBlob(name);
-    if (!blob) throw new Error('Nie można odczytać pliku grafiku z bazy');
-    await parseScheduleSpreadsheet(blob, name);
-}
-
-function getDriverForRouteOnDate(routeCode, date) {
-    const d = date instanceof Date ? date : new Date();
-    const year = d.getFullYear();
-    const month = d.getMonth() + 1;
-    const day = d.getDate();
-    const key = scheduleMonthKey(year, month);
-    if (!key) return null;
-    const cache = scheduleCacheByMonth.get(key);
-    if (!cache || !cache.byIsoDate) return null;
-    const iso = isoDateFromParts(year, month, day);
-    const byRoute = cache.byIsoDate.get(iso);
-    if (!byRoute) return null;
-    const normalized = normalizeScheduleRouteCode(routeCode).replace(/\s+/g, '');
-    const drivers = byRoute.get(normalized);
-    if (!(drivers instanceof Set) || drivers.size === 0) return null;
-    const names = Array.from(drivers).map(normalizeDriverDisplayName).filter(Boolean);
-    names.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-    return names.length > 0 ? names : null;
 }
 
 function buildDriverBadgesHtml(driverNames) {
@@ -1671,10 +1167,6 @@ function buildDriverBadgesHtml(driverNames) {
     }
     return parts.join('');
 }
-
-/**
- * Wyciąga kod trasy z nazwy pliku (np. "TRASA 12 ...xlsx" -> "12", "Trasa N - 1 ..." -> "N-1").
- */
 function extractRouteCodeFromFileName(fileName) {
     const raw = String(fileName || '');
     const match = raw.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
@@ -1688,54 +1180,18 @@ function extractRouteCodeFromFileName(fileName) {
     return normalized;
 }
 
-async function loadScheduleFiles({ fullReload, showProgress } = { fullReload: false, showProgress: false }) {
-    try {
-        const all = await docsListFiles();
-        const scheduleFiles = Array.isArray(all)
-            ? all.map(f => String(f?.name ?? '')).filter(n => isScheduleFileName(n))
-            : [];
-        if (scheduleFiles.length === 0) return;
-
-        if (fullReload) {
-            scheduleCacheByMonth = new Map();
-            loadedScheduleFiles = new Set();
-        }
-
-        for (const name of scheduleFiles) {
-            if (!fullReload && loadedScheduleFiles.has(name)) continue;
-            try {
-                if (showProgress) setLoadingStatusText(`Wczytuję grafik: ${formatFileName(name)}`);
-                await processScheduleFile(name);
-            } catch (err) {
-                logAction('schedule', { fileName: name, message: err?.message ? String(err.message) : 'Błąd grafiku' }, 'WARN');
-            }
-        }
-    } catch (err) {
-        logAction('schedule', { phase: 'load_failed', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
-    }
-}
-
 /**
  * Odczytuje skoroszyt z różnych źródeł danych.
  */
 async function readWorkbook(source, fileName) {
-    const lower = String(fileName || '').toLowerCase();
-    if (lower.endsWith('.csv')) {
-        const csvContent = typeof source === 'string' ? source : (source && typeof source.text === 'function' ? await source.text() : '');
-        return XLSX.read(csvContent, { type: 'string' });
-    }
-    const buffer = await getArrayBufferFromSource(source);
-    return XLSX.read(buffer);
+    return await qeGetExcelProcessor().readWorkbook(source, fileName);
 }
 
 /**
  * Konwertuje źródło danych na ArrayBuffer.
  */
 async function getArrayBufferFromSource(source) {
-    if (source instanceof ArrayBuffer) return source;
-    if (ArrayBuffer.isView(source)) return source.buffer.slice(source.byteOffset, source.byteOffset + source.byteLength);
-    if (source && typeof source.arrayBuffer === 'function') return await source.arrayBuffer();
-    throw new Error('Nieprawidłowe dane wejściowe do parsowania');
+    return await qeGetExcelProcessor().getArrayBufferFromSource(source);
 }
 
 /**
@@ -1750,7 +1206,7 @@ async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
     removeFileData(safeName);
     loadedFiles.delete(safeName);
     if (isScheduleFileName(safeName)) {
-        loadedScheduleFiles.delete(safeName);
+        invalidateScheduleFile(safeName);
         await parseScheduleSpreadsheet(arrayBuffer, safeName);
     } else {
         await parseSpreadsheet(arrayBuffer, safeName);
@@ -1762,53 +1218,27 @@ async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
  * Obsługuje import plików z dysku lokalnego.
  */
 async function handleImportFiles(files) {
-    const list = Array.isArray(files) ? files : [];
-    if (list.length === 0) return;
-    const { accepted, rejected } = filterImportFiles(list);
-    rejected.forEach(r => logAction('import', { fileName: r.name, reason: r.reason }, 'WARN'));
-    if (accepted.length === 0) return;
-    const toImport = await resolveImportConflicts(accepted);
-    if (toImport.length === 0) return;
-    setImportLoadingState(true, toImport.length);
-    const summary = { files: [], records: 0, errors: rejected.length };
-    try {
-        const before = allData.length;
-        await processImportFiles(toImport, summary);
-        finalizeFileImport(summary, before);
-    } finally {
-        setImportLoadingState(false);
-    }
-}
-
-/**
- * Przetwarza importowane pliki.
- */
-async function processImportFiles(accepted, summary) {
-    let processed = 0;
-    for (const file of accepted) {
-        const name = String(file.name || '').trim();
-        if (!name) continue;
-        setUploadStatusText(`Importuję: ${formatFileName(name)}`);
-        if (uploadProgress) uploadProgress.value = Math.max(0, Math.min(95, (processed / accepted.length) * 100));
-        try {
-            await docsPutBlob(name, file);
-            removeFileData(name);
-            if (isScheduleFileName(name)) {
-                loadedScheduleFiles.delete(name);
-                await processScheduleFile(name);
-            } else {
-                loadedFiles.delete(name);
-                await processFile(name);
-                loadedFiles.add(name);
-            }
-            summary.files.push(name);
-        } catch (err) {
-            summary.errors += 1;
-            logAction('import', { fileName: name, message: err.message }, 'ERROR');
-        } finally {
-            processed += 1;
-        }
-    }
+    const before = allData.length;
+    const summary = await importLocalFiles(files, {
+        maxImportBytes: MAX_IMPORT_BYTES,
+        fileExists: docsFileExists,
+        resolveConflicts: resolveImportConflicts,
+        onRejected: (r) => logAction('import', { fileName: r?.name, reason: r?.reason }, 'WARN'),
+        onLoadingState: setImportLoadingState,
+        onStatusText: (text) => setUploadStatusText(text),
+        onProgress: (value) => { if (uploadProgress) uploadProgress.value = Number(value) || 0; },
+        putBlob: docsPutBlob,
+        removeFileData,
+        isScheduleFileName,
+        invalidateScheduleFile,
+        loadedFiles,
+        processScheduleFile,
+        processFile,
+        formatFileName,
+        onFileError: ({ fileName, error }) => logAction('import', { fileName, message: error?.message }, 'ERROR')
+    });
+    if (!summary) return;
+    finalizeFileImport(summary, before);
 }
 
 /**
@@ -1921,7 +1351,7 @@ function qeTeardownDriveChangesModal() {
 }
 
 function qeInitDriveChangesModal({ files, token } = {}) {
-    const api = window.GoogleDriveImport;
+    const api = qeGetDriveService();
     const list = Array.isArray(files) ? files : [];
     const accessToken = String(token || '').trim();
     if (!modalOverlay || !api || !accessToken) return;
@@ -2566,11 +1996,7 @@ function qeRenderUnifiedRecordDiffHtml(result, { contextLines } = {}) {
 }
 
 async function qeParseTableModelFromSource(source, fileName) {
-    const workbook = await readWorkbook(source, fileName);
-    const firstSheetName = workbook.SheetNames[0];
-    const worksheet = workbook.Sheets[firstSheetName];
-    const matrix = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: true, defval: '' });
-    return buildTableModel(matrix);
+    return await qeGetExcelProcessor().parseTableModelFromSource(source, fileName);
 }
 
 function qeTableModelToDiffLines(model, { maxLines } = {}) {
@@ -2887,7 +2313,7 @@ function buildDriveNoChangesModalHtml() {
  * Rozpoczyna synchronizację z Google Drive dla wskazanego folderu.
  */
 async function startGoogleDriveSync(files, token, { source } = {}) {
-    const api = window.GoogleDriveImport;
+    const api = qeGetDriveService();
     const list = Array.isArray(files) ? files : [];
     if (!api) throw new Error('Moduł Google Drive jest niedostępny');
     if (list.length === 0) return;
@@ -2916,7 +2342,7 @@ async function startGoogleDriveSync(files, token, { source } = {}) {
             const id = String(file?.id || '').trim();
             if (!name || !id) continue;
 
-            const progressItem = isWelcomeVisible ? createWelcomeProgressItem(name) : null;
+            const progressItem = isWelcomeVisible ? ensureWelcomeProgressRenderer().createItem(name) : null;
             if (progressItem && welcomeProgressList) {
                 welcomeProgressList.appendChild(progressItem);
                 progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -2940,7 +2366,7 @@ async function startGoogleDriveSync(files, token, { source } = {}) {
                 await docsPutBlob(name, blob, { driveModifiedAt: file?.driveModifiedAt ?? null });
                 removeFileData(name);
                 if (isScheduleFileName(name)) {
-                    loadedScheduleFiles.delete(name);
+                    invalidateScheduleFile(name);
                     await processScheduleFile(name);
                 } else {
                     loadedFiles.delete(name);
@@ -2948,11 +2374,17 @@ async function startGoogleDriveSync(files, token, { source } = {}) {
                     loadedFiles.add(name);
                 }
                 summary.files.push(name);
-                if (progressItem) updateWelcomeProgressItem(progressItem, 100, 'Gotowe');
+                if (progressItem) {
+                    const defer = Boolean(welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done');
+                    ensureWelcomeProgressRenderer().updateItem(progressItem, 100, 'Gotowe', { defer });
+                }
             } catch (err) {
                 summary.errors += 1;
                 logAction('sync', { fileName: name, message: err?.message ? String(err.message) : 'Błąd' }, 'ERROR');
-                if (progressItem) updateWelcomeProgressItem(progressItem, 0, 'Błąd', true);
+                if (progressItem) {
+                    const defer = Boolean(welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done');
+                    ensureWelcomeProgressRenderer().updateItem(progressItem, 0, 'Błąd', { isError: true, defer });
+                }
             } finally {
                 processed += 1;
                 const nextPercent = list.length > 0 ? (processed / list.length) * 100 : 100;
@@ -2991,7 +2423,7 @@ async function startGoogleDriveSync(files, token, { source } = {}) {
  */
 async function handleGoogleDriveSync({ source } = {}) {
     const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
-    const api = window.GoogleDriveImport;
+    const api = qeGetDriveService();
     if (!api) {
         showModal('Google Drive', 'Synchronizacja jest niedostępna (brak modułu Google Drive).');
         return;
@@ -3122,18 +2554,7 @@ async function handleGoogleDriveSync({ source } = {}) {
  * Buduje model tabeli z surowej macierzy danych.
  */
 function buildTableModel(matrix) {
-    const rect = normalizeMatrix(matrix);
-    const bounds = computeNonEmptyBounds(rect);
-    if (!bounds) return { headers: [], rows: [], metaLines: [], isCompleteStructure: false };
-    const cropped = rect.slice(bounds.minRow, bounds.maxRow + 1).map(row => row.slice(bounds.minCol, bounds.maxCol + 1));
-    const headerRowRel = findHeaderRowIndex(cropped);
-    const rawHeaders = cropped[headerRowRel].map(cellToHeaderText);
-    const headerMap = mapRequiredHeaders(rawHeaders);
-    const isCompleteStructure = Object.keys(headerMap).length === 5;
-    const metaLines = extractMetaLines(cropped, headerRowRel);
-    const dataRelRows = cropped.slice(headerRowRel + 1);
-    const rawDataRows = processDataRows(dataRelRows, headerMap, bounds.minRow + headerRowRel + 1);
-    return { headers: rawHeaders, rows: rawDataRows, metaLines, isCompleteStructure, headerMap };
+    return qeGetExcelProcessor().buildTableModel(matrix);
 }
 
 /**
@@ -3188,13 +2609,7 @@ function processDataRows(dataRelRows, headerMap, startRowIndex) {
  * Normalizuje macierz danych do prostokąta.
  */
 function normalizeMatrix(matrix) {
-    const safe = Array.isArray(matrix) ? matrix : [];
-    const maxCols = safe.reduce((m, row) => Math.max(m, Array.isArray(row) ? row.length : 0), 0);
-    return safe.map((row) => {
-        const r = Array.isArray(row) ? row.slice() : [];
-        while (r.length < maxCols) r.push('');
-        return r;
-    });
+    return qeGetExcelProcessor().normalizeMatrix(matrix);
 }
 
 /**
@@ -3308,56 +2723,33 @@ async function performSearch(query) {
  * Realizuje niskopoziomowe wyszukiwanie w danych.
  */
 async function executeSearch(query) {
-    if (searchCache.has(query)) return searchCache.get(query);
-    const lowerQuery = normalizeText(query);
-    const fuzzyQuery = fuzzyNormalizeText(query);
-    const filtered = allData.filter(item => matchItem(item, lowerQuery, fuzzyQuery));
-    const grouped = groupSearchResults(filtered);
-    updateSearchCache(query, grouped);
-    return grouped;
+    return await qeGetSearchEngine().executeSearch({
+        query,
+        allData,
+        searchCache,
+        getRouteCategoriesFromFileName
+    });
 }
 
 /**
  * Sprawdza, czy element danych pasuje do zapytania.
  */
 function matchItem(item, lowerQuery, fuzzyQuery) {
-    const matches = item.searchable.includes(lowerQuery) || item.searchableFuzzy.includes(fuzzyQuery);
-    if (!matches) return false;
-
-    const fileName = String(item?.fileName ?? '');
-    if (normalizeText(fileName).includes(lowerQuery) || fuzzyNormalizeText(fileName).includes(fuzzyQuery)) return true;
-
-    if (item.isComplete) {
-        const h = item.headerMap;
-        if (!h) return true;
-        return item.cells.some((cell, idx) => {
-            if (idx === h.NR_POL || idx === h.UWAGI) return false;
-            const cellText = String(cell ?? '');
-            return normalizeText(cellText).includes(lowerQuery) || fuzzyNormalizeText(cellText).includes(fuzzyQuery);
-        });
-    }
-    return true;
+    return qeGetSearchEngine().matchItem(item, lowerQuery, fuzzyQuery);
 }
 
 /**
  * Grupuje wyniki wyszukiwania według nazw plików.
  */
 function groupSearchResults(filtered) {
-    const groups = new Map();
-    for (const item of filtered) {
-        if (!groups.has(item.fileName)) {
-            groups.set(item.fileName, { fileName: item.fileName, isComplete: item.isComplete, items: [], categories: getRouteCategoriesFromFileName(item.fileName) });
-        }
-        groups.get(item.fileName).items.push(item);
-    }
-    return Array.from(groups.values());
+    return qeGetSearchEngine().groupSearchResults(filtered, { getRouteCategoriesFromFileName });
 }
 
 /**
  * Aktualizuje cache wyników wyszukiwania.
  */
 function updateSearchCache(query, results) {
-    searchCache.set(query, results);
+    qeGetSearchEngine().updateSearchCache(searchCache, query, results);
 }
 
 //////////////////////////////////////////////////
@@ -3368,88 +2760,42 @@ function updateSearchCache(query, results) {
  * Sprawdza, czy wiersz pasuje do reguł "laboratorium".
  */
 function rowMatchesKeyLab(text) {
-    const normalized = fuzzyNormalizeText(text).replace(/[^a-z0-9]+/g, ' ').trim();
-    if (!normalized) return false;
-    const tokens = normalized.split(/\s+/g).filter(Boolean);
-    if (tokens.length === 0) return false;
-    const tokenSet = new Set(tokens);
-    for (let i = 0; i < tokens.length - 1; i++) {
-        if (tokens[i].length === 1 && tokens[i + 1].length === 1) tokenSet.add(tokens[i] + tokens[i + 1]);
-    }
-    if (!Array.isArray(compiledKeyLabTokenSets) || compiledKeyLabTokenSets.length === 0) compileKeyLabTokenSets();
-    for (const requiredTokens of compiledKeyLabTokenSets) {
-        let ok = true;
-        for (const token of requiredTokens) {
-            if (!tokenSet.has(token)) { ok = false; break; }
-        }
-        if (ok) return true;
-    }
-    return false;
+    return qeGetSearchEngine().rowMatchesKeyLab(text, compiledKeyLabTokenSets);
 }
 
 /**
  * Kompiluje zestawy tokenów dla laboratoriów.
  */
 function compileKeyLabTokenSets() {
-    const compiled = [];
-    for (const entry of KEY_LAB_TOKEN_SETS) {
-        const phrase = Array.isArray(entry) ? entry.join(' ') : String(entry ?? '');
-        const normalized = fuzzyNormalizeText(phrase).replace(/[^a-z0-9]+/g, ' ').trim();
-        if (!normalized) continue;
-        const tokens = normalized.split(/\s+/g).filter(Boolean);
-        const collapsed = [];
-        for (let i = 0; i < tokens.length; i++) {
-            if (tokens[i] && tokens[i + 1] && tokens[i].length === 1 && tokens[i + 1].length === 1) {
-                collapsed.push(tokens[i] + tokens[i + 1]); i += 1; continue;
-            }
-            collapsed.push(tokens[i]);
-        }
-        const unique = Array.from(new Set(collapsed.filter(Boolean)));
-        if (unique.length > 0) compiled.push(unique);
-    }
+    const compiled = qeGetSearchEngine().compileKeyLabTokenSets(qeGetSearchEngine().KEY_LAB_TOKEN_SETS);
     compiledKeyLabTokenSets = compiled;
+    if (appState?.search) appState.search.compiledKeyLabTokenSets = compiled;
 }
 
 /**
  * Rozwiązuje konflikty nazw plików przed importem.
  */
-async function resolveImportConflicts(files) {
-    const conflicts = [];
-    for (const f of files) { if (await docsFileExists(f.name)) conflicts.push(f); }
-    if (conflicts.length === 0) return files;
+async function resolveImportConflicts({ files, conflicts } = {}) {
+    const list = Array.isArray(files) ? files : [];
+    const detected = Array.isArray(conflicts) ? conflicts : [];
+    if (detected.length === 0) return list;
     return new Promise((resolve) => {
-        if (files.length === 1) {
-            showModal('Konflikt nazw', `Plik o nazwie <strong>${escapeHtml(files[0].name)}</strong> już istnieje. Czy chcesz go nadpisać?`, [
-                { label: `Nadpisz tylko ${files[0].name}`, class: 'modal-btn--primary', onClick: () => resolve(files) },
+        if (list.length === 1) {
+            showModal('Konflikt nazw', `Plik o nazwie <strong>${escapeHtml(list[0].name)}</strong> już istnieje. Czy chcesz go nadpisać?`, [
+                { label: `Nadpisz tylko ${list[0].name}`, class: 'modal-btn--primary', onClick: () => resolve(list) },
                 { label: 'Anuluj', onClick: () => resolve([]) }
             ]);
         } else {
-            showModal('Konflikty nazw', `Wykryto ${conflicts.length} plików, które już istnieją w bazie. Wybierz akcję dla importu zbiorczego.`, [
-                { label: 'Nadpisz wszystkie', class: 'modal-btn--danger', onClick: () => resolve(files) },
+            showModal('Konflikty nazw', `Wykryto ${detected.length} plików, które już istnieją w bazie. Wybierz akcję dla importu zbiorczego.`, [
+                { label: 'Nadpisz wszystkie', class: 'modal-btn--danger', onClick: () => resolve(list) },
                 { label: 'Pomiń istniejące', class: 'modal-btn--primary', onClick: () => {
-                    const conflictNames = new Set(conflicts.map(c => c.name));
-                    resolve(files.filter(f => !conflictNames.has(f.name)));
+                    const conflictNames = new Set(detected.map(c => c.name));
+                    resolve(list.filter(f => !conflictNames.has(f.name)));
                 }},
                 { label: 'Anuluj', onClick: () => resolve([]) }
             ]);
         }
     });
-}
-
-/**
- * Filtruje pliki przeznaczone do importu.
- */
-function filterImportFiles(files) {
-    const accepted = [], rejected = [];
-    for (const f of files) {
-        const name = String(f?.name || ''), lower = name.toLowerCase();
-        const okExt = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
-        const okSize = Number(f?.size || 0) <= MAX_IMPORT_BYTES;
-        if (!okExt) rejected.push({ name, reason: 'extension' });
-        else if (!okSize) rejected.push({ name, reason: 'size' });
-        else accepted.push(f);
-    }
-    return { accepted, rejected };
 }
 
 /**
@@ -3480,28 +2826,21 @@ function resetAppData() {
  */
 async function renderResults(query, { append = false, startIndex = 0 } = {}) {
     const reduceMotion = prefersReducedMotion();
-
-    if (!append && resultsList.children.length > 0 && !reduceMotion) {
-        // Jeśli nie dopisujemy wyników i mamy już coś na liście, robimy płynne wyjście
-        resultsList.classList.add('qe-results-exiting');
-        
-        // Czekamy na koniec animacji (180ms w CSS + margines bezpieczeństwa)
-        await new Promise(resolve => setTimeout(resolve, 160));
-        
-        resultsList.classList.remove('qe-results-exiting');
-        clearElement(resultsList);
-    } else if (!append) {
-        // Standardowe czyszczenie dla reduced motion lub pustej listy
-        clearElement(resultsList);
-    }
+    await prepareResultsListDom(resultsList, { append, reduceMotion, exitClass: 'qe-results-exiting', exitDelayMs: 160 });
 
     if (currentResults.length === 0) {
-        handleNoResultsToRender(); window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); }); return;
+        handleNoResultsToRender();
+        window.requestAnimationFrame(() => {
+            const ctrl = ensureScrollIndicatorController();
+            ctrl.syncResultsEndIntersectionObserver();
+            ctrl.update();
+        });
+        return;
     }
     updateResultsCountInfo();
 
     const shouldAnimateEnter = !reduceMotion;
-    const sections = ensureRouteCategorySections({ animate: shouldAnimateEnter && !append });
+    const sections = ensureResultsCategoryController().ensureSections({ animate: shouldAnimateEnter && !append });
     let enterOrdinal = 0;
     const maxEnterAnimations = append ? 18 : 42;
     const fragmentByCategory = new Map();
@@ -3516,7 +2855,7 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
             if (!fragmentByCategory.has(category)) continue;
             const animateIn = shouldAnimateEnter && enterOrdinal < maxEnterAnimations;
             const enterDelayMs = animateIn ? Math.min(enterOrdinal, 12) * 24 : 0;
-            const el = createResultGroupElement(group, index, query, animateIn ? { animateIn: true, enterDelayMs } : undefined);
+            const el = ensureResultsRenderer().createGroupElement(group, index, query, animateIn ? { animateIn: true, enterDelayMs } : undefined);
             if (animateIn) enterOrdinal += 1;
             fragmentByCategory.get(category).appendChild(el);
         }
@@ -3528,264 +2867,35 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
         (section.inner || section.body).appendChild(fragmentByCategory.get(category));
     }
 
-    updateRouteCategorySectionCounts(sections);
-    syncRouteCategorySectionHeights(sections);
-    window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
-}
-
-function ensureResultsCategoryBodyInner(body) {
-    if (!body || !(body instanceof HTMLElement)) return null;
-    const existing = body.querySelector('.results-category-body-inner');
-    if (existing && existing.parentElement === body) return existing;
-
-    const inner = document.createElement('div');
-    inner.className = 'results-category-body-inner';
-    while (body.firstChild) inner.appendChild(body.firstChild);
-    body.appendChild(inner);
-    return inner;
+    ensureResultsCategoryController().updateCounts(sections, currentResults);
+    ensureResultsCategoryController().syncHeights(sections);
+    window.requestAnimationFrame(() => {
+        const ctrl = ensureScrollIndicatorController();
+        ctrl.syncResultsEndIntersectionObserver();
+        ctrl.update();
+    });
 }
 
 function syncRouteCategorySectionHeights(sections) {
-    if (!resultsList) return;
-
-    const entries = [];
-    if (sections instanceof Map) {
-        for (const entry of sections.values()) {
-            if (!entry || !entry.section || !entry.body) continue;
-            const body = entry.body;
-            const inner = entry.inner || ensureResultsCategoryBodyInner(body);
-            if (!inner) continue;
-            entries.push({ section: entry.section, body, inner });
-        }
-    } else {
-        const sectionEls = resultsList.querySelectorAll('.results-category');
-        for (const section of sectionEls) {
-            if (!(section instanceof HTMLElement)) continue;
-            const body = section.querySelector('.results-category-body');
-            if (!body || !(body instanceof HTMLElement)) continue;
-            const inner = ensureResultsCategoryBodyInner(body);
-            if (!inner) continue;
-            entries.push({ section, body, inner });
-        }
-    }
-
-    for (const entry of entries) {
-        if (entry.section.classList.contains('hidden')) continue;
-        const style = window.getComputedStyle(entry.section);
-        if (style.display === 'none' || style.visibility === 'hidden') continue;
-
-        if (entry.section.classList.contains('is-collapsed')) {
-            entry.body.style.setProperty('--qe-results-category-max', '0px');
-            continue;
-        }
-
-        const height = entry.inner.scrollHeight;
-        entry.body.style.setProperty('--qe-results-category-max', `${height}px`);
-    }
+    ensureResultsCategoryController().syncHeights(sections);
 }
 
 function ensureRouteCategorySections({ animate = false } = {}) {
-    const map = new Map();
-    const shouldRebuild = ROUTE_CATEGORIES_ORDER.some((c) => !resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(c)}"]`));
-    if (shouldRebuild) clearElement(resultsList);
-
-    let sectionOrdinal = 0;
-    for (const category of ROUTE_CATEGORIES_ORDER) {
-        let section = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(category)}"]`);
-        
-        if (!section) {
-            section = document.createElement('section');
-            section.className = 'results-category';
-            section.dataset.category = category;
-
-            const button = document.createElement('button');
-            button.type = 'button';
-            button.className = 'results-category-toggle';
-            button.dataset.category = category;
-
-            const title = document.createElement('span');
-            title.className = 'results-category-title';
-            title.textContent = category;
-
-            const count = document.createElement('span');
-            count.className = 'results-category-count';
-            count.textContent = '0';
-
-            button.appendChild(title);
-            button.appendChild(count);
-
-            const body = document.createElement('div');
-            body.className = 'results-category-body';
-            const inner = document.createElement('div');
-            inner.className = 'results-category-body-inner';
-            body.appendChild(inner);
-
-            const collapsed = isRouteCategoryCollapsed(category);
-            section.classList.toggle('is-collapsed', collapsed);
-            button.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-
-            section.appendChild(button);
-            section.appendChild(body);
-            resultsList.appendChild(section);
-        }
-
-        // Dodajemy klasy animacji jeśli wymagane
-        if (animate) {
-            const collapsed = isRouteCategoryCollapsed(category);
-            section.classList.remove('qe-section-enter', 'qe-enter-left', 'qe-enter-right', 'qe-enter-center');
-            
-            // Wymuszamy reflow aby zresetować animację jeśli sekcja już istniała
-            void section.offsetWidth; 
-            
-            section.classList.add('qe-section-enter');
-            if (collapsed) {
-                // Naprzemienny wjazd dla zwiniętych
-                const directionClass = (sectionOrdinal % 2 === 0) ? 'qe-enter-left' : 'qe-enter-right';
-                section.classList.add(directionClass);
-            } else {
-                // Subtelne pojawienie się w centrum dla rozwiniętych
-                section.classList.add('qe-enter-center');
-            }
-            section.style.setProperty('--qe-section-delay', `${sectionOrdinal * 60}ms`);
-            sectionOrdinal++;
-        }
-
-        const btn = section.querySelector('.results-category-toggle');
-        const count = section.querySelector('.results-category-count');
-        const body = section.querySelector('.results-category-body');
-        const inner = ensureResultsCategoryBodyInner(body);
-        map.set(category, { section, button: btn, count, body, inner });
-    }
-
-    return map;
+    return ensureResultsCategoryController().ensureSections({ animate });
 }
 
 function updateRouteCategorySectionCounts(sections) {
-    const counts = new Map();
-    for (const category of ROUTE_CATEGORIES_ORDER) counts.set(category, 0);
-
-    for (const group of currentResults) {
-        const cats = Array.isArray(group?.categories) && group.categories.length > 0 ? group.categories : ['STANDARD'];
-        const uniqueCats = Array.from(new Set(cats.map(c => String(c || '').trim()).filter(Boolean)));
-        const targetCats = uniqueCats.length > 0 ? uniqueCats : ['STANDARD'];
-        for (const category of targetCats) {
-            if (!counts.has(category)) continue;
-            counts.set(category, counts.get(category) + 1);
-        }
-    }
-
-    for (const category of ROUTE_CATEGORIES_ORDER) {
-        const section = sections.get(category);
-        if (!section) continue;
-        const value = counts.get(category) || 0;
-        section.count.textContent = String(value);
-        section.section.classList.toggle('hidden', value === 0);
-    }
+    ensureResultsCategoryController().updateCounts(sections, currentResults);
 }
 
 function toggleRouteCategorySection(category) {
-    const cat = String(category || '').trim();
-    if (!cat) return;
-    const section = resultsList.querySelector(`.results-category[data-category="${cssEscapeAttrValue(cat)}"]`);
-    if (!section) return;
-    const button = section.querySelector('.results-category-toggle');
-    const body = section.querySelector('.results-category-body');
-    const inner = body ? ensureResultsCategoryBodyInner(body) : null;
-    const wasCollapsed = section.classList.contains('is-collapsed');
-    const reduceMotion = prefersReducedMotion();
-
-    if (!body || !inner || reduceMotion) {
-        const isCollapsed = section.classList.toggle('is-collapsed');
-        if (button) button.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
-        storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, isCollapsed ? '1' : '0');
-        syncRouteCategorySectionHeights();
-        window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
-        return;
-    }
-
-    if (wasCollapsed) {
-        body.style.setProperty('--qe-results-category-max', '0px');
-        section.classList.remove('is-collapsed');
-        if (button) button.setAttribute('aria-expanded', 'true');
-        storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, '0');
-        window.requestAnimationFrame(() => {
-            const height = inner.scrollHeight;
-            body.style.setProperty('--qe-results-category-max', `${height}px`);
-            window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
-        });
-        return;
-    }
-
-    const height = inner.scrollHeight;
-    body.style.setProperty('--qe-results-category-max', `${height}px`);
-    if (button) button.setAttribute('aria-expanded', 'false');
-    storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, '1');
-    window.requestAnimationFrame(() => {
-        section.classList.add('is-collapsed');
-        window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
-    });
+    ensureResultsCategoryController().toggleCategory(category);
 }
 
 function isRouteCategoryCollapsed(category) {
     const cat = String(category || '').trim();
     if (!cat) return false;
     return storageGet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`) === '1';
-}
-
-function cssEscapeAttrValue(value) {
-    const v = String(value ?? '');
-    if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') return CSS.escape(v);
-    return v.replace(/["\\\]]/g, '\\$&');
-}
-
-/**
- * Tworzy element grupy wyników (plik/trasa).
- */
-function createResultGroupElement(group, index, query, { animateIn = false, enterDelayMs = 0 } = {}) {
-    const routeName = formatRouteNameForResults(group.fileName);
-    const routeCode = extractRouteCodeFromFileName(group.fileName);
-    const driverNames = routeCode ? getDriverForRouteOnDate(routeCode, new Date()) : null;
-    const driverBadgesHtml = buildDriverBadgesHtml(driverNames);
-    const driverHtml = driverBadgesHtml ? `<span class="result-driver" aria-label="Kierowcy z grafiku">— ${driverBadgesHtml}</span>` : '';
-    const groupDiv = document.createElement('div');
-    
-    // Określamy kierunek animacji na podstawie indeksu (parzyste z lewej, nieparzyste z prawej)
-    const directionClass = (index % 2 === 0) ? 'qe-enter-left' : 'qe-enter-right';
-    groupDiv.className = animateIn ? `result-group qe-result-enter ${directionClass}` : 'result-group';
-    
-    groupDiv.dataset.index = index;
-    if (animateIn && Number.isFinite(enterDelayMs) && enterDelayMs > 0) groupDiv.style.setProperty('--qe-enter-delay', `${enterDelayMs}ms`);
-    const rowsHtml = group.items.map(item => {
-        const isLab = item.isComplete ? rowMatchesKeyLab(item.cells.join(' ')) : false;
-        const rowClass = isLab ? 'result-row result-row--lab' : 'result-row';
-        return `<div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
-            <div class="result-content">${buildResultSummaryHtml(item, query, { isLab })}</div>
-        </div>`;
-    }).join('');
-    setElementHtml(groupDiv, `<div class="result-group-header"><span class="result-filename"><span class="result-route-name">${routeName}</span>${driverHtml}</span></div><div class="result-group-body">${rowsHtml}</div>`);
-    return groupDiv;
-}
-
-/**
- * Buduje kod HTML dla podglądu wiersza w wynikach.
- */
-function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
-    if (result.isComplete) {
-        const parts = result.displayText.split('|').map(s => s.trim());
-        const time = parts[0] || '—', address = parts[1] || '';
-        let facility = parts[2] || '';
-        if (isLab) facility = toTitleCase(facility);
-        const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
-        return [
-            `<span class="result-col result-time">${highlightText(time, query)}</span>`,
-            `<span class="result-col result-address">${highlightText(address, query)}</span>`,
-            `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
-        ].join('');
-    }
-    return result.cells.filter(c => !isEmptyCell(c)).map(c => {
-        let text = String(c); if (isLab) text = toTitleCase(text);
-        return `<span class="result-cell-fragment">${highlightText(text, query)}</span>`;
-    }).join('');
 }
 
 /**
@@ -3799,118 +2909,130 @@ function showFilePreview(fileName, highlightRowIndex, options = { skipPush: fals
         catch (e) { logAction('navigation', { error: 'pushState preview failed', msg: e.message }, 'WARN'); }
     }
     lastPreviewState = { fileName, rowIndex: highlightRowIndex };
-    togglePreviewView(true, fileName, tableModel.metaLines);
-    const thead = document.getElementById('table-header'), tbody = document.getElementById('table-body');
-    clearElement(thead); clearElement(tbody);
-    renderPreviewHeader(thead, tableModel.headers);
-    const highlightedRowEl = renderPreviewBody(tbody, tableModel, highlightRowIndex);
+    const highlightedRowEl = ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex });
     if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
     queuePreviewReadyEvent(fileName);
     logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
-    window.requestAnimationFrame(() => updateScrollIndicator());
-}
-
-/**
- * Renderuje nagłówek podglądu tabeli.
- */
-function renderPreviewHeader(thead, headers) {
-    headers.forEach(h => { const th = document.createElement('th'); th.textContent = h || ''; thead.appendChild(th); });
-}
-
-/**
- * Renderuje treść podglądu tabeli.
- */
-function renderPreviewBody(tbody, tableModel, highlightRowIndex) {
-    let highlightedRowEl = null;
-    tableModel.rows.forEach((rowObj) => {
-        const tr = document.createElement('tr');
-        if (rowObj.originalRowIndex === highlightRowIndex) { tr.classList.add('highlighted-row'); highlightedRowEl = tr; }
-        rowObj.cells.forEach((cell, cellIdx) => {
-            const td = document.createElement('td'); td.textContent = (cell === null || cell === undefined) ? '' : String(cell);
-            if (tableModel.headers[cellIdx]) {
-                const h = normalizeText(String(tableModel.headers[cellIdx]));
-                if (h.includes('nazwa') || h.includes('placowk')) td.classList.add('facility-column');
-            }
-            tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-    });
-    return highlightedRowEl;
+    window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
 }
 
 /**
  * Aktualizuje informację o liczbie znalezionych wyników.
  */
 function updateResultsCountInfo() {
-    resultsInfo.innerHTML = `Trasy: ${matchedResults.length} / ${loadedFiles.size}`;
-}
-
-/**
- * Aktualizuje metadane w widoku podglądu.
- */
-function updatePreviewMeta(metaLines) {
-    if (!previewMeta) return;
-    const lines = Array.isArray(metaLines) ? metaLines : [];
-    if (lines.length > 0) { previewMeta.textContent = lines.join('\n'); previewMeta.classList.remove('hidden'); }
-    else { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
-}
-
-function renderPreviewFileNameWithCategory(fileName) {
-    const el = document.getElementById('preview-filename');
-    if (!el) return;
-    el.replaceChildren();
-    const title = document.createElement('span');
-    title.className = 'preview-filename-title';
-    title.textContent = formatFileName(fileName);
-    el.appendChild(title);
-
-    const categories = getRouteCategoriesFromFileName(fileName);
-    const uniqueCats = Array.from(new Set((Array.isArray(categories) ? categories : []).map(c => String(c || '').trim()).filter(Boolean)));
-    for (const cat of uniqueCats) {
-        const badge = document.createElement('span');
-        badge.className = 'route-category-badge';
-        badge.dataset.routeCategory = cat;
-        badge.textContent = cat;
-        el.appendChild(badge);
-    }
-}
-
-/**
- * Przełącza między widokiem wyszukiwania a podglądem.
- */
-function togglePreviewView(show, fileName, metaLines) {
-    if (show) {
-        searchView.classList.add('view-hidden'); filePreviewView.classList.remove('view-hidden');
-        renderPreviewFileNameWithCategory(fileName); updatePreviewMeta(metaLines);
-    } else {
-        filePreviewView.classList.add('view-hidden'); searchView.classList.remove('view-hidden');
-    }
+    updateResultsCountInfoDom(resultsInfo, { matchedCount: matchedResults.length, loadedFileCount: loadedFiles.size });
 }
 
 /**
  * Wyświetla systemowy modal z opcjami.
  */
 function showModal(title, content, actions = []) {
-    if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
-    const { html, hasDrive } = qeBuildModalTitleHtml(title);
-    modalTitle.innerHTML = html;
-    modalTitle.classList.toggle('qe-modal-title--gdrive', Boolean(hasDrive));
-    setElementHtml(modalContent, content);
-    clearElement(modalActions);
-    actions.forEach(action => {
-        const btn = document.createElement('button'); btn.className = `modal-btn ${action.class || ''}`; btn.textContent = action.label;
-        btn.onclick = () => { hideModal(); if (typeof action.onClick === 'function') action.onClick(); };
-        modalActions.appendChild(btn);
-    });
-    modalOverlay.classList.remove('hidden'); modalOverlay.setAttribute('aria-hidden', 'false');
+    ensureModalController().show(title, content, actions);
 }
 
 /**
  * Ukrywa aktualnie wyświetlany modal.
  */
 function hideModal() {
-    qeTeardownDriveChangesModal();
-    if (!modalOverlay) return; modalOverlay.classList.add('hidden'); modalOverlay.setAttribute('aria-hidden', 'true');
+    ensureModalController().hide();
+}
+
+function ensureModalController() {
+    if (modalController) return modalController;
+    modalController = createModalController({
+        modalOverlay,
+        modalTitle,
+        modalContent,
+        modalActions,
+        buildTitleHtml: qeBuildModalTitleHtml,
+        setElementHtml,
+        clearElement,
+        onBeforeHide: qeTeardownDriveChangesModal
+    });
+    return modalController;
+}
+
+function ensurePreviewController() {
+    if (previewController) return previewController;
+    previewController = createPreviewController({
+        searchView,
+        filePreviewView,
+        previewMeta,
+        previewFileName: document.getElementById('preview-filename'),
+        tableHeader: document.getElementById('table-header'),
+        tableBody: document.getElementById('table-body'),
+        formatFileName,
+        getRouteCategoriesFromFileName
+    });
+    return previewController;
+}
+
+function ensureResultsCategoryController() {
+    if (resultsCategoryController) return resultsCategoryController;
+    resultsCategoryController = createResultsCategoryController({
+        resultsList,
+        categories: ROUTE_CATEGORIES_ORDER,
+        getCollapsed: isRouteCategoryCollapsed,
+        setCollapsed: (category, collapsed) => {
+            const cat = String(category || '').trim();
+            if (!cat) return;
+            storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, collapsed ? '1' : '0');
+        },
+        prefersReducedMotion,
+        onLayout: () => {
+            const ctrl = ensureScrollIndicatorController();
+            ctrl.syncResultsEndIntersectionObserver();
+            ctrl.update();
+        }
+    });
+    return resultsCategoryController;
+}
+
+function ensureResultsRenderer() {
+    if (resultsRenderer) return resultsRenderer;
+    resultsRenderer = createResultsRenderer({
+        formatRouteNameForResults,
+        extractRouteCodeFromFileName,
+        getDriverForRouteOnDate,
+        buildDriverBadgesHtml,
+        escapeHtml,
+        setElementHtml,
+        rowMatchesKeyLab,
+        toTitleCase,
+        highlightText,
+        isEmptyCell
+    });
+    return resultsRenderer;
+}
+
+function ensureWelcomeProgressRenderer() {
+    if (welcomeProgressRenderer) return welcomeProgressRenderer;
+    welcomeProgressRenderer = createWelcomeProgressRenderer({
+        formatFileName,
+        escapeHtml,
+        setElementHtml
+    });
+    return welcomeProgressRenderer;
+}
+
+function ensureLogoRenderer() {
+    if (logoRenderer) return logoRenderer;
+    logoRenderer = createLogoRenderer({
+        setElementSvg,
+        buildQuickEvoLogoSvg,
+        startLogoOrbitInContainer
+    });
+    return logoRenderer;
+}
+
+function ensureScrollIndicatorController() {
+    if (scrollIndicatorController) return scrollIndicatorController;
+    scrollIndicatorController = createScrollIndicatorController({
+        scrollIndicator,
+        resultsList,
+        resultsEndIntersection
+    });
+    return scrollIndicatorController;
 }
 
 /**
@@ -3925,75 +3047,12 @@ function displayImportSummary(summary) {
  * Podświetla laboratoria w tabeli podglądu.
  */
 function highlightLabsInPreviewTable() {
-    const tbody = document.getElementById('table-body'); if (!tbody || !tbody.rows) return;
-    for (let r = 0; r < tbody.rows.length; r++) {
-        const tr = tbody.rows[r]; let rowText = '';
-        for (let c = 0; c < tr.cells.length; c++) rowText += ` ${tr.cells[c]?.textContent || ''}`;
-        const isLab = rowMatchesKeyLab(rowText); tr.classList.toggle('highlight-lab', isLab);
-        if (isLab) {
-            const facilityCell = tr.querySelector('.facility-column');
-            if (facilityCell && !facilityCell.querySelector('.lab-badge')) {
-                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(toTitleCase(facilityCell.textContent))}</span>`;
-            }
-        }
-    }
-}
-
-/**
- * Tworzy element postępu dla ekranu powitalnego.
- */
-function createWelcomeProgressItem(fileName) {
-    const item = document.createElement('div'); item.className = 'welcome-progress-item';
-    setElementHtml(item, `<div class="welcome-progress-name">${escapeHtml(formatFileName(fileName))}</div><div class="welcome-progress-bar-wrap"><div class="welcome-progress-bar-fill" style="width: 0%"></div></div><div class="welcome-progress-status">0%</div>`);
-    return item;
-}
-
-/**
- * Aktualizuje element postępu na ekranie powitalnym.
- */
-function updateWelcomeProgressItem(item, percent, statusText, isError = false) {
-    const fill = item.querySelector('.welcome-progress-bar-fill'), status = item.querySelector('.welcome-progress-status');
-    if (fill) fill.style.width = `${percent}%`;
-    const nextStatus = statusText || `${Math.round(percent)}%`;
-    if (welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done') {
-        item.setAttribute('data-pending-status', '1');
-        item.setAttribute('data-pending-status-text', nextStatus);
-        if (isError) item.setAttribute('data-pending-error', '1');
-        return;
-    }
-    if (status) status.textContent = nextStatus;
-    if (isError) item.classList.add('error');
-}
-
-/**
- * Renderuje logo w nagłówku aplikacji.
- */
-function renderHeaderLogo() {
-    if (!appHeaderLogo) return; setElementSvg(appHeaderLogo, buildQuickEvoLogoSvg({ size: 'header' }));
-    startLogoOrbitInContainer(appHeaderLogo, 'header');
-}
-
-/**
- * Odświeża grafikę powitalną (reakcja na zmianę motywu).
- */
-function refreshWelcomeGraphicIfPresent() {
-    const container = document.getElementById('welcome-graphic');
-    if (container && container.dataset.loaded === '1') {
-        setElementSvg(container, buildQuickEvoLogoSvg({ size: 'welcome' }));
-        startLogoOrbitInContainer(container, 'welcome');
-    }
-}
-
-/**
- * Leniwie ładuje grafikę na ekranie powitalnym.
- */
-function lazyLoadWelcomeGraphic() {
-    const container = document.getElementById('welcome-graphic'); if (!container) return;
-    const inject = () => {
-        if (container.dataset.loaded === '1') return; container.dataset.loaded = '1';
-        setElementSvg(container, buildQuickEvoLogoSvg({ size: 'welcome' })); startLogoOrbitInContainer(container, 'welcome');
-    };
-    if ('requestIdleCallback' in window) window.requestIdleCallback(inject, { timeout: 900 }); else window.setTimeout(inject, 350);
+    highlightLabsInPreviewTableDom({
+        tbody: document.getElementById('table-body'),
+        rowMatchesKeyLab,
+        escapeHtml,
+        toTitleCase
+    });
 }
 
 function scheduleWelcomeLogoEntrance() {
@@ -4019,28 +3078,21 @@ function scheduleWelcomeLogoEntrance() {
     const baseTs = Number.isFinite(welcomeOverlayStartedAt) && welcomeOverlayStartedAt > 0
         ? welcomeOverlayStartedAt
         : (typeof welcomeLogoDomContentLoadedTs === 'number' ? welcomeLogoDomContentLoadedTs : performance.now());
-    const elapsed = performance.now() - baseTs;
-    const remaining = Math.max(0, WELCOME_LOGO_ENTER_DELAY_MS - elapsed);
 
-    const run = () => {
-        if (!loadingOverlay) return;
-        loadingOverlay.dataset.welcomeSeq = 'ready';
-        clearWelcomeElementsInitState();
-        if (!container.classList.contains('welcome-graphic--ready')) container.classList.add('welcome-graphic--ready');
-        welcomeSeqUnlockTimer = window.setTimeout(() => {
-            welcomeSeqUnlockTimer = null;
-            completeWelcomeEntrance();
-        }, WELCOME_SEQUENCE_UNLOCK_AFTER_MS);
-    };
-
-    welcomeLogoEnterTimer = window.setTimeout(() => { welcomeLogoEnterTimer = null; run(); }, remaining);
-    welcomeSeqFailSafeTimer = window.setTimeout(() => {
-        welcomeSeqFailSafeTimer = null;
-        if (!loadingOverlay) return;
-        if (loadingOverlay.dataset.welcomeSeq === 'done') return;
-        if (!container.classList.contains('welcome-graphic--ready')) container.classList.add('welcome-graphic--ready');
-        forceWelcomeSequenceDone();
-    }, remaining + WELCOME_SEQUENCE_UNLOCK_AFTER_MS + WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS);
+    const timers = scheduleWelcomeLogoEntranceDom({
+        loadingOverlay,
+        container,
+        baseTs,
+        enterDelayMs: WELCOME_LOGO_ENTER_DELAY_MS,
+        unlockAfterMs: WELCOME_SEQUENCE_UNLOCK_AFTER_MS,
+        failSafeExtraMs: WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS,
+        clearWelcomeElementsInitState,
+        completeWelcomeEntrance,
+        forceWelcomeSequenceDone
+    });
+    welcomeLogoEnterTimer = timers.enterTimerId;
+    welcomeSeqUnlockTimer = timers.unlockTimerId;
+    welcomeSeqFailSafeTimer = timers.failSafeTimerId;
 }
 
 function completeWelcomeEntrance() {
@@ -4056,20 +3108,17 @@ function flushPendingWelcomeTextUpdates() {
     if (!loadingOverlay) return;
 
     if (pendingLoadingStatusText !== null) {
-        if (loadingStatusText) loadingStatusText.textContent = pendingLoadingStatusText;
+        setLoadingStatusTextDom(loadingStatusText, pendingLoadingStatusText);
         pendingLoadingStatusText = null;
     }
 
     if (pendingLoadingProgressValue !== null) {
-        applyLoadingProgressTargetPercent(pendingLoadingProgressValue);
+        ensureLoadingProgressController().setTargetPercent(pendingLoadingProgressValue, { force: true });
         pendingLoadingProgressValue = null;
     }
 
     if (pendingLoadingErrorVisible) {
-        if (loadingError) {
-            loadingError.textContent = pendingLoadingErrorMessage || 'Nieznany błąd ładowania.';
-            loadingError.classList.remove('hidden');
-        }
+        showLoadingErrorDom(loadingError, pendingLoadingErrorMessage);
         pendingLoadingErrorVisible = false;
         pendingLoadingErrorMessage = null;
     }
@@ -4140,12 +3189,12 @@ function setupWelcomeOverlayParallax() {
 function startLoadingScreen() {
     if (!loadingOverlay) return;
     welcomeOverlayStartedAt = performance.now();
-    loadingOverlay.dataset.welcomeSeq = 'init';
-    loadingOverlay.classList.remove('hidden'); loadingOverlay.setAttribute('aria-hidden', 'false'); loadingOverlay.setAttribute('aria-busy', 'true');
-    if (loadingError) { loadingError.textContent = ''; loadingError.classList.add('hidden'); }
-    if (loadingContinueButton) loadingContinueButton.disabled = true;
-    const welcomeGraphic = document.getElementById('welcome-graphic');
-    if (welcomeGraphic) welcomeGraphic.classList.remove('welcome-graphic--ready');
+    showLoadingOverlayDom({
+        loadingOverlay,
+        loadingErrorEl: loadingError,
+        loadingContinueButtonEl: loadingContinueButton,
+        welcomeGraphicEl: document.getElementById('welcome-graphic')
+    });
 
     welcomeTextUpdatesLocked = true;
     pendingLoadingStatusText = null;
@@ -4154,29 +3203,10 @@ function startLoadingScreen() {
     pendingLoadingErrorVisible = false;
 
     loadingProgressDone = false;
-    loadingProgressValue = 0;
-    loadingProgressDisplayValue = 0;
-    stopLoadingProgressAnimation();
+    ensureLoadingProgressController().reset();
     pendingLoadingStatusFinalization = null;
-    loadingProgressSim.runId += 1;
-    loadingProgressSim.pauseUntilTs = 0;
-    if (loadingProgressSim.pauseTimerId !== null) {
-        window.clearTimeout(loadingProgressSim.pauseTimerId);
-        loadingProgressSim.pauseTimerId = null;
-    }
-    loadingProgressSim.nextMicroStopAtTs = performance.now() + randomIntInclusive(280, 750);
-    loadingProgressSim.nextJumpAtTs = performance.now() + randomIntInclusive(220, 620);
-    loadingProgressSim.speedDriftUntilTs = 0;
-    loadingProgressSim.speedMultiplier = 1;
-    loadingProgressSim.boostUntilTs = 0;
-    loadingProgressSim.lastTargetValue = 0;
-    loadingProgressSim.profile = null;
-    setLoadingProgressDisplayPercent(0);
-    if (loadingStatusText) loadingStatusText.textContent = 'Inicjalizacja...';
-    if (loadingTitleText) {
-        loadingTitleText.textContent = 'Witamy w QuickEvo!';
-        loadingTitleText.style.opacity = '1';
-    }
+    setLoadingStatusTextDom(loadingStatusText, 'Inicjalizacja...');
+    setLoadingTitleTextDom(loadingTitleText, 'Witamy w QuickEvo!');
     if (loadingTitleRotator) loadingTitleRotator.stop();
 
     applyWelcomeElementsInitState();
@@ -4189,14 +3219,12 @@ function startLoadingScreen() {
 function stopLoadingScreen() {
     if (!loadingOverlay) return;
     const active = document.activeElement; if (active && loadingOverlay.contains(active)) { try { active.blur(); } catch { } focusBodySafely(); }
-    loadingOverlay.classList.add('loading-overlay-fade-out');
-    setTimeout(() => { loadingOverlay.classList.add('hidden'); loadingOverlay.classList.remove('loading-overlay-fade-out'); }, 600);
-    loadingOverlay.setAttribute('aria-hidden', 'true');
+    hideLoadingOverlayDom({ loadingOverlay, fadeOutMs: 600 });
     if (welcomeLogoEnterTimer !== null) { window.clearTimeout(welcomeLogoEnterTimer); welcomeLogoEnterTimer = null; }
     if (welcomeSeqUnlockTimer !== null) { window.clearTimeout(welcomeSeqUnlockTimer); welcomeSeqUnlockTimer = null; }
     if (welcomeSeqFailSafeTimer !== null) { window.clearTimeout(welcomeSeqFailSafeTimer); welcomeSeqFailSafeTimer = null; }
     welcomeTextUpdatesLocked = false;
-    stopLoadingProgressAnimation();
+    ensureLoadingProgressController().stop();
     if (loadingTitleRotator) loadingTitleRotator.stop();
 }
 
@@ -4205,10 +3233,10 @@ function stopLoadingScreen() {
  */
 function setLoadingProgressPercent(percent, { force = false } = {}) {
     if (!loadingOverlay) return;
-    const next = force ? Math.min(100, Math.max(0, percent)) : Math.max(loadingProgressValue, Math.min(100, percent));
-    loadingProgressValue = next;
+    const ctrl = ensureLoadingProgressController();
+    const next = force ? Math.min(100, Math.max(0, percent)) : Math.max(ctrl.getTargetPercent(), Math.min(100, percent));
     if (welcomeTextUpdatesLocked && loadingOverlay.dataset.welcomeSeq !== 'done') { pendingLoadingProgressValue = next; return; }
-    applyLoadingProgressTargetPercent(next);
+    ctrl.setTargetPercent(next, { force: true });
 }
 
 /**
@@ -4218,7 +3246,7 @@ function setLoadingStatusText(text) {
     if (!loadingOverlay) return;
     const next = text || '';
     if (welcomeTextUpdatesLocked && loadingOverlay.dataset.welcomeSeq !== 'done') { pendingLoadingStatusText = next; return; }
-    if (loadingStatusText) loadingStatusText.textContent = next;
+    setLoadingStatusTextDom(loadingStatusText, next);
 }
 
 /**
@@ -4232,7 +3260,7 @@ function showLoadingError(message) {
         pendingLoadingErrorMessage = message || 'Nieznany błąd ładowania.';
         return;
     }
-    loadingError.textContent = message || 'Nieznany błąd ładowania.'; loadingError.classList.remove('hidden');
+    showLoadingErrorDom(loadingError, message);
 }
 
 /**
@@ -4250,139 +3278,6 @@ function prepareManualContinue() {
     }
     syncPendingFinalLoadingStatusText();
     updateLoadingContinueAvailability();
-}
-
-/**
- * Aktualizuje widoczność wskaźnika przewijania.
- */
-function updateScrollIndicator() {
-    if (!scrollIndicator) return;
-    if (!resultsList) {
-        scrollIndicator.classList.add('is-hidden');
-        scrollIndicator.setAttribute('aria-hidden', 'true');
-        scrollIndicator.dataset.scrollNeeded = 'false';
-        return;
-    }
-
-    const container = getResultsScrollContainer();
-    const hasVerticalOverflow = checkListOverflow(container, resultsList);
-    const hasMoreBelow = (resultsEndIntersection.observer && resultsEndIntersection.target) ? !resultsEndIntersection.lastFullyVisible : hasMoreContentBelowViewport(container, resultsList, 40);
-    const shouldShow = hasVerticalOverflow && hasMoreBelow;
-
-    scrollIndicator.dataset.scrollNeeded = hasVerticalOverflow ? 'true' : 'false';
-    scrollIndicator.classList.toggle('is-hidden', !shouldShow);
-    scrollIndicator.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
-}
-
-/**
- * Zwraca element, który faktycznie przewija widok wyników.
- * Celowo nie analizuje headerów/stopki ani innych elementów DOM – korzysta z natywnego scroll kontenera dokumentu.
- * @returns {HTMLElement}
- */
-function getResultsScrollContainer() {
-    const el = document.scrollingElement;
-    if (el && el instanceof HTMLElement) return el;
-    return document.documentElement;
-}
-
-function ensureResultsEndIntersectionObserver() {
-    if (resultsEndIntersection.observer) return;
-    if (typeof IntersectionObserver !== 'function') return;
-
-    resultsEndIntersection.observer = new IntersectionObserver((entries) => {
-        for (const entry of entries) {
-            if (!entry || entry.target !== resultsEndIntersection.target) continue;
-            const fullyVisible = Boolean(entry.isIntersecting && entry.intersectionRatio >= 0.999);
-            if (fullyVisible === resultsEndIntersection.lastFullyVisible) continue;
-            resultsEndIntersection.lastFullyVisible = fullyVisible;
-            updateScrollIndicator();
-        }
-    }, { root: null, threshold: [0, 1] });
-}
-
-function syncResultsEndIntersectionObserver() {
-    if (!resultsList) return;
-    ensureResultsEndIntersectionObserver();
-    if (!resultsEndIntersection.observer) return;
-
-    const groups = Array.from(resultsList.querySelectorAll('.result-group'));
-    const lastVisibleGroup = (() => {
-        for (let i = groups.length - 1; i >= 0; i--) {
-            const el = groups[i];
-            if (!el) continue;
-            if (typeof el.getClientRects === 'function' && el.getClientRects().length === 0) continue;
-            const style = window.getComputedStyle(el);
-            if (style.display === 'none' || style.visibility === 'hidden') continue;
-            return el;
-        }
-        return null;
-    })();
-    const last = lastVisibleGroup || (groups.length > 0 ? groups[groups.length - 1] : resultsList.lastElementChild);
-    if (last === resultsEndIntersection.target) return;
-
-    if (resultsEndIntersection.target) {
-        try { resultsEndIntersection.observer.unobserve(resultsEndIntersection.target); } catch { }
-    }
-    resultsEndIntersection.target = last || null;
-    resultsEndIntersection.lastFullyVisible = false;
-
-    if (resultsEndIntersection.target) {
-        try { resultsEndIntersection.observer.observe(resultsEndIntersection.target); } catch { }
-    }
-}
-
-/**
- * Sprawdza, czy lista wyników faktycznie wymaga przewijania w pionie (overflow).
- * Mechanizm bazuje wyłącznie na wymiarach kontenera listy i jego zawartości:
- * clientHeight (widoczny viewport kontenera) oraz scrollHeight (sumaryczna wysokość treści).
- *
- * @param {Element|null} container Kontener z włączonym przewijaniem (viewport).
- * @param {Element|null} list Element zawierający elementy listy (treść).
- * @returns {boolean}
- */
-function checkListOverflow(container, list) {
-    if (!container || !list) return false;
-    if (!(container instanceof Element) || !(list instanceof Element)) return false;
-
-    const containerStyle = window.getComputedStyle(container);
-    if (containerStyle.display === 'none' || containerStyle.visibility === 'hidden') return false;
-    const listStyle = window.getComputedStyle(list);
-    if (listStyle.display === 'none' || listStyle.visibility === 'hidden') return false;
-
-    const containerClientHeight = container.clientHeight;
-    const listScrollHeight = list.scrollHeight;
-    if (!Number.isFinite(containerClientHeight) || !Number.isFinite(listScrollHeight)) return false;
-    if (containerClientHeight <= 0) return false;
-
-    return listScrollHeight > containerClientHeight;
-}
-
-/**
- * Sprawdza, czy w kontenerze przewijania są jeszcze elementy listy poniżej dolnej krawędzi viewportu.
- * @param {HTMLElement} container
- * @param {Element} list
- * @param {number} thresholdPx
- * @returns {boolean}
- */
-function hasMoreContentBelowViewport(container, list, thresholdPx = 0) {
-    if (!container || !(container instanceof HTMLElement)) return false;
-    if (!list || !(list instanceof Element)) return false;
-
-    const t = Number(thresholdPx);
-    const threshold = Number.isFinite(t) ? Math.max(0, t) : 0;
-
-    if (container === list) {
-        const current = container.scrollTop + container.clientHeight;
-        return current < (container.scrollHeight - threshold);
-    }
-
-    const containerRect = container.getBoundingClientRect();
-    const listRect = list.getBoundingClientRect();
-    const listOffsetTopInContainer = (listRect.top - containerRect.top) + container.scrollTop;
-    const listBottomInContainer = listOffsetTopInContainer + list.scrollHeight;
-    const viewportBottomInContainer = container.scrollTop + container.clientHeight;
-
-    return listBottomInContainer > (viewportBottomInContainer + threshold);
 }
 
 /**
@@ -4408,7 +3303,11 @@ function clearResults() {
     lastQuery = ''; matchedResults = []; currentResults = [];
     clearElement(resultsList);
     resultsInfo.textContent = '';
-    window.requestAnimationFrame(() => { syncResultsEndIntersectionObserver(); updateScrollIndicator(); });
+    window.requestAnimationFrame(() => {
+        const ctrl = ensureScrollIndicatorController();
+        ctrl.syncResultsEndIntersectionObserver();
+        ctrl.update();
+    });
 }
 
 /**
@@ -4506,7 +3405,7 @@ function continueToApp() {
     window.setTimeout(() => {
         if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); }
         if (isSearchEnabled) searchInput.focus();
-        window.requestAnimationFrame(() => updateScrollIndicator());
+        window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
     }, Math.max(0, 300 - elapsed));
 }
 
@@ -4517,7 +3416,7 @@ function goHome() {
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
     if (searchView) searchView.classList.remove('view-hidden');
     if (isSearchEnabled) searchInput.focus();
-    window.requestAnimationFrame(() => updateScrollIndicator());
+    window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
 }
 
 /**
@@ -4613,68 +3512,49 @@ function highlightText(text, query) {
  * Normalizuje tekst do małych liter.
  */
 function normalizeText(text) {
-    return String(text ?? '').toLowerCase().trim();
+    return qeGetUtils().normalizeText(text);
 }
 
 /**
  * Normalizuje tekst usuwając polskie znaki diakrytyczne.
  */
 function fuzzyNormalizeText(text) {
-    return normalizeText(text).normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/ł/g, "l");
+    return qeGetUtils().fuzzyNormalizeText(text);
 }
 
 /**
  * Formatuje wartość komórki (obsługa czasu Excela).
  */
 function formatCellValue(value) {
-    if (value === null || value === undefined) return '';
-    let num = value;
-    if (typeof value === 'string') {
-        const trimmed = value.trim();
-        if (trimmed !== '' && /^-?\d*\.?\d+$/.test(trimmed)) num = parseFloat(trimmed);
-    }
-    if (typeof num === 'number' && Number.isFinite(num)) {
-        if (num > 0 && num < 1) return formatTimeFromDayFraction(num);
-        if (num >= 1000 && num < 60000) {
-            const frac = num % 1; if (frac > 0 && frac < 1) return formatTimeFromDayFraction(frac);
-        }
-    }
-    const asString = String(value).trim(), timeParsed = parseTimeString(asString);
-    return timeParsed || asString;
+    return qeGetUtils().formatCellValue(value);
 }
 
 /**
  * Konwertuje ułamek doby na format czasu HH:MM.
  */
 function formatTimeFromDayFraction(fraction) {
-    const totalMinutes = Math.round(fraction * 24 * 60);
-    const normalized = ((totalMinutes % (24 * 60)) + (24 * 60)) % (24 * 60);
-    return `${pad2(Math.floor(normalized / 60))}:${pad2(normalized % 60)}`;
+    return qeGetUtils().formatTimeFromDayFraction(fraction);
 }
 
 /**
  * Parsuje ciąg znaków do formatu czasu.
  */
 function parseTimeString(value) {
-    const match = String(value).trim().match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?(?:[.,]\d+)?$/);
-    if (!match) return null;
-    const hours = Number(match[1]), minutes = Number(match[2]);
-    if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null;
-    return `${pad2(hours)}:${pad2(minutes)}`;
+    return qeGetUtils().parseTimeString(value);
 }
 
 /**
  * Formatuje znacznik czasu na czytelną datę i czas.
  */
 function pad2(value) {
-    return String(value).padStart(2, '0');
+    return qeGetUtils().pad2(value);
 }
 
 /**
  * Zabezpiecza tekst przed atakami XSS.
  */
 function escapeHtml(value) {
-    return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    return qeGetUtils().escapeHtml(value);
 }
 
 /**
@@ -4766,7 +3646,7 @@ function getLogoPalette() {
  * Parsuje wartość liczbową z CSS.
  */
 function parseCssNumber(value, fallback) {
-    const n = parseFloat(String(value ?? '').trim()); return Number.isFinite(n) ? n : fallback;
+    return qeGetUtils().parseCssNumber(value, fallback);
 }
 
 /**
@@ -4803,7 +3683,7 @@ resultsList.addEventListener('click', (e) => {
 if (scrollIndicator) {
     scrollIndicator.addEventListener('click', () => {
         if (!resultsList) return;
-        const container = getResultsScrollContainer();
+        const container = ensureScrollIndicatorController().getScrollContainer();
         const amount = container.clientHeight * 0.8;
         try { container.scrollBy({ top: amount, behavior: 'smooth' }); }
         catch { window.scrollBy({ top: amount, behavior: 'smooth' }); }
@@ -4892,8 +3772,7 @@ function setElementSvg(el, svgSource) {
  * Funkcja debounce.
  */
 function debounce(fn, delayMs) {
-    let timerId = null; const debounced = (...args) => { if (timerId) clearTimeout(timerId); timerId = setTimeout(() => fn(...args), delayMs); };
-    debounced.cancel = () => { if (timerId) clearTimeout(timerId); timerId = null; }; return debounced;
+    return qeGetUtils().debounce(fn, delayMs);
 }
 
 /**
@@ -4907,128 +3786,6 @@ async function runWithConcurrency(items, limit, worker) {
     await Promise.all(workers);
 }
 
-/**
- * Otwiera połączenie z IndexedDB.
- */
-function openDocsDb() {
-    if (docsDbPromise) return docsDbPromise;
-    docsDbPromise = new Promise((resolve, reject) => {
-        try {
-            const req = indexedDB.open(DOCS_DB_NAME, DOCS_DB_VERSION);
-            const timeout = window.setTimeout(() => {
-                docsDbPromise = null;
-                reject(new Error('Timeout otwierania IndexedDB'));
-            }, DOCS_DB_OPEN_TIMEOUT_MS);
-            req.onblocked = () => alert('Zamknij inne karty z tą aplikacją.');
-            req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(DOCS_DB_STORE)) req.result.createObjectStore(DOCS_DB_STORE, { keyPath: 'name' }); };
-            req.onsuccess = () => { window.clearTimeout(timeout); resolve(req.result); };
-            req.onerror = () => { window.clearTimeout(timeout); docsDbPromise = null; reject(req.error); };
-        } catch (err) { reject(err); }
-    });
-    return docsDbPromise;
-}
-
-/**
- * Pobiera listę plików z bazy.
- */
-async function docsListFiles() {
-    const db = await openDocsDb();
-    return await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readonly'), req = tx.objectStore(DOCS_DB_STORE).getAll();
-        req.onsuccess = () => resolve((Array.isArray(req.result) ? req.result : []).map(r => ({ name: String(r?.name ?? ''), size: Number(r?.size ?? (r?.blob?.size ?? 0)), updatedAt: Number(r?.updatedAt ?? 0) })).filter(r => r.name));
-        req.onerror = () => reject(req.error);
-    });
-}
-
-/**
- * Sprawdza, czy plik istnieje w bazie.
- */
-async function docsFileExists(fileName) {
-    const db = await openDocsDb();
-    return await new Promise((resolve) => {
-        const req = db.transaction(DOCS_DB_STORE, 'readonly').objectStore(DOCS_DB_STORE).get(fileName);
-        req.onsuccess = () => resolve(!!req.result); req.onerror = () => resolve(false);
-    });
-}
-
-/**
- * Pobiera Blob pliku z bazy.
- */
-async function docsGetBlob(fileName) {
-    const db = await openDocsDb();
-    return await new Promise((resolve, reject) => {
-        const req = db.transaction(DOCS_DB_STORE, 'readonly').objectStore(DOCS_DB_STORE).get(String(fileName || ''));
-        req.onsuccess = () => resolve(req.result?.blob ?? null); req.onerror = () => reject(req.error);
-    });
-}
-
-/**
- * Pobiera rekord pliku (metadane) z bazy.
- * Zwraca null, jeśli plik nie istnieje.
- */
-async function docsGetFileRecord(fileName) {
-    const safe = String(fileName || '').trim();
-    if (!safe) return null;
-    const db = await openDocsDb();
-    return await new Promise((resolve, reject) => {
-        const req = db.transaction(DOCS_DB_STORE, 'readonly').objectStore(DOCS_DB_STORE).get(safe);
-        req.onsuccess = () => {
-            const r = req.result;
-            if (!r) { resolve(null); return; }
-            resolve({
-                name: String(r?.name ?? ''),
-                size: Number(r?.size ?? (r?.blob?.size ?? 0)),
-                updatedAt: Number(r?.updatedAt ?? 0),
-                driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null
-            });
-        };
-        req.onerror = () => reject(req.error);
-    });
-}
-
-/**
- * Zapisuje Blob pliku w bazie.
- */
-async function docsPutBlob(fileName, blob, { driveModifiedAt } = {}) {
-    const safe = String(fileName || '').trim(); if (!safe) throw new Error('Brak nazwy pliku');
-    const normalizedDriveModifiedAt = (Number.isFinite(Number(driveModifiedAt)) && Number(driveModifiedAt) > 0) ? Number(driveModifiedAt) : null;
-    const db = await openDocsDb();
-    await new Promise((resolve, reject) => {
-        const req = db.transaction(DOCS_DB_STORE, 'readwrite').objectStore(DOCS_DB_STORE).put({
-            name: safe,
-            blob,
-            size: blob?.size ?? 0,
-            updatedAt: Date.now(),
-            driveModifiedAt: normalizedDriveModifiedAt
-        });
-        req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
-    });
-}
-
-async function docsClearFilesStore() {
-    const db = await openDocsDb();
-    await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readwrite');
-        const req = tx.objectStore(DOCS_DB_STORE).clear();
-        req.onsuccess = () => resolve();
-        req.onerror = () => reject(req.error);
-    });
-}
-
-async function docsDeleteFiles(fileNames) {
-    const names = Array.isArray(fileNames) ? fileNames.map(n => String(n || '').trim()).filter(Boolean) : [];
-    if (names.length === 0) return { deleted: 0 };
-    const db = await openDocsDb();
-    await new Promise((resolve, reject) => {
-        const tx = db.transaction(DOCS_DB_STORE, 'readwrite');
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error || new Error('Błąd transakcji IndexedDB'));
-        tx.onabort = () => reject(tx.error || new Error('Transakcja IndexedDB przerwana'));
-        const store = tx.objectStore(DOCS_DB_STORE);
-        for (const name of names) store.delete(name);
-    });
-    return { deleted: names.length };
-}
 
 function pickRandomSample(list, count) {
     const arr = Array.isArray(list) ? list.slice() : [];
@@ -5045,8 +3802,7 @@ function pickRandomSample(list, count) {
 async function qeDevClearDbFilesStore() {
     await docsClearFilesStore();
     resetAppData();
-    scheduleCacheByMonth = new Map();
-    loadedScheduleFiles = new Set();
+    ensureScheduleService().clearCache();
     clearResults();
     setSearchEnabled(false);
     if (fileCountSpan) fileCountSpan.textContent = '0';
@@ -5068,9 +3824,7 @@ async function qeDevClearRandomFiles({ fraction = 0.2 } = {}) {
     for (const name of toDelete) {
         removeFileData(name);
         if (isScheduleFileName(name)) {
-            loadedScheduleFiles.delete(name);
-            const meta = parseScheduleFileNameYearMonth(name);
-            if (meta?.key) scheduleCacheByMonth.delete(meta.key);
+            invalidateScheduleFile(name);
         } else {
             loadedFiles.delete(name);
         }
@@ -5548,4 +4302,4 @@ function handleSearchShortQuery() {
 }
 
 // Start aplikacji
-init();
+qeBootstrap();
