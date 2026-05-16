@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.15.0-blue)
+![Version](https://img.shields.io/badge/version-2.17.0-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -105,6 +105,26 @@ QuickEvo/
 │   │   └── docs-db.js
 │   ├── ui/              # Warstwa UI (DOM)
 │   │   ├── ui-components.js
+│   │   ├── loading/
+│   │   │   ├── loading-title.js
+│   │   │   ├── loading-progress-controller.js
+│   │   │   ├── loading-overlay-dom.js
+│   │   │   ├── welcome-progress-renderer.js
+│   │   │   ├── logo-renderer.js
+│   │   │   └── welcome-loading-overlay-controller.js
+│   │   ├── results/
+│   │   │   ├── results-dom.js
+│   │   │   ├── results-category-controller.js
+│   │   │   ├── results-renderer.js
+│   │   │   └── scroll-indicator-controller.js
+│   │   ├── preview/
+│   │   │   ├── modal-controller.js
+│   │   │   ├── preview-controller.js
+│   │   │   └── preview-labs-highlight.js
+│   │   ├── drive/
+│   │   │   └── drive-changes-modal.js
+│   │   ├── search/
+│   │   │   └── predictive-ghost.js
 │   │   └── theme/
 │   │       └── MatrixThemeToggle.js
 │   ├── devtools/        # Narzędzia developerskie
