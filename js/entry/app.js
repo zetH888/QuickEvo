@@ -6,30 +6,30 @@
  * Wykorzystuje IndexedDB do przechowywania plików i Web Workers (opcjonalnie) do przetwarzania.
  */
 
-import * as utils from './modules/utils.js';
-import * as searchEngine from './modules/search-engine.js';
-import * as state from './modules/state.js';
-import * as excelProcessor from './modules/excel-processor.js';
-import * as driveService from './modules/drive-service.js';
-import { docsClearFilesStore, docsDeleteFiles, docsFileExists, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from './modules/storage/docs-db.js';
-import { importLocalFiles } from './modules/import/import-service.js';
-import { createScheduleService } from './modules/schedule/schedule-service.js';
-import { createSearchOrchestrator } from './modules/search/search-orchestrator.js';
-import { createNavigationService } from './modules/navigation/navigation-service.js';
-import { LoadingTitleRotator, applyWelcomeElementsInitStateDom, clearWelcomeElementsInitStateDom, createLoadingProgressController, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScrollIndicatorController, createWelcomeProgressRenderer, getLoadingTitleCategoryForProgress, hideLoadingOverlayDom, highlightLabsInPreviewTableDom, prepareResultsListDom, scheduleWelcomeLogoEntranceDom, setLoadingStatusTextDom, setLoadingTitleTextDom, showLoadingErrorDom, showLoadingOverlayDom, updateResultsCountInfoDom } from './modules/ui-components.js';
+import * as utils from '../core/utils.js';
+import * as searchEngine from '../core/search-engine.js';
+import * as state from '../core/state.js';
+import * as excelProcessor from '../core/excel-processor.js';
+import * as driveService from '../services/drive-service.js';
+import { docsClearFilesStore, docsDeleteFiles, docsFileExists, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from '../storage/docs-db.js';
+import { importLocalFiles } from '../services/import-service.js';
+import { createImportApplication } from '../app/import-application.js';
+import { createSearchApplication } from '../app/search-application.js';
+import { createPreviewApplication } from '../app/preview-application.js';
+import { createDriveSyncApplication } from '../app/drive-sync-application.js';
+import { createNavigationApplication } from '../app/navigation-application.js';
+import { createLoadingApplication } from '../app/loading-application.js';
+import { createScheduleService } from '../services/schedule-service.js';
+import { createSearchOrchestrator } from '../features/search/search-orchestrator.js';
+import { createNavigationService } from '../services/navigation-service.js';
+import { LoadingTitleRotator, applyWelcomeElementsInitStateDom, clearWelcomeElementsInitStateDom, createLoadingProgressController, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScrollIndicatorController, createWelcomeProgressRenderer, getLoadingTitleCategoryForProgress, hideLoadingOverlayDom, highlightLabsInPreviewTableDom, prepareResultsListDom, scheduleWelcomeLogoEntranceDom, setLoadingStatusTextDom, setLoadingTitleTextDom, showLoadingErrorDom, showLoadingOverlayDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
+import { BOOT_WATCHDOG_MS, LOADING_PROGRESS_JUMP_MAX, LOADING_PROGRESS_JUMP_MIN, LOADING_PROGRESS_MICROSTOP_MAX_MS, LOADING_PROGRESS_MICROSTOP_MIN_MS, LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH, LOADING_TITLE_FADE_IN_MS, LOADING_TITLE_FADE_OUT_MS, LOADING_TITLE_INTERVAL_MAX_MS, LOADING_TITLE_INTERVAL_MIN_MS, LOADING_TITLE_MESSAGES, MAX_IMPORT_BYTES, ROUTE_CATEGORIES_ORDER, ROUTE_CATEGORY_STORAGE_PREFIX, WELCOME_LOGO_ENTER_DELAY_MS, WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS, WELCOME_SEQUENCE_UNLOCK_AFTER_MS } from '../config/constants.js';
 
 //////////////////////////////////////////////////
 // STAŁE GLOBALNE, KONFIGURACJA, IMPORTY
 //////////////////////////////////////////////////
 
-const ROUTE_CATEGORIES_ORDER = Object.freeze(['STANDARD', 'WIECZOREK', 'SOBOTA', 'NIEDZIELA']);
-const ROUTE_CATEGORY_STORAGE_PREFIX = 'qe:routeCategoryCollapsed:';
 const routeCategoryCache = new Map();
-
-/**
- * Limit rozmiaru pliku podczas importu (5MB).
- */
-const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 /**
  * Globalne instancje parserów DOM dla HTML i SVG.
@@ -127,100 +127,18 @@ function qeGetDriveService() {
 
 const DOM_READY_TS = performance.now();
 
-const WELCOME_LOGO_ENTER_DELAY_MS = 420;
-const WELCOME_SEQUENCE_UNLOCK_AFTER_MS = 1750;
-const WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS = 650;
-const BOOT_WATCHDOG_MS = 8000;
-
-/**
- * Konfiguracja „premium” dla ekranu ładowania:
- * - rotacja losowych komunikatów w tytule (z płynnymi przejściami) zsynchronizowana z postępem,
- * - symulacja płynnego postępu (mikropauzy, skoki, soft-cap), aby pasek nie „migał”.
- */
-const LOADING_TITLE_INTERVAL_MIN_MS = 500;
-const LOADING_TITLE_INTERVAL_MAX_MS = 800;
-const LOADING_TITLE_FADE_OUT_MS = 200;
-const LOADING_TITLE_FADE_IN_MS = 300;
-
-const LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH = 97;
-const LOADING_PROGRESS_MICROSTOP_MIN_MS = 200;
-const LOADING_PROGRESS_MICROSTOP_MAX_MS = 500;
-const LOADING_PROGRESS_JUMP_MIN = 1;
-const LOADING_PROGRESS_JUMP_MAX = 5;
-
-/**
- * Komunikaty wyświetlane w tytule podczas ładowania (zsynchronizowane z zakresem postępu).
- * @type {{startowe: string[], techniczne: string[], absurdalne: string[], finalizujace: string[], powitalne: string[]}}
- */
-const LOADING_TITLE_MESSAGES = {
-    startowe: [
-        'Budzenie serwera...',
-        'Odpinanie respiratora...',
-        'Szturchanie backendu...',
-        'Włączanie internetu...',
-        'Rozruch atomów...',
-        'Szukanie przycisku...',
-        'Start silnika...',
-        'Odpalanie chaosu...',
-        'Rozgrzewka bitów...',
-        'Kopnięcie infrastruktury...'
-    ],
-    techniczne: [
-        'Kalibracja ogarniania...',
-        'Stabilizacja chaosu...',
-        'Analiza logów...',
-        'Negocjacje z bazą...',
-        'Parsowanie rzeczy...',
-        'Tłumaczenie kodu...',
-        'Czyszczenie traum...',
-        'Korekta pakietów...',
-        'Rekompilacja sensu...',
-        'Liczenie wyjątków...'
-    ],
-    absurdalne: [
-        'Tresura pikseli...',
-        'Duch dokumentacji...',
-        'Prostowanie zer...',
-        'Koszenie cache...',
-        'Chłodzenie lodem...',
-        'Odbiór z kosmosu...',
-        'Przesłuchanie bitów...',
-        'Regulacja chmury...',
-        'Reset fizyki...',
-        'JavaScript protestuje...'
-    ],
-    finalizujace: [
-        'Zacieranie prowizorki...',
-        'Dokręcanie iluzji...',
-        'Lakierowanie kodu...',
-        'Maskowanie katastrof...',
-        'Domykanie chaosu...',
-        'Polerka backendu...',
-        'Udawanie kontroli...',
-        'Spinanie trytytką...',
-        'Wygładzanie kantów...',
-        'Zaklinanie stabilności...'
-    ],
-    powitalne: [
-        'Backend skapitulował. Można wchodzić ✓',
-        'Działa dobrze. Podejrzane... ✓',
-        'Nic nie wybuchło. Sukces ✓',
-        'Serwer przeżył tę próbę ✓',
-        'System ocalał. Zapraszamy ✓',
-        'Ruszyło bez większych strat ✓',
-        'Fizyka chwilowo działa ✓',
-        'Kod się nie zbuntował ✓',
-        'Jakoś działa, trytytki trzymają ✓',
-        'Cud techniki zakończony sukcesem ✓'
-    ]
-};
-
 /**
  * Cache dla wyników wyszukiwania (LRU).
  */
 let searchCache = null;
 let searchOrchestrator = null;
 let navigationService = null;
+let importApplication = null;
+let searchApplication = null;
+let previewApplication = null;
+let driveSyncApplication = null;
+let navigationApplication = null;
+let loadingApplication = null;
 
 let predictiveSuggestionsCache = null;
 let predictiveUiState = { raw: '', norm: '', options: [], index: 0, hidden: false };
@@ -757,19 +675,17 @@ function setupNavigationListeners() {
     ensureNavigationService().attach({ backToSearchBtn, homeLink });
 }
 
-function ensureNavigationService() {
-    if (navigationService) return navigationService;
-    navigationService = createNavigationService({
+function ensureNavigationApplication() {
+    if (navigationApplication) return navigationApplication;
+    navigationApplication = createNavigationApplication({
         onLog: logAction,
-        onShowHome: ({ source }) => resetToInitialState({ source: source || 'navigation_home' }),
-        onShowPreview: ({ fileName, rowIndex, skipPush }) => showFilePreview(fileName, rowIndex, { skipPush: Boolean(skipPush) }),
-        onShowSearchView: ({ source }) => {
-            ensurePreviewController().showSearch();
-            logClientEvent('navigate', { to: 'search', source: String(source || '') });
-        },
-        onSetSearchInputValue: (value) => { if (searchInput) searchInput.value = String(value ?? ''); },
-        onPerformSearch: (q) => { if (isSearchEnabled) performSearch(String(q || '')); },
-        onClearSearchUi: () => {
+        resetToInitialState,
+        showFilePreview,
+        showSearchView: ({ source } = {}) => ensurePreviewApplication().openSearch({ source: String(source || '') }),
+        setSearchInputValue: (value) => { if (searchInput) searchInput.value = String(value ?? ''); },
+        performSearch: (q) => performSearch(String(q || '')),
+        getIsSearchEnabled: () => Boolean(isSearchEnabled),
+        clearSearchUi: () => {
             clearResults();
             statusIndicator.textContent = 'Dane gotowe.';
             statusIndicator.classList.remove('status--hint');
@@ -784,15 +700,17 @@ function ensureNavigationService() {
             });
         },
         canOpenPreview: (fileName) => Boolean(fullFileData && fullFileData[String(fileName || '')]),
-        onHomeClick: () => {
-            if (history.state && history.state.view === 'home' && !history.state.search && !searchInput.value) return false;
-            resetToInitialState({ source: 'home' });
-            logClientEvent('navigate', { to: 'home' });
-            return true;
-        },
+        isHomeState: () => Boolean(history.state && history.state.view === 'home' && !history.state.search && !searchInput.value),
         shouldIgnoreHomeClick: (e) => Boolean(e?.metaKey || e?.ctrlKey || e?.shiftKey || e?.altKey),
-        onScrollTop: () => { try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { window.scrollTo(0, 0); } catch { } } }
+        onScrollTop: () => { try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { window.scrollTo(0, 0); } catch { } } },
+        logClientEvent
     });
+    return navigationApplication;
+}
+
+function ensureNavigationService() {
+    if (navigationService) return navigationService;
+    navigationService = createNavigationService(ensureNavigationApplication().createServiceConfig());
     return navigationService;
 }
 
@@ -1143,12 +1061,10 @@ async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
     }
 }
 
-/**
- * Obsługuje import plików z dysku lokalnego.
- */
-async function handleImportFiles(files) {
-    const before = allData.length;
-    const summary = await importLocalFiles(files, {
+function ensureImportApplication() {
+    if (importApplication) return importApplication;
+    importApplication = createImportApplication({
+        importLocalFiles,
         maxImportBytes: MAX_IMPORT_BYTES,
         fileExists: docsFileExists,
         resolveConflicts: resolveImportConflicts,
@@ -1164,10 +1080,30 @@ async function handleImportFiles(files) {
         processScheduleFile,
         processFile,
         formatFileName,
-        onFileError: ({ fileName, error }) => logAction('import', { fileName, message: error?.message }, 'ERROR')
+        onFileError: ({ fileName, error }) => logAction('import', { fileName, message: error?.message }, 'ERROR'),
+        getAllDataLength: () => allData.length,
+        setSearchEnabled,
+        getLastQuery: () => lastQuery,
+        getIsSearchEnabled: () => Boolean(isSearchEnabled),
+        performSearch: (query) => performSearch(query),
+        schedulePredictiveIndexRebuild,
+        displayImportSummary,
+        refreshFileCount: async () => {
+            if (!fileCountSpan) return;
+            fileCountSpan.textContent = String((await getRouteSpreadsheetFiles()).length);
+        },
+        setUploadProgressValue: (value) => { if (uploadProgress) uploadProgress.value = Number(value) || 0; },
+        setUploadStatusText: (text) => setUploadStatusText(text),
+        logAction
     });
-    if (!summary) return;
-    finalizeFileImport(summary, before);
+    return importApplication;
+}
+
+/**
+ * Obsługuje import plików z dysku lokalnego.
+ */
+async function handleImportFiles(files) {
+    await ensureImportApplication().importLocal(files);
 }
 
 /**
@@ -1178,10 +1114,6 @@ function setGoogleDriveSyncButtonsBusy(loading) {
     if (googleDriveButton) { googleDriveButton.setAttribute('aria-busy', busy); googleDriveButton.disabled = Boolean(loading); }
     if (syncGDriveButton) { syncGDriveButton.setAttribute('aria-busy', busy); syncGDriveButton.disabled = Boolean(loading); }
 }
-
-let googleDriveSyncIsImporting = false;
-let googleDriveConnectSession = null;
-let googleDriveConnectSeq = 0;
 
 /**
  * Formatuje timestamp (ms) do czytelnej postaci dla modala synchronizacji.
@@ -2238,241 +2170,76 @@ function buildDriveNoChangesModalHtml() {
     return `<div class="qe-drive-modal qe-drive-modal--ok"><div class="qe-drive-summary"><strong>Dane aktualne.</strong> Nie wykryto zmian w folderze Google Drive od ostatniej synchronizacji.</div></div>`;
 }
 
-/**
- * Rozpoczyna synchronizację z Google Drive dla wskazanego folderu.
- */
-async function startGoogleDriveSync(files, token, { source } = {}) {
-    const api = qeGetDriveService();
-    const list = Array.isArray(files) ? files : [];
-    if (!api) throw new Error('Moduł Google Drive jest niedostępny');
-    if (list.length === 0) return;
-
-    googleDriveSyncIsImporting = true;
-    setGoogleDriveSyncButtonsBusy(true);
-    logAction('sync', { phase: 'process', count: list.length, source: source || 'unknown' });
-
-    const isWelcomeVisible = Boolean(loadingOverlay && !loadingOverlay.classList.contains('hidden'));
-    if (isWelcomeVisible && welcomeImportProgress) {
-        welcomeImportProgress.classList.remove('hidden');
-        clearElement(welcomeProgressList);
-    }
-
-    uploadProgressContainer?.classList.remove('hidden');
-    if (uploadProgress) uploadProgress.value = 0;
-    setUploadStatusText(`Google Drive: synchronizacja ${list.length} plik(ów)...`, { animate: false });
-
-    const summary = { files: [], records: 0, errors: 0 };
-    const before = allData.length;
-
-    try {
-        let processed = 0;
-        for (const file of list) {
-            const name = String(file?.name || '').trim();
-            const id = String(file?.id || '').trim();
-            if (!name || !id) continue;
-
-            const progressItem = isWelcomeVisible ? ensureWelcomeProgressRenderer().createItem(name) : null;
-            if (progressItem && welcomeProgressList) {
-                welcomeProgressList.appendChild(progressItem);
-                progressItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+function ensureDriveSyncApplication() {
+    if (driveSyncApplication) return driveSyncApplication;
+    const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
+    driveSyncApplication = createDriveSyncApplication({
+        getApi: () => qeGetDriveService(),
+        getFolderId: () => FOLDER_ID,
+        maxImportBytes: MAX_IMPORT_BYTES,
+        listDbFiles: () => docsListFiles(),
+        getDbFileRecord: (name) => docsGetFileRecord(name),
+        putDbBlob: (name, blob, meta) => docsPutBlob(name, blob, meta),
+        removeFileData,
+        isScheduleFileName,
+        invalidateScheduleFile,
+        processScheduleFile,
+        processFile,
+        loadedFiles,
+        getAllDataLength: () => allData.length,
+        finalizeImport: (summary, before) => ensureImportApplication().finalizeImport(summary, before),
+        logAction,
+        escapeHtml,
+        buildConnectingModalHtml: buildDriveConnectingModalHtml,
+        buildNoChangesModalHtml: buildDriveNoChangesModalHtml,
+        buildChangesModalHtml: buildDriveChangesModalHtml,
+        showModal: (title, content, actions) => showModal(title, content, actions),
+        hideModal: () => hideModal(),
+        setLoadingStatusText: (text) => {
+            setLoadingStatusText(text);
+            if (String(text || '').trim() === 'Dane aktualne.') {
+                if (statusIndicator) statusIndicator.textContent = 'Dane aktualne.';
             }
-
-            const displayName = formatFileName(name);
-            setLoadingStatusText(`Pobieranie: ${displayName}...`);
-            setUploadStatusText(`Google Drive: pobieram ${displayName}...`);
-
-            const percent = list.length > 0 ? (processed / list.length) * 100 : 0;
-            if (loadingProgressBar) {
-                loadingProgressBar.value = percent;
-                if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(percent)}%`;
+        },
+        setUploadStatusText: (text, opts) => setUploadStatusText(text, opts),
+        setUploadProgressValue: (v) => { if (uploadProgress) uploadProgress.value = Number(v) || 0; },
+        setLoadingProgress: (value, metaText) => {
+            if (loadingProgressBar) loadingProgressBar.value = Number(value) || 0;
+            if (loadingProgressMeta && metaText) loadingProgressMeta.textContent = String(metaText);
+        },
+        setUploadUiVisible: (visible, total) => {
+            if (visible) {
+                uploadProgressContainer?.classList.remove('hidden');
+                if (uploadProgress) uploadProgress.value = 0;
+                setUploadStatusText(`Google Drive: synchronizacja ${Number(total) || 0} plik(ów)...`, { animate: false });
+                return;
             }
-            if (uploadProgress) uploadProgress.value = Math.max(0, Math.min(95, percent));
-
-            try {
-                const buffer = await api.downloadFileArrayBuffer(id, token);
-                if (Number(buffer?.byteLength || 0) > MAX_IMPORT_BYTES) throw new Error('Plik przekracza limit 5MB');
-                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                await docsPutBlob(name, blob, { driveModifiedAt: file?.driveModifiedAt ?? null });
-                removeFileData(name);
-                if (isScheduleFileName(name)) {
-                    invalidateScheduleFile(name);
-                    await processScheduleFile(name);
-                } else {
-                    loadedFiles.delete(name);
-                    await processFile(name);
-                    loadedFiles.add(name);
-                }
-                summary.files.push(name);
-                if (progressItem) {
-                    const defer = Boolean(welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done');
-                    ensureWelcomeProgressRenderer().updateItem(progressItem, 100, 'Gotowe', { defer });
-                }
-            } catch (err) {
-                summary.errors += 1;
-                logAction('sync', { fileName: name, message: err?.message ? String(err.message) : 'Błąd' }, 'ERROR');
-                if (progressItem) {
-                    const defer = Boolean(welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done');
-                    ensureWelcomeProgressRenderer().updateItem(progressItem, 0, 'Błąd', { isError: true, defer });
-                }
-            } finally {
-                processed += 1;
-                const nextPercent = list.length > 0 ? (processed / list.length) * 100 : 100;
-                if (loadingProgressBar) {
-                    loadingProgressBar.value = nextPercent;
-                    if (loadingProgressMeta) loadingProgressMeta.textContent = `${Math.round(nextPercent)}%`;
-                }
-                if (uploadProgress) uploadProgress.value = Math.round(nextPercent);
-            }
-        }
-
-        finalizeFileImport(summary, before);
-        setLoadingStatusText('Synchronizacja zakończona');
-        setUploadStatusText('Google Drive: synchronizacja zakończona.');
-        if (loadingProgressBar) {
-            loadingProgressBar.value = 100;
-            if (loadingProgressMeta) loadingProgressMeta.textContent = '100%';
-        }
-    } catch (err) {
-        const msg = err?.message ? String(err.message) : 'Błąd synchronizacji';
-        logAction('sync', { phase: 'fatal_error', message: msg }, 'ERROR');
-        setLoadingStatusText('Błąd synchronizacji');
-        setUploadStatusText(`Google Drive: ${msg}`);
-        showModal('Błąd synchronizacji', `Wystąpił błąd podczas synchronizacji z Google Drive: ${escapeHtml(msg)}`, [
-            { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
-        ]);
-    } finally {
-        window.setTimeout(() => uploadProgressContainer?.classList.add('hidden'), 900);
-        setGoogleDriveSyncButtonsBusy(false);
-        googleDriveSyncIsImporting = false;
-    }
+            window.setTimeout(() => uploadProgressContainer?.classList.add('hidden'), 900);
+        },
+        setButtonsBusy: (busy) => setGoogleDriveSyncButtonsBusy(Boolean(busy)),
+        initChangesModal: (files, token) => qeInitDriveChangesModal({ files, token }),
+        formatFileName,
+        isWelcomeVisible: () => Boolean(loadingOverlay && !loadingOverlay.classList.contains('hidden')),
+        prepareWelcomeProgressList: () => {
+            if (!welcomeImportProgress) return;
+            welcomeImportProgress.classList.remove('hidden');
+            clearElement(welcomeProgressList);
+        },
+        createWelcomeItem: (name) => ensureWelcomeProgressRenderer().createItem(name),
+        appendWelcomeItem: (item) => { if (welcomeProgressList && item) welcomeProgressList.appendChild(item); },
+        scrollWelcomeItemIntoView: (item) => { try { item?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' }); } catch { } },
+        updateWelcomeItem: (item, percent, label, opts) => ensureWelcomeProgressRenderer().updateItem(item, percent, label, opts),
+        shouldDeferWelcomeUpdates: () => Boolean(welcomeTextUpdatesLocked && loadingOverlay && loadingOverlay.dataset.welcomeSeq !== 'done'),
+        runWithConcurrency
+    });
+    return driveSyncApplication;
 }
 
 /**
  * Obsługuje synchronizację z Google Drive (folder stały).
  */
 async function handleGoogleDriveSync({ source } = {}) {
-    const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
-    const api = qeGetDriveService();
-    if (!api) {
-        showModal('Google Drive', 'Synchronizacja jest niedostępna (brak modułu Google Drive).');
-        return;
-    }
-
-    if (googleDriveSyncIsImporting) {
-        showModal('Google Drive', 'Trwa synchronizacja plików. Poczekaj na zakończenie bieżącej operacji.');
-        return;
-    }
-
-    if (googleDriveConnectSession && !googleDriveConnectSession.cancelled) {
-        showModal('Google Drive', buildDriveConnectingModalHtml('Łączenie z Google Drive...'), [
-            { label: 'Anuluj', onClick: () => { try { googleDriveConnectSession.cancel(); } catch { } } }
-        ]);
-        return;
-    }
-
-    const sessionId = ++googleDriveConnectSeq;
-    const abortController = new AbortController();
-    const session = {
-        id: sessionId,
-        cancelled: false,
-        abortController,
-        cancel: () => {
-            if (session.cancelled) return;
-            session.cancelled = true;
-            try { abortController.abort(); } catch { }
-            if (googleDriveConnectSession && googleDriveConnectSession.id === sessionId) googleDriveConnectSession = null;
-            logAction('sync', { phase: 'cancelled', source: source || 'unknown' }, 'INFO');
-        }
-    };
-    googleDriveConnectSession = session;
-
-    logAction('sync', { phase: 'start', folderId: FOLDER_ID, source: source || 'unknown' });
-    try {
-        showModal('Google Drive', buildDriveConnectingModalHtml('Łączenie z Google Drive...'), [
-            { label: 'Anuluj', onClick: () => session.cancel() }
-        ]);
-        setLoadingStatusText('Łączenie z Google Drive...');
-        const token = await api.getAccessToken();
-        if (session.cancelled) return;
-
-        showModal('Google Drive', buildDriveConnectingModalHtml('Przeszukiwanie folderu na Google Drive...'), [
-            { label: 'Anuluj', onClick: () => session.cancel() }
-        ]);
-        setLoadingStatusText('Przeszukiwanie folderów...');
-        const files = await api.crawlFolder(FOLDER_ID, token, { signal: abortController.signal });
-        if (session.cancelled) return;
-
-        if (files.length === 0) {
-            showModal('Google Drive', 'Nie znaleziono żadnych plików .xlsx/.xls w wskazanym folderze Google Drive.', [
-                { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
-            ]);
-            return;
-        }
-
-        const existing = await docsListFiles();
-        if (existing.length === 0) {
-            hideModal();
-            await startGoogleDriveSync(files, token, { source: source || 'unknown' });
-            return;
-        }
-
-        showModal('Google Drive', buildDriveConnectingModalHtml('Analiza zmian...'), [
-            { label: 'Anuluj', onClick: () => session.cancel() }
-        ]);
-
-        const changed = [];
-        await runWithConcurrency(files, 8, async (file) => {
-            const name = String(file?.name || '').trim();
-            if (!name) return;
-
-            const record = await docsGetFileRecord(name);
-            if (!record) {
-                changed.push({ ...file, changeReason: 'Nowy plik', previousDriveModifiedAt: null, isNewInDb: true });
-                return;
-            }
-
-            const prev = Number(record?.driveModifiedAt);
-            const next = Number(file?.driveModifiedAt);
-
-            if (!Number.isFinite(prev) || prev <= 0) {
-                changed.push({ ...file, changeReason: 'Brak zapisanej daty poprzedniej synchronizacji', previousDriveModifiedAt: null, isNewInDb: false });
-                return;
-            }
-            if (!Number.isFinite(next) || next <= 0) {
-                changed.push({ ...file, changeReason: 'Brak daty modyfikacji z Google Drive', previousDriveModifiedAt: prev, isNewInDb: false });
-                return;
-            }
-            if (next > prev) {
-                changed.push({ ...file, changeReason: 'Nowsza wersja na Google Drive', previousDriveModifiedAt: prev, isNewInDb: false });
-            }
-        });
-
-        changed.sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'pl', { sensitivity: 'base' }));
-
-        if (changed.length === 0) {
-            setLoadingStatusText('Dane aktualne.');
-            statusIndicator.textContent = 'Dane aktualne.';
-            showModal('Google Drive', buildDriveNoChangesModalHtml(), [
-                { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
-            ]);
-            return;
-        }
-
-        showModal('Synchronizacja Google Drive', buildDriveChangesModalHtml(changed), [
-            { label: 'Nadpisz zmienione', class: 'modal-btn--primary', onClick: () => startGoogleDriveSync(changed, token, { source: source || 'unknown' }) },
-            { label: 'Anuluj', onClick: () => { logAction('sync', { phase: 'cancelled', source: source || 'unknown' }); } }
-        ]);
-        qeInitDriveChangesModal({ files: changed, token });
-    } catch (err) {
-        if (session.cancelled || err?.name === 'AbortError') return;
-        const msg = err?.message ? String(err.message) : 'Błąd synchronizacji';
-        logAction('sync', { phase: 'error', message: msg }, 'ERROR');
-        showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${escapeHtml(msg)}`, [
-            { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
-        ]);
-    } finally {
-        if (googleDriveConnectSession && googleDriveConnectSession.id === sessionId) googleDriveConnectSession = null;
-    }
+    await ensureDriveSyncApplication().start({ source: source || 'unknown' });
 }
 
 //////////////////////////////////////////////////
@@ -2626,42 +2393,42 @@ function getRowDisplayText(row, tableModel) {
  * Wykonuje proces wyszukiwania.
  */
 async function performSearch(query) {
-    const trimmedQuery = query.trim();
-    if (trimmedQuery.length < 3) {
-        handleSearchShortQuery();
-        return;
-    }
-    statusIndicator.textContent = 'Szukanie...';
-    statusIndicator.classList.remove('status--hint');
-    lastQuery = trimmedQuery;
-    try {
-        matchedResults = await ensureSearchOrchestrator().executeSearch(trimmedQuery);
-        if (matchedResults.length === 0) {
-            handleNoSearchResults();
-            return;
-        }
-        statusIndicator.textContent = 'Dane gotowe.';
-        currentResults = matchedResults;
-        await renderResults(trimmedQuery, { append: false, startIndex: 0 });
-    } catch (err) {
-        handleSearchError(err);
-    }
+    await ensureSearchApplication().search(query);
 }
 
-function ensureSearchOrchestrator() {
-    if (searchOrchestrator) return searchOrchestrator;
-    searchOrchestrator = createSearchOrchestrator({
-        getAllData: () => allData,
-        searchEngine: qeGetSearchEngine(),
-        searchCache,
-        predictiveSuggestionsCache,
-        getRouteCategoriesFromFileName,
-        formatRouteNameForResults,
-        normalizeText,
-        fuzzyNormalizeText,
+function ensureSearchApplication() {
+    if (searchApplication) return searchApplication;
+    searchApplication = createSearchApplication({
+        createOrchestrator: () => {
+            if (searchOrchestrator) return searchOrchestrator;
+            searchOrchestrator = createSearchOrchestrator({
+                getAllData: () => allData,
+                searchEngine: qeGetSearchEngine(),
+                searchCache,
+                predictiveSuggestionsCache,
+                getRouteCategoriesFromFileName,
+                formatRouteNameForResults,
+                normalizeText,
+                fuzzyNormalizeText,
+                logAction
+            });
+            return searchOrchestrator;
+        },
+        setStatusText: (text) => { if (statusIndicator) statusIndicator.textContent = String(text ?? ''); },
+        setStatusHint: (isHint) => {
+            if (!statusIndicator) return;
+            statusIndicator.classList.toggle('status--hint', Boolean(isHint));
+        },
+        setLastQuery: (q) => { lastQuery = String(q || ''); },
+        setMatchedResults: (results) => { matchedResults = Array.isArray(results) ? results : []; },
+        setCurrentResults: (results) => { currentResults = Array.isArray(results) ? results : []; },
+        renderResults: async (q) => { await renderResults(String(q || ''), { append: false, startIndex: 0 }); },
+        handleShortQuery: handleSearchShortQuery,
+        handleNoResults: handleNoSearchResults,
+        handleError: handleSearchError,
         logAction
     });
-    return searchOrchestrator;
+    return searchApplication;
 }
 
 //////////////////////////////////////////////////
@@ -2814,17 +2581,26 @@ function isRouteCategoryCollapsed(category) {
  * Wyświetla widok podglądu pełnej tabeli pliku.
  */
 function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false }) {
-    const tableModel = fullFileData[fileName];
-    if (!tableModel || !Array.isArray(tableModel.headers) || !Array.isArray(tableModel.rows)) return;
-    if (!options.skipPush) {
-        ensureNavigationService().pushPreview({ fileName, rowIndex: highlightRowIndex });
-    }
-    lastPreviewState = { fileName, rowIndex: highlightRowIndex };
-    const highlightedRowEl = ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex });
-    if (highlightedRowEl) highlightedRowEl.scrollIntoView({ block: 'center' });
-    queuePreviewReadyEvent(fileName);
-    logClientEvent('preview', { fileName: String(fileName || ''), rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null });
-    window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
+    ensurePreviewApplication().openPreview({
+        fileName: String(fileName || ''),
+        rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null,
+        skipPush: Boolean(options?.skipPush)
+    });
+}
+
+function ensurePreviewApplication() {
+    if (previewApplication) return previewApplication;
+    previewApplication = createPreviewApplication({
+        getTableModel: (name) => fullFileData[String(name || '')],
+        pushPreview: ({ fileName, rowIndex }) => ensureNavigationService().pushPreview({ fileName, rowIndex }),
+        setLastPreviewState: (s) => { lastPreviewState = s; },
+        showPreview: ({ fileName, tableModel, highlightRowIndex }) => ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex }),
+        showSearch: () => ensurePreviewController().showSearch(),
+        queuePreviewReadyEvent,
+        logClientEvent,
+        requestScrollIndicatorUpdate: () => window.requestAnimationFrame(() => ensureScrollIndicatorController().update())
+    });
+    return previewApplication;
 }
 
 /**
@@ -3287,17 +3063,6 @@ function setUploadStatusText(nextText, { animate = true } = {}) {
 }
 
 /**
- * Finalizuje import plików.
- */
-async function finalizeFileImport(summary, before) {
-    summary.records = Math.max(0, allData.length - before); if (uploadProgress) uploadProgress.value = 100;
-    setUploadStatusText('Import zakończony.'); logAction('import', { files: summary.files.length, records: summary.records, errors: summary.errors }, 'INFO');
-    displayImportSummary(summary); fileCountSpan.textContent = String((await getRouteSpreadsheetFiles()).length);
-    setSearchEnabled(allData.length > 0); if (lastQuery && lastQuery.trim().length >= 3 && isSearchEnabled) performSearch(lastQuery.trim());
-    schedulePredictiveIndexRebuild({ reason: 'import_done' });
-}
-
-/**
  * Przełącza stan ładowania interfejsu importu.
  */
 function setImportLoadingState(loading, total = 0) {
@@ -3309,14 +3074,23 @@ function setImportLoadingState(loading, total = 0) {
  * Przechodzi do widoku głównego aplikacji.
  */
 function continueToApp() {
-    stopLoadingScreen();
-    ensureNavigationService().replaceHome({ search: false });
-    const elapsed = performance.now() - DOM_READY_TS;
-    window.setTimeout(() => {
-        if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); }
-        if (isSearchEnabled) searchInput.focus();
-        window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
-    }, Math.max(0, 300 - elapsed));
+    ensureLoadingApplication().continueToApp();
+}
+
+function ensureLoadingApplication() {
+    if (loadingApplication) return loadingApplication;
+    loadingApplication = createLoadingApplication({
+        stopLoadingScreen,
+        replaceHome: () => ensureNavigationService().replaceHome({ search: false }),
+        getDomReadyTs: () => DOM_READY_TS,
+        now: () => performance.now(),
+        setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+        requestAnimationFrame: (fn) => window.requestAnimationFrame(fn),
+        showAppShell: () => { if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); } },
+        focusSearchIfEnabled: () => { if (isSearchEnabled) searchInput.focus(); },
+        updateScrollIndicator: () => ensureScrollIndicatorController().update()
+    });
+    return loadingApplication;
 }
 
 /**
@@ -3809,7 +3583,7 @@ const PREDICT_MIN_CHARS = 2;
  * Planista przebudowy indeksu podpowiedzi, aby nie wykonywać kosztownej pracy wielokrotnie podczas importu.
  */
 function schedulePredictiveIndexRebuild({ reason } = {}) {
-    ensureSearchOrchestrator().schedulePredictiveIndexRebuild({ reason: reason || 'unknown' });
+    ensureSearchApplication().schedulePredictiveIndexRebuild({ reason: reason || 'unknown' });
 }
 
 /**
@@ -3841,7 +3615,7 @@ function updatePredictiveSuggestions(query, { source } = {}) {
         return;
     }
 
-    const res = ensureSearchOrchestrator().getPredictiveSuggestions(norm, { lazyReason: 'predictive_lazy' });
+    const res = ensureSearchApplication().getPredictiveSuggestions(norm, { lazyReason: 'predictive_lazy' });
     if (!res?.hasIndex) {
         predictiveUiState.hidden = true;
         hideGhostOverlay();

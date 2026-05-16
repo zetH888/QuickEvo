@@ -13,6 +13,7 @@ const QuickEvoTests = {
         const ctx = await this.loadModules();
         await this.testXlsxLoaded();
         await this.testScheduleService(ctx);
+        await this.testDriveService(ctx);
         this.testModuleIsolation(ctx);
         this.testNormalization(ctx);
         this.testFuzzySearch(ctx);
@@ -27,18 +28,19 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService] = await Promise.all([
-            import('./modules/utils.js'),
-            import('./modules/search-engine.js'),
-            import('./modules/schedule/schedule-service.js')
+        const [utils, searchEngine, scheduleService, driveService] = await Promise.all([
+            import('../core/utils.js'),
+            import('../core/search-engine.js'),
+            import('../services/schedule-service.js'),
+            import('../services/drive-service.js')
         ]);
-        return { utils, searchEngine, scheduleService };
+        return { utils, searchEngine, scheduleService, driveService };
     },
 
     async testXlsxLoaded() {
         console.log("\nTesting XLSX Library:");
         try {
-            const excelProcessor = await import('./modules/excel-processor.js');
+            const excelProcessor = await import('../core/excel-processor.js');
             this.assert(typeof excelProcessor.sheetToMatrix === 'function', "XLSX jest dostępne przez ESM (excel-processor)");
         } catch (e) {
             this.assert(false, "Nie udało się zaimportować XLSX przez ESM");
@@ -104,6 +106,106 @@ const QuickEvoTests = {
         } catch (e) {
             this.assert(false, "Nie udało się przetestować schedule-service");
             console.error(e);
+        }
+    },
+
+    async testDriveService(ctx) {
+        console.log("\nTesting Google Drive — drive-service:");
+        const driveService = ctx?.driveService;
+        this.assert(typeof driveService?.validateExcelFileName === 'function', "drive-service jest dostępny przez import");
+        if (typeof driveService?.validateExcelFileName !== 'function') return;
+
+        this.assert(driveService.validateExcelFileName('test.xlsx') === true, 'Walidacja rozszerzenia .xlsx');
+        this.assert(driveService.validateExcelFileName('test.xls') === true, 'Walidacja rozszerzenia .xls');
+        this.assert(driveService.validateExcelFileName('test.csv') === false, 'Odrzuca rozszerzenie .csv');
+
+        const originalFetch = globalThis.fetch;
+        let downloadCalls = 0;
+        let listCalls = 0;
+
+        try {
+            globalThis.fetch = async (url, opts) => {
+                const raw = String(url || '');
+
+                if (raw.includes('?alt=media')) {
+                    downloadCalls += 1;
+                    return {
+                        ok: true,
+                        status: 200,
+                        arrayBuffer: async () => new TextEncoder().encode('ok').buffer,
+                        text: async () => ''
+                    };
+                }
+
+                if (raw.startsWith('https://www.googleapis.com/drive/v3/files?')) {
+                    listCalls += 1;
+                    const u = new URL(raw);
+                    const q = String(u.searchParams.get('q') || '');
+                    const isRoot = q.includes("'root' in parents");
+                    const isSub = q.includes("'sub' in parents");
+
+                    if (isRoot) {
+                        return {
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                nextPageToken: '',
+                                files: [
+                                    { id: 'sub', name: 'SubFolder', mimeType: 'application/vnd.google-apps.folder', modifiedTime: '2026-05-16T00:00:00Z' },
+                                    { id: 'a', name: 'a.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', modifiedTime: '2026-05-16T00:00:00Z' },
+                                    { id: 'x', name: 'ignore.txt', mimeType: 'text/plain', modifiedTime: '2026-05-16T00:00:00Z' }
+                                ]
+                            }),
+                            text: async () => ''
+                        };
+                    }
+
+                    if (isSub) {
+                        return {
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                nextPageToken: '',
+                                files: [
+                                    { id: 'b', name: 'b.xls', mimeType: 'application/vnd.ms-excel', modifiedTime: '2026-05-15T00:00:00Z' }
+                                ]
+                            }),
+                            text: async () => ''
+                        };
+                    }
+
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ nextPageToken: '', files: [] }),
+                        text: async () => ''
+                    };
+                }
+
+                return {
+                    ok: false,
+                    status: 500,
+                    json: async () => ({}),
+                    text: async () => 'Unexpected URL'
+                };
+            };
+
+            const token = 'test-token';
+
+            const ab1 = await driveService.downloadFileArrayBuffer('file-1', token);
+            const ab2 = await driveService.downloadFileArrayBuffer('file-1', token);
+            this.assert(ab1 instanceof ArrayBuffer && ab2 instanceof ArrayBuffer, 'downloadFileArrayBuffer zwraca ArrayBuffer');
+            this.assert(downloadCalls === 1, 'downloadFileArrayBuffer używa cache dla tego samego fileId');
+
+            const list = await driveService.crawlFolder('root', token);
+            const names = Array.isArray(list) ? list.map(x => String(x?.name || '')).sort() : [];
+            this.assert(Array.isArray(list) && names.join(',') === 'a.xlsx,b.xls', 'crawlFolder zwraca tylko pliki .xlsx/.xls (rekurencyjnie)');
+            this.assert(listCalls >= 2, 'crawlFolder wykonuje zapytania do folderu głównego i podfolderu');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować drive-service");
+            console.error(e);
+        } finally {
+            globalThis.fetch = originalFetch;
         }
     },
 

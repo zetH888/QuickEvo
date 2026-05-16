@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.8.0-blue)
+![Version](https://img.shields.io/badge/version-2.15.0-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -22,8 +22,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 ## Architektura
 
 - **Client-Side Only** — cała logika biznesowa działa w przeglądarce użytkownika
-- **Modułowa struktura** — wydzielone moduły (m.in. integracja z Google Drive, debugger) oraz postępująca dekompozycja `app.js` do `js/modules/` (m.in. kontrolery UI w `ui-components.js`, w tym scroll-indicator)
-- **Refaktoryzacja (instrukcja ciągła)** — `decomposition_next.md` opisuje dotychczasowy postęp i kolejne etapy do pełnej dekompozycji
+- **Modułowa struktura** — warstwowy podział `js/` (entry/app/core/services/ui/storage/features/config) oraz dalsza dekompozycja `js/entry/app.js` do wyspecjalizowanych modułów
 - **Shadow DOM** — debugger korzysta z izolowanego Shadow DOM, co zapobiega konfliktom stylów
 
 ***
@@ -77,26 +76,41 @@ QuickEvo/
 ├── css/
 │   ├── style.css        # Style główne (jasny/ciemny motyw)
 ├── js/
-│   ├── app.js           # Logika aplikacji
-│   ├── googleDrive.js   # Moduł integracji z Google Drive
-│   ├── modules/         # Moduły ESM (dekompozycja app.js)
+│   ├── entry/           # Entrypointy ładowane w index.html
+│   │   └── app.js       # Główny bootstrap aplikacji
+│   ├── app/             # Warstwa aplikacyjna (orchestracja use-case)
+│   │   ├── import-application.js
+│   │   ├── search-application.js
+│   │   ├── preview-application.js
+│   │   ├── drive-sync-application.js
+│   │   ├── navigation-application.js
+│   │   └── loading-application.js
+│   ├── config/          # Konfiguracja i stałe
+│   │   ├── constants.js
+│   │   └── route-codes.js
+│   ├── core/            # Silnik i czyste funkcje (bez DOM)
 │   │   ├── utils.js
 │   │   ├── search-engine.js
-│   │   ├── search/
-│   │   │   └── search-orchestrator.js
 │   │   ├── state.js
-│   │   ├── excel-processor.js
+│   │   └── excel-processor.js
+│   ├── features/        # Logika specyficzna dla funkcji
+│   │   └── search/
+│   │       └── search-orchestrator.js
+│   ├── services/        # Integracje i efekty uboczne
 │   │   ├── drive-service.js
-│   │   ├── import/
-│   │   │   └── import-service.js
-│   │   ├── schedule/
-│   │   │   └── schedule-service.js
-│   │   ├── navigation/
-│   │   │   └── navigation-service.js
-│   │   └── storage/
-│   │       └── docs-db.js
-│   ├── qe-debugger.js   # Moduł debuggera (Shadow DOM)
-│   └── tests.js         # Pakiet testów automatycznych
+│   │   ├── import-service.js
+│   │   ├── navigation-service.js
+│   │   └── schedule-service.js
+│   ├── storage/         # Persystencja (IndexedDB)
+│   │   └── docs-db.js
+│   ├── ui/              # Warstwa UI (DOM)
+│   │   ├── ui-components.js
+│   │   └── theme/
+│   │       └── MatrixThemeToggle.js
+│   ├── devtools/        # Narzędzia developerskie
+│   │   └── qe-debugger.js
+│   └── tests/           # Testy (uruchamiane opcjonalnie)
+│       └── tests.js
 └── README.md
 ```
 

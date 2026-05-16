@@ -5,7 +5,7 @@
  * Funkcje przyjmują zależności jawnie przez parametry, aby nie polegać na globalnym scope.
  */
 
-import { clampNumber, normalizeText } from './utils.js';
+import { clampNumber, normalizeText } from '../core/utils.js';
 
 export function getLoadingTitleCategoryForProgress(progressPercent) {
     const p = clampNumber(progressPercent, 0, 100);
