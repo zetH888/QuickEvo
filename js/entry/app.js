@@ -26,13 +26,17 @@ import { createLogoRenderer, createModalController, createPreviewController, cre
 import { createDriveChangesModalController } from '../ui/drive/drive-changes-modal.js';
 import { createWelcomeLoadingOverlayController } from '../ui/loading/welcome-loading-overlay-controller.js';
 import { createPredictiveGhostController } from '../ui/search/predictive-ghost.js';
+import { buildQuickEvoLogoSvg, startLogoOrbitInContainer } from '../ui/logo/quickevo-logo.js';
+import { formatFileName } from '../core/formatters/file-name.js';
+import { highlightText } from '../core/formatters/highlight.js';
+import { getRouteCategoriesFromFileName } from '../core/formatters/route-categories.js';
+import { formatRouteNameForResults } from '../core/formatters/route-name.js';
+import { toTitleCase } from '../core/formatters/title-case.js';
 import { BOOT_WATCHDOG_MS, LOADING_PROGRESS_JUMP_MAX, LOADING_PROGRESS_JUMP_MIN, LOADING_PROGRESS_MICROSTOP_MAX_MS, LOADING_PROGRESS_MICROSTOP_MIN_MS, LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH, LOADING_TITLE_FADE_IN_MS, LOADING_TITLE_FADE_OUT_MS, LOADING_TITLE_INTERVAL_MAX_MS, LOADING_TITLE_INTERVAL_MIN_MS, LOADING_TITLE_MESSAGES, MAX_IMPORT_BYTES, ROUTE_CATEGORIES_ORDER, ROUTE_CATEGORY_STORAGE_PREFIX, WELCOME_LOGO_ENTER_DELAY_MS, WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS, WELCOME_SEQUENCE_UNLOCK_AFTER_MS } from '../config/constants.js';
 
 //////////////////////////////////////////////////
 // STAŁE GLOBALNE, KONFIGURACJA, IMPORTY
 //////////////////////////////////////////////////
-
-const routeCategoryCache = new Map();
 
 /**
  * Globalne instancje parserów DOM dla HTML i SVG.
@@ -146,12 +150,6 @@ let loadingApplication = null;
 
 let predictiveSuggestionsCache = null;
 let predictiveGhostController = null;
-
-/**
- * Kontrolery animacji orbit logo.
- * @type {WeakMap<SVGElement, Object>}
- */
-const logoOrbitControllers = new WeakMap();
 
 //////////////////////////////////////////////////
 // CACHE ELEMENTÓW DOM
@@ -277,9 +275,6 @@ let loadingFailed = false;
 
 /** @type {number} Czas rozpoczęcia procesu ładowania. */
 let loadingStartedAt = 0;
-
-/** @type {number} Licznik instancji loga dla unikalnych ID SVG. */
-let logoInstanceCounter = 0;
 
 /** @type {Object} Ostatni stan podglądu pliku. */
 let lastPreviewState = { fileName: null, rowIndex: null };
@@ -1848,77 +1843,6 @@ function resetToInitialState({ source } = {}) {
 //////////////////////////////////////////////////
 
 /**
- * Czyści nazwę pliku z fragmentów w nawiasach i rozszerzenia.
- */
-function formatFileName(fileName) {
-    let name = fileName.replace(/\s*\([^)]*\)/g, '');
-    name = name.replace(/\.xlsx$/i, '');
-    return name.replace(/\s+/g, ' ').trim();
-}
-
-/**
- * Formatuje nazwę trasy dla listy wyników.
- */
-function formatRouteNameForResults(fileName) {
-    const base = String(fileName || '').replace(/\.xlsx$/i, '').replace(/\s+/g, ' ').trim();
-    const match = base.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
-    if (match && match[1]) {
-        const code = match[1].replace(/\s*[-–]\s*/g, '-').replace(/[^A-Za-zĄĆĘŁŃÓŚŹŻ0-9-]/g, '').toUpperCase();
-        if (code) return `TRASA ${code}`;
-    }
-    return base.replace(/[\[\]\{\}]/g, '').replace(/\([^)]*\)/g, '').replace(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g, '').replace(/[^\p{L}\p{N}\s-]+/gu, '').replace(/\s+/g, ' ').trim().toUpperCase();
-}
-
-function getRouteCategoriesFromFileName(fileName) {
-    const key = String(fileName || '');
-    if (routeCategoryCache.has(key)) return routeCategoryCache.get(key);
-
-    const bracketParts = [];
-    const re = /\(([^)]*)\)/g;
-    let m;
-    while ((m = re.exec(key)) !== null) {
-        const part = String(m[1] || '').trim();
-        if (part) bracketParts.push(part);
-    }
-
-    const found = new Set();
-    for (const part of bracketParts) {
-        const norm = fuzzyNormalizeText(part);
-        if (norm.includes('sobota')) found.add('SOBOTA');
-        if (norm.includes('niedziela')) found.add('NIEDZIELA');
-        if (norm.includes('wieczorek')) found.add('WIECZOREK');
-    }
-
-    const out = found.size > 0 ? Array.from(found) : ['STANDARD'];
-    routeCategoryCache.set(key, out);
-    return out;
-}
-
-/**
- * Formatuje tekst do postaci Title Case.
- */
-function toTitleCase(text) {
-    if (!text) return '';
-    return text.toLowerCase().split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-}
-
-/**
- * Podświetla szukane zapytanie w tekście.
- */
-function highlightText(text, query) {
-    if (!query) return text;
-    const normText = fuzzyNormalizeText(text), normQuery = fuzzyNormalizeText(query);
-    if (!normQuery) return text;
-    let result = '', lastIdx = 0, idx = normText.indexOf(normQuery);
-    while (idx !== -1) {
-        result += escapeHtml(text.slice(lastIdx, idx));
-        result += `<span class="highlight">${escapeHtml(text.slice(idx, idx + normQuery.length))}</span>`;
-        lastIdx = idx + normQuery.length; idx = normText.indexOf(normQuery, lastIdx);
-    }
-    result += escapeHtml(text.slice(lastIdx)); return result;
-}
-
-/**
  * Normalizuje tekst do małych liter.
  */
 function normalizeText(text) {
@@ -1984,79 +1908,6 @@ function formatCellContent(cell, idx, headerMap) {
     const formatted = formatCellValue(cell);
     if (idx === headerMap['GODZ']) return (formatted === '' || formatted === '-') ? '-' : formatted;
     return formatted;
-}
-
-//////////////////////////////////////////////////
-// FUNKCJE ANIMACJI I EFEKTÓW WIZUALNYCH
-//////////////////////////////////////////////////
-
-/**
- * Buduje kod SVG logo QuickEvo.
- */
-function buildQuickEvoLogoSvg({ size }) {
-    const { primary, textStrong, textSoft } = getLogoPalette();
-    const fontSize = size === 'header' ? 40 : 56, lineY = size === 'header' ? 14 : 18, textY = size === 'header' ? 4 : 0;
-    const prefix = `qe${++logoInstanceCounter}`;
-    return `<svg viewBox="0 0 640 180" role="img" aria-label="QuickEvo" xmlns="http://www.w3.org/2000/svg" data-qe-logo-size="${size}"><defs><linearGradient id="${prefix}Grad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${primary}" stop-opacity="0.95"></stop><stop offset="1" stop-color="${primary}" stop-opacity="0.35"></stop></linearGradient><filter id="${prefix}Soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur in="SourceGraphic" stdDeviation="2.4" result="blur"></feGaussianBlur><feColorMatrix in="blur" type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0.55 0" result="soft"></feColorMatrix><feMerge><feMergeNode in="soft"></feMergeNode><feMergeNode in="SourceGraphic"></feMergeNode></feMerge></filter></defs><g transform="translate(72 90)" filter="url(#${prefix}Soft)"><circle class="qe-pulse" cx="0" cy="0" r="34" fill="url(#${prefix}Grad)"></circle><circle cx="0" cy="0" r="52" fill="none" stroke="${primary}" stroke-opacity="0.35" stroke-width="3"></circle><g class="qe-orbit" data-qe-orbit="1"><circle class="qe-orbit-dot qe-orbit-dot--a" data-qe-orbit-dot="a" cx="52" cy="0" r="6" fill="${primary}"></circle><circle class="qe-orbit-dot qe-orbit-dot--b" data-qe-orbit-dot="b" cx="-26" cy="45" r="4" fill="${primary}" fill-opacity="0.75"></circle></g></g><g transform="translate(150 110)"><text x="0" y="${textY}" font-family="Segoe UI, system-ui, -apple-system, Arial" font-size="${fontSize}" font-weight="800" fill="${textStrong}">Quick<tspan font-weight="300" fill="${textSoft}">Evo</tspan></text><path d="M0 ${lineY} H460" stroke="${primary}" stroke-opacity="0.30" stroke-width="3" stroke-linecap="round"></path></g></svg>`;
-}
-
-/**
- * Uruchamia animację orbity w logo.
- */
-function startLogoOrbit(svg, size) {
-    if (!svg || logoOrbitControllers.has(svg) || prefersReducedMotion()) return;
-    const orbitGroup = svg.querySelector('g[data-qe-orbit="1"]'); if (!orbitGroup) return;
-    const dotA = orbitGroup.querySelector('[data-qe-orbit-dot="a"]'), dotB = orbitGroup.querySelector('[data-qe-orbit-dot="b"]');
-    if (!dotA || !dotB) return;
-    let cfg = getLogoOrbitConfig(size), lastCfgTs = 0; const startTs = performance.now();
-    const tick = (ts) => {
-        if (!svg.isConnected || prefersReducedMotion()) { logoOrbitControllers.delete(svg); return; }
-        if ((ts - lastCfgTs) > 700) { cfg = getLogoOrbitConfig(size); lastCfgTs = ts; }
-        const t = (ts - startTs) / 1000, theta = cfg.dir * (t / cfg.period) * Math.PI * 2;
-        dotA.setAttribute('cx', (cfg.radius * Math.cos(theta)).toFixed(2)); dotA.setAttribute('cy', (cfg.radius * Math.sin(theta)).toFixed(2));
-        dotB.setAttribute('cx', (cfg.radius * 0.72 * Math.cos(theta + 2.05)).toFixed(2)); dotB.setAttribute('cy', (cfg.radius * 0.72 * Math.sin(theta + 2.05)).toFixed(2));
-        logoOrbitControllers.set(svg, { rafId: window.requestAnimationFrame(tick) });
-    };
-    logoOrbitControllers.set(svg, { rafId: window.requestAnimationFrame(tick) });
-}
-
-/**
- * Uruchamia animację orbity w kontenerze.
- */
-function startLogoOrbitInContainer(container, size) {
-    const svg = container?.querySelector('svg'); if (svg) startLogoOrbit(svg, size);
-}
-
-/**
- * Pobiera konfigurację animacji orbity.
- */
-function getLogoOrbitConfig(size) {
-    const rootStyle = getComputedStyle(document.documentElement);
-    const radius = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-radius-${size}`), 52);
-    const period = Math.max(0.2, parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-period-${size}`), size === 'header' ? 4.8 : 3.2));
-    const dir = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-direction-${size}`), 1) >= 0 ? 1 : -1;
-    return { radius, period, dir };
-}
-
-/**
- * Pobiera paletę kolorów dla logo na podstawie motywu.
- */
-function getLogoPalette() {
-    const bodyStyle = getComputedStyle(document.body);
-    const primary = bodyStyle.getPropertyValue('--primary-color').trim() || '#0066CC';
-    const baseTextColor = bodyStyle.getPropertyValue('--text-color').trim() || '#333333';
-    const isMatrix = document.body.classList.contains('matrix-theme') || Boolean(window.isMatrixThemeActive);
-    // W trybie MATRIX® oba logotypy (header + ekran powitalny) muszą używać tej samej palety neonowej zieleni.
-    if (isMatrix) return { primary, textStrong: 'rgba(0, 255, 65, 0.92)', textSoft: 'rgba(0, 255, 65, 0.72)' };
-    const isDark = document.body.classList.contains('dark-theme');
-    return { primary, textStrong: isDark ? 'rgba(255, 255, 255, 0.92)' : baseTextColor, textSoft: isDark ? 'rgba(255, 255, 255, 0.78)' : baseTextColor };
-}
-
-/**
- * Parsuje wartość liczbową z CSS.
- */
-function parseCssNumber(value, fallback) {
-    return qeGetUtils().parseCssNumber(value, fallback);
 }
 
 //////////////////////////////////////////////////
