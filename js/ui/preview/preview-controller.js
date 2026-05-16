@@ -12,6 +12,15 @@ export function createPreviewController(cfg) {
     const getRouteCategoriesFromFileName = typeof cfg?.getRouteCategoriesFromFileName === 'function'
         ? cfg.getRouteCategoriesFromFileName
         : (() => []);
+    const extractRouteCodeFromFileName = typeof cfg?.extractRouteCodeFromFileName === 'function'
+        ? cfg.extractRouteCodeFromFileName
+        : (() => '');
+    const getDriverForRouteOnDate = typeof cfg?.getDriverForRouteOnDate === 'function'
+        ? cfg.getDriverForRouteOnDate
+        : (() => null);
+    const buildDriverBadgesHtml = typeof cfg?.buildDriverBadgesHtml === 'function'
+        ? cfg.buildDriverBadgesHtml
+        : (() => '');
 
     function clearElement(el) {
         if (!el) return;
@@ -47,6 +56,17 @@ export function createPreviewController(cfg) {
             badge.dataset.routeCategory = cat;
             badge.textContent = cat;
             previewFileName.appendChild(badge);
+        }
+
+        const routeCode = extractRouteCodeFromFileName(fileName);
+        const driverNames = routeCode ? getDriverForRouteOnDate(routeCode, new Date()) : null;
+        const driverBadgesHtml = buildDriverBadgesHtml(driverNames);
+        if (driverBadgesHtml) {
+            const driverEl = document.createElement('span');
+            driverEl.className = 'result-driver';
+            driverEl.setAttribute('aria-label', 'Kierowcy z grafiku');
+            driverEl.innerHTML = driverBadgesHtml;
+            previewFileName.appendChild(driverEl);
         }
     }
 
@@ -110,4 +130,3 @@ export function createPreviewController(cfg) {
 
     return { showSearch, showPreview, updateMeta, renderFileName };
 }
-

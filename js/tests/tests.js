@@ -13,6 +13,7 @@ const QuickEvoTests = {
         const ctx = await this.loadModules();
         await this.testXlsxLoaded();
         await this.testScheduleService(ctx);
+        await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
         this.testModuleIsolation(ctx);
         this.testNormalization(ctx);
@@ -28,13 +29,14 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driveService] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driveService, previewController] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
-            import('../services/drive-service.js')
+            import('../services/drive-service.js'),
+            import('../ui/preview/preview-controller.js')
         ]);
-        return { utils, searchEngine, scheduleService, driveService };
+        return { utils, searchEngine, scheduleService, driveService, previewController };
     },
 
     async testXlsxLoaded() {
@@ -206,6 +208,67 @@ const QuickEvoTests = {
             console.error(e);
         } finally {
             globalThis.fetch = originalFetch;
+        }
+    },
+
+    async testPreviewDriverBadges(ctx) {
+        console.log("\nTesting Podgląd Trasy — badge kierowcy:");
+        try {
+            const createPreviewController = ctx?.previewController?.createPreviewController;
+            this.assert(typeof createPreviewController === 'function', "preview-controller jest dostępny przez import");
+            if (typeof createPreviewController !== 'function') return;
+
+            const root = document.createElement('div');
+            root.style.position = 'absolute';
+            root.style.left = '-9999px';
+            root.style.top = '0';
+
+            const searchView = document.createElement('div');
+            const filePreviewView = document.createElement('div');
+            const previewFileName = document.createElement('h2');
+            const previewMeta = document.createElement('div');
+            const tableHeader = document.createElement('tr');
+            const tableBody = document.createElement('tbody');
+
+            root.appendChild(searchView);
+            root.appendChild(filePreviewView);
+            root.appendChild(previewFileName);
+            root.appendChild(previewMeta);
+            root.appendChild(tableHeader);
+            root.appendChild(tableBody);
+            document.body.appendChild(root);
+
+            const ctrl = createPreviewController({
+                searchView,
+                filePreviewView,
+                previewMeta,
+                previewFileName,
+                tableHeader,
+                tableBody,
+                formatFileName: (x) => String(x || ''),
+                getRouteCategoriesFromFileName: () => [],
+                extractRouteCodeFromFileName: () => '12',
+                getDriverForRouteOnDate: () => ['Jan Kowalski'],
+                buildDriverBadgesHtml: (names) => {
+                    const safe = Array.isArray(names) ? String(names[0] || '') : '';
+                    return safe ? `<span class="result-driver-badge">${safe}</span>` : '';
+                }
+            });
+
+            ctrl.showPreview({
+                fileName: 'Trasa 12.xlsx',
+                tableModel: { headers: [], rows: [], metaLines: [] },
+                highlightRowIndex: null
+            });
+
+            const badge = previewFileName.querySelector('.result-driver-badge');
+            this.assert(Boolean(badge), "Wyświetla badge kierowcy w nagłówku podglądu");
+            this.assert(String(badge?.textContent || '').trim() === 'Jan Kowalski', "Badge kierowcy zawiera poprawną nazwę");
+
+            root.remove();
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować badge kierowcy w podglądzie");
+            console.error(e);
         }
     },
 

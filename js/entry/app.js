@@ -231,6 +231,12 @@ let matchedResults = [];
 /** @type {string} Ostatnie zapytanie użyte do wyszukiwania. */
 let lastQuery = ''; 
 
+/** @type {number} Rewizja danych (allData) używana do detekcji zmian wymagających ponownego renderu wyników. */
+let allDataRevision = 0;
+
+/** @type {{ query: string, dataRevision: number }} Ostatnio wyrenderowane wyniki (zapytanie + rewizja danych). */
+let lastRenderedSearch = { query: '', dataRevision: -1 };
+
 /** @type {Set<string>} Zbiór nazw plików, które zostały już przetworzone. */
 let loadedFiles = new Set(); 
 
@@ -1264,6 +1270,7 @@ function addTableRows(tableModel, fileName) {
         if (normalizedRow) normalizedRows.push(normalizedRow);
     }
     allData = allData.concat(normalizedRows);
+    if (normalizedRows.length > 0) allDataRevision += 1;
     return normalizedRows.length;
 }
 
@@ -1304,7 +1311,18 @@ function getRowDisplayText(row, tableModel) {
  * Wykonuje proces wyszukiwania.
  */
 async function performSearch(query) {
-    await ensureSearchApplication().search(query);
+    const trimmed = String(query || '').trim();
+    if (trimmed.length >= 3) {
+        const renderedMatchesQuery = String(lastRenderedSearch?.query || '').trim() === trimmed;
+        const renderedMatchesData = Number(lastRenderedSearch?.dataRevision) === allDataRevision;
+        const lastMatchesQuery = String(lastQuery || '').trim() === trimmed;
+        const hasRenderedDom = Boolean(resultsList && resultsList.childElementCount > 0);
+        if (renderedMatchesQuery && renderedMatchesData && lastMatchesQuery && currentResults.length > 0 && hasRenderedDom) {
+            if (statusIndicator) statusIndicator.textContent = 'Dane gotowe.';
+            return;
+        }
+    }
+    await ensureSearchApplication().search(trimmed);
 }
 
 function ensureSearchApplication() {
@@ -1394,7 +1412,9 @@ async function resolveImportConflicts({ files, conflicts } = {}) {
 function removeFileData(fileName) {
     const safe = String(fileName || '');
     if (!safe) return;
+    const beforeLen = allData.length;
     allData = allData.filter(d => d?.fileName !== safe);
+    if (allData.length !== beforeLen) allDataRevision += 1;
     delete fullFileData[safe];
     loadErrors = loadErrors.filter(e => e?.fileName !== safe);
 }
@@ -1405,6 +1425,8 @@ function removeFileData(fileName) {
 function resetAppData() {
     allData = []; currentResults = []; lastQuery = '';
     loadedFiles = new Set(); fullFileData = {}; loadErrors = [];
+    allDataRevision += 1;
+    lastRenderedSearch = { query: '', dataRevision: -1 };
 }
 
 //////////////////////////////////////////////////
@@ -1459,6 +1481,7 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
 
     ensureResultsCategoryController().updateCounts(sections, currentResults);
     ensureResultsCategoryController().syncHeights(sections);
+    if (!append && startIndex === 0) lastRenderedSearch = { query: String(query || ''), dataRevision: allDataRevision };
     window.requestAnimationFrame(() => {
         const ctrl = ensureScrollIndicatorController();
         ctrl.syncResultsEndIntersectionObserver();
@@ -1509,7 +1532,7 @@ function ensurePreviewApplication() {
         showSearch: () => ensurePreviewController().showSearch(),
         queuePreviewReadyEvent,
         logClientEvent,
-        requestScrollIndicatorUpdate: () => window.requestAnimationFrame(() => ensureScrollIndicatorController().update())
+        requestScrollIndicatorUpdate: () => window.requestAnimationFrame(() => window.requestAnimationFrame(() => ensureScrollIndicatorController().update()))
     });
     return previewApplication;
 }
@@ -1567,7 +1590,10 @@ function ensurePreviewController() {
         tableHeader: document.getElementById('table-header'),
         tableBody: document.getElementById('table-body'),
         formatFileName,
-        getRouteCategoriesFromFileName
+        getRouteCategoriesFromFileName,
+        extractRouteCodeFromFileName,
+        getDriverForRouteOnDate,
+        buildDriverBadgesHtml
     });
     return previewController;
 }
@@ -1709,6 +1735,7 @@ function setSearchEnabled(enabled) {
  */
 function clearResults() {
     lastQuery = ''; matchedResults = []; currentResults = [];
+    lastRenderedSearch = { query: '', dataRevision: -1 };
     clearElement(resultsList);
     resultsInfo.textContent = '';
     window.requestAnimationFrame(() => {
