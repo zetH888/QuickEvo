@@ -64,7 +64,7 @@
     ]);
 
     const QE_DAY_MARKERS = Object.freeze([
-        'Z', 'UŻ', 'UZ', 'U', 'DK', 'D', '*D', '*P'
+        'Z', 'UŻ', 'UZ', 'U', 'DK', '*D', '*P'
     ]);
 
     window.QE_RouteScheduleConfig = Object.freeze({
