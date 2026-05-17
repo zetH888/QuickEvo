@@ -28,15 +28,20 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
             const prevRow = prev ? `<div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">${prev}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">Brak danych</span></div>`;
             const nextRow = next ? `<div class="qe-drive-kv"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">${next}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">Brak danych</span></div>`;
             const chevron = `<svg class="qe-drive-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-            const diffDisabled = isNewInDb ? ' disabled' : '';
-            const diffBtnLabel = isNewInDb ? 'Nowy plik — brak różnic' : 'Pokaż różnice';
+            const customDisabledLabel = String(f?.diffDisabledLabel || '').trim();
+            const customDisabledStatus = String(f?.diffDisabledStatus || '').trim();
+            const hasCustomDisabled = Boolean(customDisabledLabel);
+            const diffDisabled = (isNewInDb || hasCustomDisabled) ? ' disabled' : '';
+            const diffBtnLabel = hasCustomDisabled ? customDisabledLabel : (isNewInDb ? 'Nowy plik — brak różnic' : 'Pokaż różnice');
             const diffBtn = `<button class="qe-drive-diff-btn" type="button"${diffDisabled}>${diffBtnLabel}</button>`;
             const diffStatus = `<div class="qe-drive-diff-status" aria-hidden="true">
             <div class="qe-drive-diff-status-spinner" hidden><div class="qe-spinner" aria-hidden="true"></div></div>
             <div class="qe-drive-diff-status-check" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7L10.2 17 4 10.8" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
             <div class="qe-drive-diff-status-x" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg></div>
         </div>`;
-            const diffState = isNewInDb ? 'blocked' : 'idle';
+            const diffState = hasCustomDisabled
+                ? (customDisabledStatus === 'check' ? 'blocked_ok' : 'blocked')
+                : (isNewInDb ? 'blocked' : 'idle');
             const diffShell = `<div class="qe-drive-diff" data-qe-diff-state="${diffState}" data-qe-diff-visible="0">
             <div class="qe-drive-diff-actions">${diffBtn}${diffStatus}</div>
             <div class="qe-drive-diff-body" hidden>
@@ -125,10 +130,10 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
         const expandAllBtn = root.querySelector('.qe-drive-expandall');
         const items = Array.from(root.querySelectorAll('.qe-drive-change'));
         for (const el of items) {
-            const isNew = String(el?.dataset?.qeDriveIsNew || '') === '1';
             const diff = el.querySelector('.qe-drive-diff');
             if (!diff) continue;
-            driveDiffSetStatus(diff, isNew ? 'blocked' : 'idle');
+            const initialState = String(diff?.dataset?.qeDiffState || '').trim() || 'idle';
+            driveDiffSetStatus(diff, initialState);
             diff.dataset.qeDiffVisible = '0';
             const btn = diff.querySelector('.qe-drive-diff-btn');
             if (btn && !btn.disabled && btn.textContent !== 'Pokaż różnice') btn.textContent = 'Pokaż różnice';
@@ -336,7 +341,7 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
         const checkWrap = container.querySelector('.qe-drive-diff-status-check');
         const xWrap = container.querySelector('.qe-drive-diff-status-x');
         if (spinnerWrap) spinnerWrap.hidden = !(s === 'loading' || s === 'idle');
-        if (checkWrap) checkWrap.hidden = s !== 'ready';
+        if (checkWrap) checkWrap.hidden = !(s === 'ready' || s === 'blocked_ok');
         if (xWrap) xWrap.hidden = !(s === 'blocked' || s === 'error');
     }
 
@@ -890,4 +895,3 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
         teardown
     };
 }
-

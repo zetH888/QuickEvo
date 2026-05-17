@@ -95,6 +95,21 @@ const QuickEvoTests = {
                 logAction: () => { }
             });
 
+            this.assert(typeof service?.isScheduleXlsxFileName === 'function', "isScheduleXlsxFileName jest dostępne w schedule-service");
+            if (typeof service?.isScheduleXlsxFileName === 'function') {
+                this.assert(service.isScheduleXlsxFileName('WARSZAWA MAJ 2026.xlsx') === true, 'Rozpoznaje nazwę grafiku w formacie .xlsx');
+                this.assert(service.isScheduleXlsxFileName('WARSZAWA MAJ 2026.csv') === false, 'Odrzuca nazwę grafiku w formacie .csv (strict xlsx)');
+            }
+
+            this.assert(typeof service?.selectScheduleFileNameForYearMonth === 'function', "selectScheduleFileNameForYearMonth jest dostępne w schedule-service");
+            if (typeof service?.selectScheduleFileNameForYearMonth === 'function') {
+                const picked = service.selectScheduleFileNameForYearMonth(
+                    ['WARSZAWA MAJ 2026.xlsx', 'RADOM MAJ 2026.xlsx', 'WARSZAWA KWIECIEN 2026.xlsx', 'WARSZAWA MAJ 2026.csv'],
+                    { year: 2026, month: 5, strictXlsx: true }
+                );
+                this.assert(picked === 'RADOM MAJ 2026.xlsx', 'Wybiera deterministycznie plik grafiku dla miesiąca/roku (strict xlsx)');
+            }
+
             await service.parseScheduleSpreadsheet(null, 'WARSZAWA MAJ 2026.csv');
 
             const d1 = service.getDriverNamesForRouteOnDate('12', new Date(2026, 4, 1));
@@ -120,6 +135,8 @@ const QuickEvoTests = {
         this.assert(driveService.validateExcelFileName('test.xlsx') === true, 'Walidacja rozszerzenia .xlsx');
         this.assert(driveService.validateExcelFileName('test.xls') === true, 'Walidacja rozszerzenia .xls');
         this.assert(driveService.validateExcelFileName('test.csv') === false, 'Odrzuca rozszerzenie .csv');
+        this.assert(typeof driveService?.getAccessTokenSilent === 'function', "getAccessTokenSilent jest dostępne w drive-service");
+        this.assert(typeof driveService?.listFolderFilesShallow === 'function', "listFolderFilesShallow jest dostępne w drive-service");
 
         const originalFetch = globalThis.fetch;
         let downloadCalls = 0;

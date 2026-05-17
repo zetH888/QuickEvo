@@ -84,6 +84,54 @@ export function createScheduleService(cfg = {}) {
         return Boolean(parseScheduleFileNameYearMonth(fileName));
     }
 
+    /**
+     * Wariant „ściśle .xlsx” dla wymagań grafiku pobieranego z Google Drive.
+     *
+     * @param {string} fileName
+     * @returns {{ year: number, month: number, key: string } | null}
+     */
+    function parseScheduleFileNameYearMonthStrictXlsx(fileName) {
+        const name = String(fileName || '').trim();
+        if (!name) return null;
+        if (!/\.xlsx$/i.test(name)) return null;
+        return parseScheduleFileNameYearMonth(name);
+    }
+
+    /**
+     * Sprawdza, czy nazwa pasuje do schematu „MIASTO MIESIĄC ROK.xlsx”.
+     *
+     * @param {string} fileName
+     * @returns {boolean}
+     */
+    function isScheduleXlsxFileName(fileName) {
+        return Boolean(parseScheduleFileNameYearMonthStrictXlsx(fileName));
+    }
+
+    /**
+     * Wybiera nazwę pliku grafiku dla konkretnego miesiąca/roku.
+     * Jeśli istnieje wiele dopasowań, zwraca deterministycznie pierwszy wg sortowania PL.
+     *
+     * @param {string[]} fileNames
+     * @param {{ year: number, month: number, strictXlsx?: boolean }} opts
+     * @returns {string}
+     */
+    function selectScheduleFileNameForYearMonth(fileNames, { year, month, strictXlsx = false } = {}) {
+        const y = Number(year);
+        const m = Number(month);
+        if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return '';
+
+        const list = Array.isArray(fileNames) ? fileNames.map(n => String(n ?? '').trim()).filter(Boolean) : [];
+        const candidates = [];
+        for (const name of list) {
+            const meta = strictXlsx ? parseScheduleFileNameYearMonthStrictXlsx(name) : parseScheduleFileNameYearMonth(name);
+            if (!meta) continue;
+            if (meta.year === y && meta.month === m) candidates.push(name);
+        }
+        if (candidates.length === 0) return '';
+        candidates.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+        return candidates[0];
+    }
+
     function buildScheduleTokenSets() {
         const c = getRouteScheduleConfig();
         return {
@@ -277,7 +325,10 @@ export function createScheduleService(cfg = {}) {
 
     return Object.freeze({
         parseScheduleFileNameYearMonth,
+        parseScheduleFileNameYearMonthStrictXlsx,
         isScheduleFileName,
+        isScheduleXlsxFileName,
+        selectScheduleFileNameForYearMonth,
         parseScheduleSpreadsheet,
         processScheduleFile,
         loadScheduleFiles,
@@ -286,4 +337,3 @@ export function createScheduleService(cfg = {}) {
         clearCache
     });
 }
-

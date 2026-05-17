@@ -76,7 +76,7 @@ export function createDriveSyncApplication(cfg) {
         }
 
         if (isImporting) {
-            cfg.showModal('Google Drive', 'Trwa synchronizacja plików. Poczekaj na zakończenie bieżącej operacji.');
+            cfg.setUploadStatusText('Google Drive: trwa synchronizacja plików...', { animate: false });
             return;
         }
 

@@ -17,6 +17,7 @@ import { createImportApplication } from '../app/import-application.js';
 import { createSearchApplication } from '../app/search-application.js';
 import { createPreviewApplication } from '../app/preview-application.js';
 import { createDriveSyncApplication } from '../app/drive-sync-application.js';
+import { createDriveUnifiedSyncApplication } from '../app/drive-unified-sync-application.js';
 import { createNavigationApplication } from '../app/navigation-application.js';
 import { createLoadingApplication } from '../app/loading-application.js';
 import { createScheduleService } from '../services/schedule-service.js';
@@ -33,6 +34,7 @@ import { getRouteCategoriesFromFileName } from '../core/formatters/route-categor
 import { formatRouteNameForResults } from '../core/formatters/route-name.js';
 import { toTitleCase } from '../core/formatters/title-case.js';
 import { BOOT_WATCHDOG_MS, LOADING_PROGRESS_JUMP_MAX, LOADING_PROGRESS_JUMP_MIN, LOADING_PROGRESS_MICROSTOP_MAX_MS, LOADING_PROGRESS_MICROSTOP_MIN_MS, LOADING_PROGRESS_SOFT_CAP_BEFORE_FINISH, LOADING_TITLE_FADE_IN_MS, LOADING_TITLE_FADE_OUT_MS, LOADING_TITLE_INTERVAL_MAX_MS, LOADING_TITLE_INTERVAL_MIN_MS, LOADING_TITLE_MESSAGES, MAX_IMPORT_BYTES, ROUTE_CATEGORIES_ORDER, ROUTE_CATEGORY_STORAGE_PREFIX, WELCOME_LOGO_ENTER_DELAY_MS, WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS, WELCOME_SEQUENCE_UNLOCK_AFTER_MS } from '../config/constants.js';
+import * as qeConstants from '../config/constants.js';
 
 //////////////////////////////////////////////////
 // STAŁE GLOBALNE, KONFIGURACJA, IMPORTY
@@ -145,11 +147,28 @@ let importApplication = null;
 let searchApplication = null;
 let previewApplication = null;
 let driveSyncApplication = null;
+let driveUnifiedSyncApplication = null;
 let navigationApplication = null;
 let loadingApplication = null;
 
 let predictiveSuggestionsCache = null;
 let predictiveGhostController = null;
+
+/**
+ * Licznik blokad przycisków synchronizacji Google Drive.
+ * Pozwala bezpiecznie nakładać się kilku procesom (np. import tras + import grafiku) bez ryzyka przedwczesnego odblokowania UI.
+ */
+let googleDriveSyncBusyLocks = 0;
+
+/**
+ * Stały folder Google Drive z plikami grafiku.
+ */
+const DRIVE_SCHEDULE_FOLDER_ID = '10m4VzgbWqLy3U5V4lP_e-TN-vZVCyhGj';
+
+/**
+ * Interwał cyklicznego sprawdzania aktualności grafiku.
+ */
+const SCHEDULE_AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 //////////////////////////////////////////////////
 // CACHE ELEMENTÓW DOM
@@ -432,6 +451,7 @@ async function performInitialDataLoad() {
         if (allData.length === 0) {
             setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.xls/.csv.');
         }
+        try { ensureDriveUnifiedSyncApplication().startAutoMonitor(); } catch { }
     } catch (err) {
         handleInitialLoadError(err);
     } finally {
@@ -967,6 +987,84 @@ function buildDriverBadgesHtml(driverNames) {
     }
     return parts.join('');
 }
+
+//////////////////////////////////////////////////
+// OBSŁUGA IMPORTU GRAFIKU Z GOOGLE DRIVE
+//////////////////////////////////////////////////
+
+function ensureDriveUnifiedSyncApplication() {
+    if (driveUnifiedSyncApplication) return driveUnifiedSyncApplication;
+
+    const ROUTES_FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
+
+    driveUnifiedSyncApplication = createDriveUnifiedSyncApplication({
+        getApi: () => qeGetDriveService(),
+        getFolderIdRoutes: () => ROUTES_FOLDER_ID,
+        getFolderIdSchedule: () => DRIVE_SCHEDULE_FOLDER_ID,
+        getAutoIntervalMs: () => {
+            const n = Number(qeConstants?.DRIVE_AUTO_CHECK_INTERVAL_MS);
+            return Number.isFinite(n) && n > 0 ? n : 60_000;
+        },
+        parseScheduleMetaStrictXlsx: (name) => ensureScheduleService().parseScheduleFileNameYearMonthStrictXlsx(name),
+        toTitleCase,
+        maxImportBytes: MAX_IMPORT_BYTES,
+        listDbFiles: () => docsListFiles(),
+        getDbFileRecord: (name) => docsGetFileRecord(name),
+        putDbBlob: (name, blob, meta) => docsPutBlob(name, blob, meta),
+        removeFileData,
+        isScheduleFileName,
+        invalidateScheduleFile,
+        processScheduleFile,
+        processFile,
+        loadedFiles,
+        getAllDataLength: () => allData.length,
+        finalizeImport: (summary, before) => ensureImportApplication().finalizeImport(summary, before),
+        logAction,
+        escapeHtml,
+        buildConnectingModalHtml: buildDriveConnectingModalHtml,
+        buildNoChangesModalHtml: buildDriveNoChangesModalHtml,
+        buildChangesModalHtml: (changed) => ensureDriveChangesModalController().buildChangesModalHtml(changed),
+        showModal: (title, content, actions) => showModal(title, content, actions),
+        hideModal: () => hideModal(),
+        setLoadingStatusText: (text) => {
+            setLoadingStatusText(text);
+            if (String(text || '').trim() === 'Dane aktualne.') {
+                if (statusIndicator) statusIndicator.textContent = 'Dane aktualne.';
+            }
+        },
+        setUploadStatusText: (text, opts) => setUploadStatusText(text, opts),
+        setUploadProgressValue: (v) => { if (uploadProgress) uploadProgress.value = Number(v) || 0; },
+        setLoadingProgress: (value, metaText) => {
+            if (loadingProgressBar) loadingProgressBar.value = Number(value) || 0;
+            if (loadingProgressMeta && metaText) loadingProgressMeta.textContent = String(metaText);
+        },
+        setUploadUiVisible: (visible, total) => {
+            if (visible) {
+                uploadProgressContainer?.classList.remove('hidden');
+                if (uploadProgress) uploadProgress.value = 0;
+                setUploadStatusText(`Google Drive: synchronizacja ${Number(total) || 0} plik(ów)...`, { animate: false });
+                return;
+            }
+            window.setTimeout(() => uploadProgressContainer?.classList.add('hidden'), 900);
+        },
+        setButtonsBusy: (busy) => setGoogleDriveSyncButtonsBusy(Boolean(busy)),
+        initChangesModal: (files, token) => ensureDriveChangesModalController().init({ files, token, api: qeGetDriveService() }),
+        formatFileName,
+        isWelcomeVisible: () => ensureWelcomeLoadingOverlayController().isVisible(),
+        prepareWelcomeProgressList: () => ensureWelcomeLoadingOverlayController().prepareWelcomeProgressList(),
+        createWelcomeItem: (name) => ensureWelcomeProgressRenderer().createItem(name),
+        appendWelcomeItem: (item) => { if (welcomeProgressList && item) welcomeProgressList.appendChild(item); },
+        scrollWelcomeItemIntoView: (item) => { try { item?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' }); } catch { } },
+        updateWelcomeItem: (item, percent, label, opts) => ensureWelcomeProgressRenderer().updateItem(item, percent, label, opts),
+        shouldDeferWelcomeUpdates: () => ensureWelcomeLoadingOverlayController().shouldDeferWelcomeUpdates(),
+        runWithConcurrency,
+        canShowModal: () => {
+            try { return Boolean(modalOverlay && modalOverlay.classList.contains('hidden')); } catch { return false; }
+        }
+    });
+
+    return driveUnifiedSyncApplication;
+}
 function extractRouteCodeFromFileName(fileName) {
     const raw = String(fileName || '');
     const match = raw.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
@@ -1063,9 +1161,14 @@ async function handleImportFiles(files) {
  * Przełącza stan „zajętości” przycisków Google Drive, aby uniknąć uruchamiania wielu synchronizacji równocześnie.
  */
 function setGoogleDriveSyncButtonsBusy(loading) {
-    const busy = String(Boolean(loading));
-    if (googleDriveButton) { googleDriveButton.setAttribute('aria-busy', busy); googleDriveButton.disabled = Boolean(loading); }
-    if (syncGDriveButton) { syncGDriveButton.setAttribute('aria-busy', busy); syncGDriveButton.disabled = Boolean(loading); }
+    const isLock = Boolean(loading);
+    if (isLock) googleDriveSyncBusyLocks += 1;
+    else googleDriveSyncBusyLocks = Math.max(0, googleDriveSyncBusyLocks - 1);
+
+    const effectiveBusy = googleDriveSyncBusyLocks > 0;
+    const busy = String(effectiveBusy);
+    if (googleDriveButton) { googleDriveButton.setAttribute('aria-busy', busy); googleDriveButton.disabled = effectiveBusy; }
+    if (syncGDriveButton) { syncGDriveButton.setAttribute('aria-busy', busy); syncGDriveButton.disabled = effectiveBusy; }
 }
 
 let driveChangesModalController = null;
@@ -1156,7 +1259,8 @@ function ensureDriveSyncApplication() {
  * Obsługuje synchronizację z Google Drive (folder stały).
  */
 async function handleGoogleDriveSync({ source } = {}) {
-    await ensureDriveSyncApplication().start({ source: source || 'unknown' });
+    const src = source || 'unknown';
+    await ensureDriveUnifiedSyncApplication().start({ source: src, mode: 'manual' });
 }
 
 //////////////////////////////////////////////////

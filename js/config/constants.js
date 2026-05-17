@@ -3,6 +3,8 @@ export const ROUTE_CATEGORY_STORAGE_PREFIX = 'qe:routeCategoryCollapsed:';
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
+export const DRIVE_AUTO_CHECK_INTERVAL_MS = 180_000;
+
 export const WELCOME_LOGO_ENTER_DELAY_MS = 420;
 export const WELCOME_SEQUENCE_UNLOCK_AFTER_MS = 1750;
 export const WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS = 650;

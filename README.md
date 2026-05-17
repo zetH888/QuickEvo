@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.19.22-blue)
+![Version](https://img.shields.io/badge/version-2.21.16-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -49,6 +49,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Synchronizacja folderów z rekursywnym pobieraniem plików .xlsx
 - Rozwiązywanie konfliktów przy synchronizacji
 - Obsługa grafiku kierowców: plik CSV/XLSX o nazwie „MIASTO MIESIĄC ROK” jest parsowany do przypisań trasa→kierowca, bez indeksowania w wyszukiwarce
+- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i diff dla tras; cykliczny auto-check co 60s dla obu folderów (w tle bez wymuszania interaktywnej autoryzacji), wstrzymywany na czas trwającego importu, aby nie blokować UI
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
 - Widok różnic porównuje rekordy po stabilnym ID z pierwszej kolumny (Rxx), a nie po indeksie wiersza
 - Widok różnic prezentuje unified diff (styl Git/VSCode), pokazuje kontekst (3 rekordy przed/po), wyrównuje kolumny i obsługuje przewijanie poziome

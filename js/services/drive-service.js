@@ -21,7 +21,9 @@
  *
  * @publicznyInterfejs
  * - getAccessToken
+ * - getAccessTokenSilent
  * - crawlFolder
+ * - listFolderFilesShallow
  * - downloadFileArrayBuffer
  * - validateExcelFileName
  */
@@ -69,6 +71,8 @@ let tokenClient = null;
 let accessToken = '';
 /** @type {number} */
 let accessTokenExpiresAt = 0;
+/** @type {Promise<string>|null} */
+let tokenRequestPromise = null;
 
 /**
  * Ładuje skrypt tylko raz.
@@ -127,27 +131,51 @@ function getTokenClient() {
  * @returns {Promise<string>}
  */
 function requestAccessToken(prompt) {
-    return new Promise((resolve, reject) => {
+    if (tokenRequestPromise) return tokenRequestPromise;
+
+    const timeoutMs = 30_000;
+    const requestedPrompt = String(prompt ?? '').trim();
+
+    tokenRequestPromise = new Promise((resolve, reject) => {
+        let settled = false;
+        const settleOnce = (fn, value) => {
+            if (settled) return;
+            settled = true;
+            try { fn(value); } finally { tokenRequestPromise = null; }
+        };
+
+        const timer = window.setTimeout(() => {
+            const err = new Error('Przekroczono limit czasu oczekiwania na autoryzację Google');
+            err.code = 'timeout';
+            settleOnce(reject, err);
+        }, timeoutMs);
+
         ensureGisLoaded()
             .then(() => {
                 const client = getTokenClient();
                 client.callback = (resp) => {
+                    try { window.clearTimeout(timer); } catch { }
                     const token = resp?.access_token ? String(resp.access_token) : '';
                     if (!token) {
                         const err = new Error(resp?.error ? String(resp.error) : 'Brak access token');
                         err.code = resp?.error ? String(resp.error) : 'no_token';
-                        reject(err);
+                        settleOnce(reject, err);
                         return;
                     }
                     accessToken = token;
                     const expiresIn = Number(resp?.expires_in || 0);
                     accessTokenExpiresAt = Date.now() + Math.max(0, expiresIn - 60) * 1000;
-                    resolve(token);
+                    settleOnce(resolve, token);
                 };
-                client.requestAccessToken({ prompt: prompt || '' });
+                client.requestAccessToken({ prompt: requestedPrompt });
             })
-            .catch(reject);
+            .catch((e) => {
+                try { window.clearTimeout(timer); } catch { }
+                settleOnce(reject, e);
+            });
     });
+
+    return tokenRequestPromise;
 }
 
 /**
@@ -161,6 +189,21 @@ export async function getAccessToken() {
         return await requestAccessToken('');
     } catch {
         return await requestAccessToken('consent');
+    }
+}
+
+/**
+ * Zwraca access token wyłącznie, jeśli da się go uzyskać bez wymuszania interakcji użytkownika.
+ * Używane w mechanizmach „w tle” (np. auto-odświeżanie), aby nie wyświetlać promptu consent.
+ *
+ * @returns {Promise<string|null>}
+ */
+export async function getAccessTokenSilent() {
+    if (accessToken && Date.now() < accessTokenExpiresAt) return accessToken;
+    try {
+        return await requestAccessToken('none');
+    } catch {
+        return null;
     }
 }
 
@@ -276,6 +319,62 @@ export async function crawlFolder(folderId, token, { signal } = {}) {
             pageToken = data?.nextPageToken ? String(data.nextPageToken) : '';
             if (!pageToken) break;
         }
+    }
+
+    return files;
+}
+
+/**
+ * Listuje wyłącznie pliki znajdujące się bezpośrednio w folderze (bez schodzenia do podfolderów).
+ * Podfoldery są celowo ignorowane.
+ *
+ * @param {string} folderId
+ * @param {string} token
+ * @param {{ signal?: AbortSignal }} [opts]
+ * @returns {Promise<Array<{id:string,name:string,mimeType:string,driveModifiedAt:(number|null)}>>}
+ */
+export async function listFolderFilesShallow(folderId, token, { signal } = {}) {
+    const safeFolderId = String(folderId || '').trim();
+    const safeToken = String(token || '').trim();
+    if (!safeFolderId) throw new Error('Brak folderId');
+    if (!safeToken) throw new Error('Brak access token');
+
+    const files = [];
+    const authHeader = { Authorization: `Bearer ${safeToken}` };
+    const q = `'${safeFolderId}' in parents and trashed = false`;
+
+    let pageToken = '';
+    while (true) {
+        const params = new URLSearchParams();
+        params.set('q', q);
+        params.set('pageSize', '1000');
+        params.set('fields', 'nextPageToken,files(id,name,mimeType,modifiedTime)');
+        if (pageToken) params.set('pageToken', pageToken);
+
+        const url = `https://www.googleapis.com/drive/v3/files?${params.toString()}`;
+        const res = await fetch(url, { headers: authHeader, cache: 'no-store', signal });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({ error: { message: 'Nieznany błąd API' } }));
+            throw new Error(`Błąd listowania plików: ${err?.error?.message ? String(err.error.message) : `HTTP ${res.status}`}`);
+        }
+
+        const data = await res.json().catch(() => ({}));
+        const list = Array.isArray(data?.files) ? data.files : [];
+        for (const file of list) {
+            if (file?.mimeType === 'application/vnd.google-apps.folder') continue;
+            const name = String(file?.name || '').trim();
+            const id = String(file?.id || '').trim();
+            if (!name || !id) continue;
+            files.push({
+                id,
+                name,
+                mimeType: String(file?.mimeType || ''),
+                driveModifiedAt: parseDriveModifiedAt(file?.modifiedTime)
+            });
+        }
+
+        pageToken = data?.nextPageToken ? String(data.nextPageToken) : '';
+        if (!pageToken) break;
     }
 
     return files;
