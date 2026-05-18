@@ -6,6 +6,8 @@ export function createDriveUnifiedSyncApplication(cfg) {
     let connectSeq = 0;
     let autoTimer = null;
     let autoBackoffUntil = 0;
+    let pendingManualRequest = null;
+    let pendingManualRunScheduled = false;
 
     function hasActiveSession() {
         return Boolean(connectSession && !connectSession.cancelled);
@@ -13,6 +15,37 @@ export function createDriveUnifiedSyncApplication(cfg) {
 
     function nowMs() {
         return Date.now();
+    }
+
+    function schedulePendingManualRun(delayMs = 0) {
+        if (pendingManualRunScheduled) return;
+        pendingManualRunScheduled = true;
+        window.setTimeout(() => {
+            pendingManualRunScheduled = false;
+            const req = pendingManualRequest;
+            if (!req) return;
+
+            const enqueuedAt = Number(req?.enqueuedAt);
+            const ageMs = Number.isFinite(enqueuedAt) ? Math.max(0, nowMs() - enqueuedAt) : 0;
+            if (ageMs > 30_000) {
+                pendingManualRequest = null;
+                try {
+                    cfg.showModal?.('Google Drive', 'Nie udało się uruchomić synchronizacji po automatycznym sprawdzaniu. Spróbuj ponownie.');
+                } catch { }
+                return;
+            }
+
+            if (isImporting || hasActiveSession()) {
+                const prevDelay = Number(req?.retryDelayMs);
+                const nextDelay = Math.min(750, Math.max(50, Number.isFinite(prevDelay) ? prevDelay : 50) * 2);
+                pendingManualRequest = { ...req, retryDelayMs: nextDelay };
+                schedulePendingManualRun(nextDelay);
+                return;
+            }
+
+            pendingManualRequest = null;
+            start({ source: req?.source || 'unknown', mode: 'manual' }).catch(() => { });
+        }, Math.max(0, Number(delayMs) || 0));
     }
 
     function getNowYearMonth(date = new Date()) {
@@ -293,9 +326,17 @@ export function createDriveUnifiedSyncApplication(cfg) {
 
         if (hasActiveSession()) {
             if (execMode === 'auto') return;
-            cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Łączenie z Google Drive...'), [
-                { label: 'Anuluj', onClick: () => { try { connectSession.cancel(); } catch { } } }
+            pendingManualRequest = { source: source || 'unknown', enqueuedAt: nowMs(), retryDelayMs: 50 };
+            cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Kończę sprawdzanie… uruchamiam synchronizację'), [
+                {
+                    label: 'Anuluj',
+                    onClick: () => {
+                        pendingManualRequest = null;
+                        try { connectSession?.cancel?.(); } catch { }
+                    }
+                }
             ]);
+            try { cfg.setLoadingStatusText?.('Kończę sprawdzanie…'); } catch { }
             return;
         }
 
@@ -381,6 +422,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
             }
         } finally {
             if (connectSession && connectSession.id === sessionId) connectSession = null;
+            if (pendingManualRequest) schedulePendingManualRun();
         }
     }
 

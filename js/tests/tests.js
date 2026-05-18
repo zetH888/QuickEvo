@@ -15,6 +15,7 @@ const QuickEvoTests = {
         await this.testScheduleService(ctx);
         await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
+        await this.testDriveUnifiedSyncQueuedManual(ctx);
         this.testModuleIsolation(ctx);
         this.testNormalization(ctx);
         this.testFuzzySearch(ctx);
@@ -29,14 +30,15 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driveService, previewController] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
             import('../services/drive-service.js'),
-            import('../ui/preview/preview-controller.js')
+            import('../ui/preview/preview-controller.js'),
+            import('../app/drive-unified-sync-application.js')
         ]);
-        return { utils, searchEngine, scheduleService, driveService, previewController };
+        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication };
     },
 
     async testXlsxLoaded() {
@@ -225,6 +227,95 @@ const QuickEvoTests = {
             console.error(e);
         } finally {
             globalThis.fetch = originalFetch;
+        }
+    },
+
+    async testDriveUnifiedSyncQueuedManual(ctx) {
+        console.log("\nTesting Google Drive — drive-unified-sync: kolejka ręcznej synchronizacji:");
+        try {
+            const createApp = ctx?.driveUnifiedSyncApplication?.createDriveUnifiedSyncApplication;
+            this.assert(typeof createApp === 'function', "drive-unified-sync-application jest dostępny przez import");
+            if (typeof createApp !== 'function') return;
+
+            let resolveSilent = null;
+            const silentPromise = new Promise((resolve) => { resolveSilent = resolve; });
+
+            const modals = [];
+            let silentCalls = 0;
+            let manualCalls = 0;
+
+            const api = {
+                getAccessTokenSilent: async () => { silentCalls += 1; return await silentPromise; },
+                getAccessToken: async () => { manualCalls += 1; return 'manual-token'; },
+                crawlFolder: async () => [],
+                listFolderFilesShallow: async () => [],
+                downloadFileArrayBuffer: async () => new ArrayBuffer(0)
+            };
+
+            const app = createApp({
+                getApi: () => api,
+                getFolderIdRoutes: () => 'routes',
+                getFolderIdSchedule: () => 'schedule',
+                getAutoIntervalMs: () => 60_000,
+                parseScheduleMetaStrictXlsx: () => null,
+                toTitleCase: (s) => String(s || ''),
+                maxImportBytes: 5_000_000,
+                listDbFiles: async () => [],
+                getDbFileRecord: async () => null,
+                putDbBlob: async () => { },
+                removeFileData: () => { },
+                isScheduleFileName: () => false,
+                invalidateScheduleFile: () => { },
+                processScheduleFile: async () => { },
+                processFile: async () => { },
+                loadedFiles: new Set(),
+                getAllDataLength: () => 0,
+                finalizeImport: async () => { },
+                logAction: () => { },
+                escapeHtml: (s) => String(s ?? ''),
+                buildConnectingModalHtml: (stage) => String(stage ?? ''),
+                buildNoChangesModalHtml: () => 'NO_CHANGES',
+                buildChangesModalHtml: () => 'CHANGES',
+                showModal: (title, content, actions) => { modals.push({ title, content, actions }); },
+                hideModal: () => { },
+                setLoadingStatusText: () => { },
+                setUploadStatusText: () => { },
+                setUploadProgressValue: () => { },
+                setLoadingProgress: () => { },
+                setUploadUiVisible: () => { },
+                setButtonsBusy: () => { },
+                initChangesModal: () => { },
+                formatFileName: (n) => String(n ?? ''),
+                isWelcomeVisible: () => false,
+                prepareWelcomeProgressList: () => { },
+                createWelcomeItem: () => null,
+                appendWelcomeItem: () => { },
+                scrollWelcomeItemIntoView: () => { },
+                updateWelcomeItem: () => { },
+                shouldDeferWelcomeUpdates: () => false,
+                runWithConcurrency: async (list, limit, fn) => {
+                    const items = Array.isArray(list) ? list : [];
+                    for (const item of items) await fn(item);
+                },
+                canShowModal: () => true
+            });
+
+            const autoPromise = app.start({ source: 'auto_monitor', mode: 'auto' });
+            await new Promise((r) => window.setTimeout(r, 0));
+
+            await app.start({ source: 'toolbar', mode: 'manual' });
+            this.assert(silentCalls === 1, "Auto-check rozpoczął pobieranie tokenu w tle");
+            this.assert(manualCalls === 0, "Kliknięcie ręczne jest kolejkowane podczas trwającego auto-check");
+            this.assert(modals.some(m => String(m?.content || '').includes('Kończę sprawdzanie')), "Modal pokazuje komunikat o kończeniu auto-check i planowanym starcie synchronizacji");
+
+            resolveSilent?.('silent-token');
+            await autoPromise;
+            await new Promise((r) => window.setTimeout(r, 250));
+
+            this.assert(manualCalls === 1, "Ręczna synchronizacja uruchamia się automatycznie po zakończeniu auto-check (bez ponownego klikania)");
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować kolejki ręcznej synchronizacji po auto-check");
+            console.error(e);
         }
     },
 
