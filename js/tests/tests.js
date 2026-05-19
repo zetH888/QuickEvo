@@ -137,7 +137,6 @@ const QuickEvoTests = {
         this.assert(driveService.validateExcelFileName('test.xlsx') === true, 'Walidacja rozszerzenia .xlsx');
         this.assert(driveService.validateExcelFileName('test.xls') === true, 'Walidacja rozszerzenia .xls');
         this.assert(driveService.validateExcelFileName('test.csv') === false, 'Odrzuca rozszerzenie .csv');
-        this.assert(typeof driveService?.getAccessTokenSilent === 'function', "getAccessTokenSilent jest dostępne w drive-service");
         this.assert(typeof driveService?.listFolderFilesShallow === 'function', "listFolderFilesShallow jest dostępne w drive-service");
 
         const originalFetch = globalThis.fetch;
@@ -237,16 +236,18 @@ const QuickEvoTests = {
             this.assert(typeof createApp === 'function', "drive-unified-sync-application jest dostępny przez import");
             if (typeof createApp !== 'function') return;
 
-            let resolveSilent = null;
-            const silentPromise = new Promise((resolve) => { resolveSilent = resolve; });
+            let resolveToken = null;
+            const tokenPromise = new Promise((resolve) => { resolveToken = resolve; });
 
             const modals = [];
-            let silentCalls = 0;
-            let manualCalls = 0;
+            let tokenCalls = 0;
 
             const api = {
-                getAccessTokenSilent: async () => { silentCalls += 1; return await silentPromise; },
-                getAccessToken: async () => { manualCalls += 1; return 'manual-token'; },
+                getAccessToken: async () => {
+                    tokenCalls += 1;
+                    if (tokenCalls === 1) return await tokenPromise;
+                    return `manual-token-${tokenCalls}`;
+                },
                 crawlFolder: async () => [],
                 listFolderFilesShallow: async () => [],
                 downloadFileArrayBuffer: async () => new ArrayBuffer(0)
@@ -256,7 +257,6 @@ const QuickEvoTests = {
                 getApi: () => api,
                 getFolderIdRoutes: () => 'routes',
                 getFolderIdSchedule: () => 'schedule',
-                getAutoIntervalMs: () => 60_000,
                 parseScheduleMetaStrictXlsx: () => null,
                 toTitleCase: (s) => String(s || ''),
                 maxImportBytes: 5_000_000,
@@ -296,25 +296,23 @@ const QuickEvoTests = {
                 runWithConcurrency: async (list, limit, fn) => {
                     const items = Array.isArray(list) ? list : [];
                     for (const item of items) await fn(item);
-                },
-                canShowModal: () => true
+                }
             });
 
-            const autoPromise = app.start({ source: 'auto_monitor', mode: 'auto' });
+            const firstPromise = app.start({ source: 'toolbar' });
             await new Promise((r) => window.setTimeout(r, 0));
 
-            await app.start({ source: 'toolbar', mode: 'manual' });
-            this.assert(silentCalls === 1, "Auto-check rozpoczął pobieranie tokenu w tle");
-            this.assert(manualCalls === 0, "Kliknięcie ręczne jest kolejkowane podczas trwającego auto-check");
-            this.assert(modals.some(m => String(m?.content || '').includes('Kończę sprawdzanie')), "Modal pokazuje komunikat o kończeniu auto-check i planowanym starcie synchronizacji");
+            await app.start({ source: 'toolbar' });
+            this.assert(tokenCalls === 1, "Drugie kliknięcie ręczne jest kolejkowane podczas trwającej synchronizacji");
+            this.assert(modals.some(m => String(m?.content || '').includes('Kończę synchronizację')), "Modal pokazuje komunikat o kolejkowaniu kolejnej synchronizacji");
 
-            resolveSilent?.('silent-token');
-            await autoPromise;
+            resolveToken?.('manual-token-1');
+            await firstPromise;
             await new Promise((r) => window.setTimeout(r, 250));
 
-            this.assert(manualCalls === 1, "Ręczna synchronizacja uruchamia się automatycznie po zakończeniu auto-check (bez ponownego klikania)");
+            this.assert(tokenCalls === 2, "Kolejna synchronizacja uruchamia się automatycznie po zakończeniu poprzedniej (bez ponownego klikania)");
         } catch (e) {
-            this.assert(false, "Nie udało się przetestować kolejki ręcznej synchronizacji po auto-check");
+            this.assert(false, "Nie udało się przetestować kolejki ręcznej synchronizacji");
             console.error(e);
         }
     },

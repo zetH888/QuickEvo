@@ -451,7 +451,6 @@ async function performInitialDataLoad() {
         if (allData.length === 0) {
             setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.xls/.csv.');
         }
-        try { ensureDriveUnifiedSyncApplication().startAutoMonitor(); } catch { }
     } catch (err) {
         handleInitialLoadError(err);
     } finally {
@@ -1001,10 +1000,6 @@ function ensureDriveUnifiedSyncApplication() {
         getApi: () => qeGetDriveService(),
         getFolderIdRoutes: () => ROUTES_FOLDER_ID,
         getFolderIdSchedule: () => DRIVE_SCHEDULE_FOLDER_ID,
-        getAutoIntervalMs: () => {
-            const n = Number(qeConstants?.DRIVE_AUTO_CHECK_INTERVAL_MS);
-            return Number.isFinite(n) && n > 0 ? n : 60_000;
-        },
         parseScheduleMetaStrictXlsx: (name) => ensureScheduleService().parseScheduleFileNameYearMonthStrictXlsx(name),
         toTitleCase,
         maxImportBytes: MAX_IMPORT_BYTES,
@@ -1057,10 +1052,7 @@ function ensureDriveUnifiedSyncApplication() {
         scrollWelcomeItemIntoView: (item) => { try { item?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' }); } catch { } },
         updateWelcomeItem: (item, percent, label, opts) => ensureWelcomeProgressRenderer().updateItem(item, percent, label, opts),
         shouldDeferWelcomeUpdates: () => ensureWelcomeLoadingOverlayController().shouldDeferWelcomeUpdates(),
-        runWithConcurrency,
-        canShowModal: () => {
-            try { return Boolean(modalOverlay && modalOverlay.classList.contains('hidden')); } catch { return false; }
-        }
+        runWithConcurrency
     });
 
     return driveUnifiedSyncApplication;
@@ -1260,7 +1252,7 @@ function ensureDriveSyncApplication() {
  */
 async function handleGoogleDriveSync({ source } = {}) {
     const src = source || 'unknown';
-    await ensureDriveUnifiedSyncApplication().start({ source: src, mode: 'manual' });
+    await ensureDriveUnifiedSyncApplication().start({ source: src });
 }
 
 //////////////////////////////////////////////////

@@ -21,7 +21,6 @@
  *
  * @publicznyInterfejs
  * - getAccessToken
- * - getAccessTokenSilent
  * - crawlFolder
  * - listFolderFilesShallow
  * - downloadFileArrayBuffer
@@ -189,21 +188,6 @@ export async function getAccessToken() {
         return await requestAccessToken('');
     } catch {
         return await requestAccessToken('consent');
-    }
-}
-
-/**
- * Zwraca access token wyłącznie, jeśli da się go uzyskać bez wymuszania interakcji użytkownika.
- * Używane w mechanizmach „w tle” (np. auto-odświeżanie), aby nie wyświetlać promptu consent.
- *
- * @returns {Promise<string|null>}
- */
-export async function getAccessTokenSilent() {
-    if (accessToken && Date.now() < accessTokenExpiresAt) return accessToken;
-    try {
-        return await requestAccessToken('none');
-    } catch {
-        return null;
     }
 }
 

@@ -4,8 +4,6 @@ export function createDriveUnifiedSyncApplication(cfg) {
     let isImporting = false;
     let connectSession = null;
     let connectSeq = 0;
-    let autoTimer = null;
-    let autoBackoffUntil = 0;
     let pendingManualRequest = null;
     let pendingManualRunScheduled = false;
 
@@ -30,7 +28,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
             if (ageMs > 30_000) {
                 pendingManualRequest = null;
                 try {
-                    cfg.showModal?.('Google Drive', 'Nie udało się uruchomić synchronizacji po automatycznym sprawdzaniu. Spróbuj ponownie.');
+                    cfg.showModal?.('Google Drive', 'Nie udało się uruchomić kolejnej synchronizacji. Spróbuj ponownie.');
                 } catch { }
                 return;
             }
@@ -44,7 +42,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
             }
 
             pendingManualRequest = null;
-            start({ source: req?.source || 'unknown', mode: 'manual' }).catch(() => { });
+            start({ source: req?.source || 'unknown' }).catch(() => { });
         }, Math.max(0, Number(delayMs) || 0));
     }
 
@@ -101,19 +99,6 @@ export function createDriveUnifiedSyncApplication(cfg) {
         }
 
         return candidates[0];
-    }
-
-    async function getAccessTokenForMode(api, mode) {
-        const m = String(mode || 'manual');
-        if (m === 'auto') {
-            const silent = await api.getAccessTokenSilent?.();
-            if (silent) return { token: silent, interactive: false };
-            const err = new Error('Brak tokenu do synchronizacji w tle');
-            err.code = 'no_token';
-            throw err;
-        }
-        const token = await api.getAccessToken();
-        return { token, interactive: true };
     }
 
     async function collectDriveFiles(folderIdRoutes, folderIdSchedule, token, { signal } = {}) {
@@ -204,9 +189,6 @@ export function createDriveUnifiedSyncApplication(cfg) {
         const list = Array.isArray(files) ? files : [];
         if (!api) throw new Error('Moduł Google Drive jest niedostępny');
         if (list.length === 0) return;
-
-        const shouldResumeAutoMonitor = autoTimer !== null;
-        if (shouldResumeAutoMonitor) stopAutoMonitor();
 
         isImporting = true;
         cfg.setButtonsBusy(true);
@@ -304,30 +286,24 @@ export function createDriveUnifiedSyncApplication(cfg) {
             cfg.setUploadUiVisible(false);
             cfg.setButtonsBusy(false);
             isImporting = false;
-            if (shouldResumeAutoMonitor) startAutoMonitor();
         }
     }
 
-    async function start({ source, mode } = {}) {
+    async function start({ source } = {}) {
         const api = cfg.getApi();
         if (!api) {
             cfg.showModal('Google Drive', 'Synchronizacja jest niedostępna (brak modułu Google Drive).');
             return;
         }
 
-        const execMode = String(mode || 'manual');
-
         if (isImporting) {
-            if (execMode !== 'auto') {
-                cfg.setUploadStatusText('Google Drive: trwa synchronizacja plików...');
-            }
+            cfg.setUploadStatusText('Google Drive: trwa synchronizacja plików...');
             return;
         }
 
         if (hasActiveSession()) {
-            if (execMode === 'auto') return;
             pendingManualRequest = { source: source || 'unknown', enqueuedAt: nowMs(), retryDelayMs: 50 };
-            cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Kończę sprawdzanie… uruchamiam synchronizację'), [
+            cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Kończę synchronizację… uruchamiam ponownie'), [
                 {
                     label: 'Anuluj',
                     onClick: () => {
@@ -336,7 +312,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
                     }
                 }
             ]);
-            try { cfg.setLoadingStatusText?.('Kończę sprawdzanie…'); } catch { }
+            try { cfg.setLoadingStatusText?.('Kończę synchronizację…'); } catch { }
             return;
         }
 
@@ -361,49 +337,41 @@ export function createDriveUnifiedSyncApplication(cfg) {
         };
         connectSession = session;
 
-        try { cfg.logAction?.('sync', { phase: 'start', folderIdRoutes, folderIdSchedule, source: source || 'unknown', mode: execMode }); } catch { }
+        try { cfg.logAction?.('sync', { phase: 'start', folderIdRoutes, folderIdSchedule, source: source || 'unknown', mode: 'manual' }); } catch { }
 
         try {
-            if (execMode !== 'auto') {
-                cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Łączenie z Google Drive...'), [
-                    { label: 'Anuluj', onClick: () => session.cancel() }
-                ]);
-                cfg.setLoadingStatusText('Łączenie z Google Drive...');
-            }
+            cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Łączenie z Google Drive...'), [
+                { label: 'Anuluj', onClick: () => session.cancel() }
+            ]);
+            cfg.setLoadingStatusText('Łączenie z Google Drive...');
 
-            const tokenInfo = await getAccessTokenForMode(api, execMode);
+            const token = await api.getAccessToken();
             if (session.cancelled) return;
 
-            if (execMode !== 'auto') {
-                cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Przeszukiwanie folderów na Google Drive...'), [
-                    { label: 'Anuluj', onClick: () => session.cancel() }
-                ]);
-                cfg.setLoadingStatusText('Przeszukiwanie folderów...');
-            }
+            cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Przeszukiwanie folderów na Google Drive...'), [
+                { label: 'Anuluj', onClick: () => session.cancel() }
+            ]);
+            cfg.setLoadingStatusText('Przeszukiwanie folderów...');
 
-            const allFiles = await collectDriveFiles(folderIdRoutes, folderIdSchedule, tokenInfo.token, { signal: abortController.signal });
+            const allFiles = await collectDriveFiles(folderIdRoutes, folderIdSchedule, token, { signal: abortController.signal });
             if (session.cancelled) return;
 
             const changed = await computeChanges(allFiles);
             if (session.cancelled) return;
 
             if (changed.length === 0) {
-                if (execMode !== 'auto') {
-                    cfg.setLoadingStatusText('Dane aktualne.');
-                    cfg.showModal('Google Drive', cfg.buildNoChangesModalHtml(), [
-                        { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
-                    ]);
-                }
+                cfg.setLoadingStatusText('Dane aktualne.');
+                cfg.showModal('Google Drive', cfg.buildNoChangesModalHtml(), [
+                    { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
+                ]);
                 return;
             }
 
-            if (execMode === 'auto' && !cfg.canShowModal?.()) return;
-
             cfg.showModal('Synchronizacja Google Drive', cfg.buildChangesModalHtml(changed), [
-                { label: 'Nadpisz zmienione', class: 'modal-btn--primary', onClick: () => applyFiles(changed, tokenInfo.token, { source }) },
+                { label: 'Nadpisz zmienione', class: 'modal-btn--primary', onClick: () => applyFiles(changed, token, { source }) },
                 { label: 'Anuluj', onClick: () => { try { cfg.logAction?.('sync', { phase: 'cancelled', source: source || 'unknown' }, 'INFO'); } catch { } } }
             ]);
-            try { cfg.initChangesModal?.(changed, tokenInfo.token); } catch { }
+            try { cfg.initChangesModal?.(changed, token); } catch { }
         } catch (err) {
             if (session.cancelled || err?.name === 'AbortError') return;
 
@@ -411,37 +379,16 @@ export function createDriveUnifiedSyncApplication(cfg) {
             try { cfg.logAction?.('sync', { phase: 'error', message: msg, source: source || 'unknown' }, 'ERROR'); } catch { }
             const safeMsg = typeof cfg.escapeHtml === 'function' ? cfg.escapeHtml(msg) : msg;
 
-            if (execMode !== 'auto') {
-                cfg.showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${safeMsg}`, [
-                    { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
-                ]);
-            } else {
-                const code = String(err?.code || err?.message || '');
-                const isAuthIssue = code.includes('popup') || code.includes('consent') || code.includes('access_denied') || code.includes('no_token') || code.includes('timeout');
-                if (isAuthIssue) autoBackoffUntil = nowMs() + 10 * 60_000;
-            }
+            cfg.showModal('Błąd synchronizacji', `Wystąpił błąd podczas łączenia z Google Drive: ${safeMsg}`, [
+                { label: 'OK', class: 'modal-btn--primary', onClick: () => { } }
+            ]);
         } finally {
             if (connectSession && connectSession.id === sessionId) connectSession = null;
             if (pendingManualRequest) schedulePendingManualRun();
         }
     }
 
-    function startAutoMonitor() {
-        if (autoTimer !== null) return;
-        const ms = Math.max(10_000, Number(cfg.getAutoIntervalMs?.() ?? 60_000) || 60_000);
-        autoTimer = window.setInterval(() => {
-            if (nowMs() < autoBackoffUntil) return;
-            start({ source: 'auto_monitor', mode: 'auto' }).catch(() => { });
-        }, ms);
-    }
-
-    function stopAutoMonitor() {
-        if (autoTimer === null) return;
-        try { window.clearInterval(autoTimer); } catch { }
-        autoTimer = null;
-    }
-
-    return Object.freeze({ start, startAutoMonitor, stopAutoMonitor });
+    return Object.freeze({ start });
 }
 
 function safeCall(fn, fallback) {
