@@ -81,3 +81,17 @@ export const LOADING_TITLE_MESSAGES = Object.freeze({
         'Cud techniki zakończony sukcesem ✓'
     ]
 });
+
+/**
+ * Słownik znaczeń skrótów/markerów pojawiających się w grafiku (np. urlopy, dyżury).
+ * Mapowanie jest celowo konfigurowalne, aby można je było aktualizować bez zmian w logice parsowania.
+ */
+export const SCHEDULE_MARKER_MEANINGS = Object.freeze({
+    Z: 'Urlop',
+    'UŻ': 'Urlop na żądanie',
+    UZ: 'Urlop na żądanie',
+    U: 'Urlop na żądanie',
+    DK: 'Dyżur koordynatora',
+    '*D': 'Dyżur',
+    '*P': 'Podmiana'
+});

@@ -18,9 +18,26 @@ export function createPreviewController(cfg) {
     const getDriverForRouteOnDate = typeof cfg?.getDriverForRouteOnDate === 'function'
         ? cfg.getDriverForRouteOnDate
         : (() => null);
+    const getDriverForRouteOnIsoDate = typeof cfg?.getDriverForRouteOnIsoDate === 'function'
+        ? cfg.getDriverForRouteOnIsoDate
+        : (() => null);
     const buildDriverBadgesHtml = typeof cfg?.buildDriverBadgesHtml === 'function'
         ? cfg.buildDriverBadgesHtml
         : (() => '');
+
+    /**
+     * Sprawdza, czy wartość wygląda jak data ISO w formacie `YYYY-MM-DD`.
+     * Walidacja jest celowo lekka (UI), bo twarda walidacja jest realizowana w `schedule-service`.
+     *
+     * @param {unknown} value
+     * @returns {string} Poprawna data ISO albo pusty string.
+     */
+    function coerceIsoDate(value) {
+        const raw = String(value ?? '').trim();
+        if (!raw) return '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+        return raw;
+    }
 
     function clearElement(el) {
         if (!el) return;
@@ -39,7 +56,13 @@ export function createPreviewController(cfg) {
         }
     }
 
-    function renderFileName(fileName) {
+    /**
+     * Renderuje nazwę pliku oraz metadane trasy (kategorie + kierowca dla danej daty kontekstowej).
+     *
+     * @param {string} fileName
+     * @param {{ contextIsoDate?: string }} [opts]
+     */
+    function renderFileName(fileName, opts = {}) {
         if (!previewFileName) return;
         previewFileName.replaceChildren();
 
@@ -59,12 +82,18 @@ export function createPreviewController(cfg) {
         }
 
         const routeCode = extractRouteCodeFromFileName(fileName);
-        const driverNames = routeCode ? getDriverForRouteOnDate(routeCode, new Date()) : null;
+        const contextIsoDate = coerceIsoDate(opts?.contextIsoDate);
+        const driverNames = routeCode
+            ? (contextIsoDate
+                ? getDriverForRouteOnIsoDate(routeCode, contextIsoDate)
+                : getDriverForRouteOnDate(routeCode, new Date()))
+            : null;
         const driverBadgesHtml = buildDriverBadgesHtml(driverNames);
         if (driverBadgesHtml) {
             const driverEl = document.createElement('span');
             driverEl.className = 'result-driver';
-            driverEl.setAttribute('aria-label', 'Kierowcy z grafiku');
+            driverEl.setAttribute('aria-label', contextIsoDate ? `Kierowcy z grafiku dla dnia ${contextIsoDate}` : 'Kierowcy z grafiku');
+            if (contextIsoDate) driverEl.title = `Grafik: ${contextIsoDate}`;
             driverEl.innerHTML = driverBadgesHtml;
             previewFileName.appendChild(driverEl);
         }
@@ -115,11 +144,17 @@ export function createPreviewController(cfg) {
         if (searchView) searchView.classList.remove('view-hidden');
     }
 
-    function showPreview({ fileName, tableModel, highlightRowIndex }) {
+    /**
+     * Pokazuje widok podglądu pliku.
+     *
+     * @param {{ fileName: string, tableModel: any, highlightRowIndex: (number|null), contextIsoDate?: string }} params
+     * @returns {Element|null}
+     */
+    function showPreview({ fileName, tableModel, highlightRowIndex, contextIsoDate }) {
         if (searchView) searchView.classList.add('view-hidden');
         if (filePreviewView) filePreviewView.classList.remove('view-hidden');
 
-        renderFileName(fileName);
+        renderFileName(fileName, { contextIsoDate });
         updateMeta(tableModel?.metaLines);
 
         clearElement(tableHeader);

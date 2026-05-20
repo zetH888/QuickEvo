@@ -23,6 +23,7 @@ export function createNavigationService(cfg = {}) {
     const onLog = typeof cfg?.onLog === 'function' ? cfg.onLog : (() => { });
     const onShowHome = typeof cfg?.onShowHome === 'function' ? cfg.onShowHome : (() => { });
     const onShowPreview = typeof cfg?.onShowPreview === 'function' ? cfg.onShowPreview : (() => { });
+    const onShowSchedule = typeof cfg?.onShowSchedule === 'function' ? cfg.onShowSchedule : (() => { });
     const onShowSearchView = typeof cfg?.onShowSearchView === 'function' ? cfg.onShowSearchView : (() => { });
     const onSetSearchInputValue = typeof cfg?.onSetSearchInputValue === 'function' ? cfg.onSetSearchInputValue : (() => { });
     const onPerformSearch = typeof cfg?.onPerformSearch === 'function' ? cfg.onPerformSearch : (() => { });
@@ -54,16 +55,48 @@ export function createNavigationService(cfg = {}) {
         if (currentHistoryState.search) safeReplaceState(historyRef, { view: 'home', search: false }, '#home', () => { });
     }
 
-    function pushPreview({ fileName, rowIndex } = {}) {
+    /**
+     * Dodaje wpis historii dla podglądu pliku.
+     * `contextIsoDate` jest opcjonalne, ale pozwala odtworzyć „kontekst grafiku” po Back/Forward.
+     *
+     * @param {{ fileName?: string, rowIndex?: (number|null), contextIsoDate?: (string|null) }} [opts]
+     * @returns {boolean}
+     */
+    function pushPreview({ fileName, rowIndex, contextIsoDate } = {}) {
         const safeFileName = String(fileName || '');
         const idx = Number.isInteger(rowIndex) ? rowIndex : null;
+        const iso = String(contextIsoDate ?? '').trim() || null;
         const url = `#preview/${safeEncodeHashSegment(safeFileName)}`;
-        return safePushState(historyRef, { view: 'preview', fileName: safeFileName, rowIndex: idx }, url, (e) => onLog('navigation', { error: 'pushState preview failed', msg: e?.message }, 'WARN'));
+        return safePushState(
+            historyRef,
+            { view: 'preview', fileName: safeFileName, rowIndex: idx, contextIsoDate: iso },
+            url,
+            (e) => onLog('navigation', { error: 'pushState preview failed', msg: e?.message }, 'WARN')
+        );
+    }
+
+    /**
+     * Dodaje wpis historii dla widoku grafiku (miesięczny przegląd).
+     *
+     * @param {{ ym?: string, selectedIsoDate?: (string|null) }} [opts]
+     * @returns {boolean}
+     */
+    function pushSchedule({ ym, selectedIsoDate } = {}) {
+        const safeYm = String(ym || '').trim();
+        if (!/^\d{4}-\d{2}$/.test(safeYm)) return false;
+        const iso = String(selectedIsoDate ?? '').trim() || null;
+        const url = `#schedule/${safeEncodeHashSegment(safeYm)}`;
+        return safePushState(
+            historyRef,
+            { view: 'schedule', ym: safeYm, selectedIsoDate: iso },
+            url,
+            (e) => onLog('navigation', { error: 'pushState schedule failed', msg: e?.message }, 'WARN')
+        );
     }
 
     function handleBackToSearchClick() {
         const st = historyRef.state || {};
-        if (st?.view === 'preview') { try { historyRef.back(); } catch { onShowSearchView({ source: 'back_button_fallback' }); } }
+        if (st?.view === 'preview' || st?.view === 'schedule') { try { historyRef.back(); } catch { onShowSearchView({ source: 'back_button_fallback' }); } }
         else onShowSearchView({ source: 'back_button' });
     }
 
@@ -80,7 +113,12 @@ export function createNavigationService(cfg = {}) {
                 onShowHome({ source: 'popstate_preview_missing_data', search: false });
                 return;
             }
-            onShowPreview({ fileName: state.fileName, rowIndex: state.rowIndex, skipPush: true, source: 'popstate' });
+            onShowPreview({ fileName: state.fileName, rowIndex: state.rowIndex, contextIsoDate: state.contextIsoDate, skipPush: true, source: 'popstate' });
+            return;
+        }
+
+        if (state?.view === 'schedule') {
+            onShowSchedule({ ym: state.ym, selectedIsoDate: state.selectedIsoDate, skipPush: true, source: 'popstate' });
             return;
         }
 
@@ -137,6 +175,7 @@ export function createNavigationService(cfg = {}) {
         replaceHome,
         pushHome,
         setSearchState,
-        pushPreview
+        pushPreview,
+        pushSchedule
     });
 }

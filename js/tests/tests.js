@@ -75,7 +75,7 @@ const QuickEvoTests = {
 
             const matrix = [
                 ['IMIE I NAZWISKO', 1, 2, 3],
-                ['Jan Kowalski', '12/H', '', 'S - 5'],
+                ['Jan Kowalski', '12/H', 'Z', 'S - 5'],
                 ['Anna Nowak', '12', '', '']
             ];
 
@@ -122,6 +122,40 @@ const QuickEvoTests = {
 
             const s5 = service.getDriverNamesForRouteOnDate('S-5', new Date(2026, 4, 3));
             this.assert(Array.isArray(s5) && s5.length === 1 && s5[0] === 'Jan Kowalski', "Obsługuje sobotę S-5 (3 maja)");
+
+            // API przeglądania grafiku miesiąca (bez zależności od Date/stref czasowych)
+            const monthRoutes = service.listMonthRoutes(2026, 5);
+            this.assert(Array.isArray(monthRoutes) && monthRoutes.join(',') === '12,H,S-5', "listMonthRoutes zwraca posortowaną listę tras dla miesiąca");
+
+            const daysNonEmpty = service.listMonthDays(2026, 5, { includeEmptyDays: false });
+            this.assert(Array.isArray(daysNonEmpty) && daysNonEmpty.length === 2, "listMonthDays (bez pustych) zwraca tylko dni z przypisaniami");
+            if (Array.isArray(daysNonEmpty) && daysNonEmpty.length === 2) {
+                this.assert(daysNonEmpty[0].isoDate === '2026-05-01' && daysNonEmpty[0].routes.join(',') === '12,H', "listMonthDays zwraca trasy dla 2026-05-01");
+                this.assert(daysNonEmpty[1].isoDate === '2026-05-03' && daysNonEmpty[1].routes.join(',') === 'S-5', "listMonthDays zwraca trasy dla 2026-05-03");
+            }
+
+            const day1Routes = service.listDayRoutes('2026-05-01');
+            this.assert(Array.isArray(day1Routes) && day1Routes.join(',') === '12,H', "listDayRoutes zwraca trasy dla dnia (YYYY-MM-DD)");
+
+            const day1Assignments = service.listDayAssignments('2026-05-01');
+            this.assert(Array.isArray(day1Assignments) && day1Assignments.length === 2, "listDayAssignments zwraca przypisania dla dnia (trasa -> kierowcy)");
+            if (Array.isArray(day1Assignments) && day1Assignments.length === 2) {
+                this.assert(day1Assignments[0].routeCode === '12' && day1Assignments[0].driverNames.join(',') === 'Anna Nowak,Jan Kowalski', "listDayAssignments zwraca kierowców dla trasy 12 (YYYY-MM-DD)");
+                this.assert(day1Assignments[1].routeCode === 'H' && day1Assignments[1].driverNames.join(',') === 'Jan Kowalski', "listDayAssignments zwraca kierowców dla trasy H (YYYY-MM-DD)");
+            }
+
+            const d1Iso = service.getDriverNamesForRouteOnIsoDate('12', '2026-05-01');
+            this.assert(Array.isArray(d1Iso) && d1Iso.join(',') === 'Anna Nowak,Jan Kowalski', "getDriverNamesForRouteOnIsoDate zwraca kierowców dla trasy i daty ISO");
+
+            const monthTable = service.getMonthScheduleTable(2026, 5);
+            this.assert(Boolean(monthTable && Array.isArray(monthTable.days) && Array.isArray(monthTable.rows)), "getMonthScheduleTable zwraca strukturę tabeli grafiku");
+            if (monthTable && Array.isArray(monthTable.rows) && monthTable.rows.length === 2) {
+                this.assert(monthTable.rows[0].driverName === 'Jan Kowalski', "getMonthScheduleTable zachowuje kolejność kierowców z pliku");
+                const cell = monthTable.rows[0]?.cells?.[1];
+                const tokens = Array.isArray(cell?.tokens) ? cell.tokens : [];
+                const markerZ = tokens.find(t => t?.kind === 'marker' && t?.code === 'Z');
+                this.assert(Boolean(markerZ), "getMonthScheduleTable zachowuje markery z grafiku (np. Z) w komórkach");
+            }
         } catch (e) {
             this.assert(false, "Nie udało się przetestować schedule-service");
             console.error(e);

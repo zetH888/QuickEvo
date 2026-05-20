@@ -75,6 +75,11 @@
                         </svg>
                         Google Drive
                     </button>
+                    <button id="schedule-button" class="icon-button" type="button" aria-label="Otwórz grafik pracy">
+                        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M7 2a1 1 0 0 1 1 1v1h8V3a1 1 0 1 1 2 0v1h1.5A2.5 2.5 0 0 1 22 6.5v13A2.5 2.5 0 0 1 19.5 22h-15A2.5 2.5 0 0 1 2 19.5v-13A2.5 2.5 0 0 1 4.5 4H6V3a1 1 0 0 1 1-1Zm12.5 8h-15V19.5c0 .55.45 1 1 1h15c.55 0 1-.45 1-1V10Z"></path>
+                        </svg>
+                    </button>
                     <input type="file" name="file" id="file-input" class="visually-hidden" accept=".xlsx,.xls,.csv" multiple>
                     <div id="upload-progress-container" class="hidden">
                         <span id="upload-status">Wysyłanie...</span>
@@ -122,6 +127,30 @@
                             <tbody id="table-body"></tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+
+            <div id="schedule-view" class="view-transition view-hidden">
+                <div class="schedule-bar">
+                    <button id="back-to-search-from-schedule" class="btn-secondary" type="button">← Powrót</button>
+                    <div class="schedule-controls" role="group" aria-label="Sterowanie grafikiem">
+                        <button id="schedule-prev-month" class="schedule-nav-btn" type="button" aria-label="Poprzedni miesiąc">←</button>
+                        <select id="schedule-month-select" class="schedule-month-select" aria-label="Wybierz miesiąc grafiku"></select>
+                        <button id="schedule-next-month" class="schedule-nav-btn" type="button" aria-label="Następny miesiąc">→</button>
+                        <button id="schedule-today" class="schedule-nav-btn schedule-nav-btn--primary" type="button">Dziś</button>
+                    </div>
+                    <div class="schedule-meta" aria-live="polite">
+                        <div id="schedule-title" class="schedule-title">Grafik</div>
+                        <div id="schedule-subtitle" class="schedule-subtitle">Wybierz dzień, aby go wyróżnić.</div>
+                    </div>
+                </div>
+                <div class="schedule-table-container" id="schedule-table-container">
+                    <table class="schedule-table" id="schedule-table" aria-label="Grafik pracy — tabela miesięczna">
+                        <thead>
+                            <tr id="schedule-table-header"></tr>
+                        </thead>
+                        <tbody id="schedule-table-body"></tbody>
+                    </table>
                 </div>
             </div>
         </main>

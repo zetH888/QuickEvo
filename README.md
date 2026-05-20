@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.22.0-blue)
+![Version](https://img.shields.io/badge/version-2.26.0-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -38,7 +38,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Wyniki pogrupowane według plików źródłowych
 - Rekordy wyników w formie kafelków (hover „lift” + cień) oraz ikona telefonu dla punktów „na telefon” (brak godziny lub '-'); punkty „na telefon” są delikatnie wcięte i wizualnie mniejsze
 - Zwijane sekcje kategorii tras (STANDARD, WIECZOREK, SOBOTA, NIEDZIELA)
-- Automatyczne wyświetlanie kierowcy przypisanego do trasy na bieżący dzień (na podstawie pliku grafiku CSV/XLSX) zarówno w wynikach wyszukiwania, jak i w podglądzie ogólnym trasy
+- Automatyczne wyświetlanie kierowcy przypisanego do trasy na podstawie grafiku dla daty kontekstowej (ISO, YYYY-MM-DD; domyślnie „dziś”) w podglądzie trasy
 - Obsługa wielu kierowców przypisanych do tej samej trasy w jednym dniu (np. „Jan Kowalski i/lub Anna Nowak”) w formie estetycznych badge’y
 - Automatyczna normalizacja zapytań (ignorowanie polskich znaków diakrytycznych i wielkości liter)
 
@@ -49,6 +49,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Synchronizacja folderów z rekursywnym pobieraniem plików .xlsx
 - Rozwiązywanie konfliktów przy synchronizacji
 - Obsługa grafiku kierowców: plik CSV/XLSX o nazwie „MIASTO MIESIĄC ROK” jest parsowany do przypisań trasa→kierowca, bez indeksowania w wyszukiwarce
+- API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate` i dat ISO (YYYY-MM-DD)
 - Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i diff dla tras; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
 - Widok różnic porównuje rekordy po stabilnym ID z pierwszej kolumny (Rxx), a nie po indeksie wiersza
@@ -65,8 +66,9 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 - Płynniejszy powrót z podglądu trasy do listy wyników (bez zbędnego ponownego renderowania wyników przy niezmienionym zapytaniu)
 - Obsługa reduced motion (wyłączenie animacji dla użytkowników z wrażliwością na ruch)
 - Responsywny design z obsługą urządzeń mobilnych
+- Ekran „Grafik” do swobodnego przeglądania harmonogramu w formie tabeli zbliżonej do arkusza: kierowcy w kolejności z pliku, kolumny dni z akcentem weekendów, zaznaczanie całej kolumny dnia oraz klikalne kody tras otwierające podgląd w kontekście wybranej daty
 - Ekran powitalny z efektem glassmorphism
-- Ciemny motyw (domyślny) oraz motyw Matrix (cyberpunk)
+- Ciemny motyw (domyślny)
 - Przełączanie motywów z zachowaniem stanu
 
 ***

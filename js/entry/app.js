@@ -23,7 +23,7 @@ import { createLoadingApplication } from '../app/loading-application.js';
 import { createScheduleService } from '../services/schedule-service.js';
 import { createSearchOrchestrator } from '../features/search/search-orchestrator.js';
 import { createNavigationService } from '../services/navigation-service.js';
-import { createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScrollIndicatorController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
+import { createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScheduleController, createScrollIndicatorController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
 import { createDriveChangesModalController } from '../ui/drive/drive-changes-modal.js';
 import { createWelcomeLoadingOverlayController } from '../ui/loading/welcome-loading-overlay-controller.js';
 import { createPredictiveGhostController } from '../ui/search/predictive-ghost.js';
@@ -183,6 +183,7 @@ const themeToggle = document.getElementById('theme-toggle');
 const themeIcon = document.getElementById('theme-icon');
 const importButton = document.getElementById('import-button');
 const googleDriveButton = document.getElementById('import-google-drive-button');
+const scheduleButton = document.getElementById('schedule-button');
 const fileInput = document.getElementById('file-input');
 const uploadProgressContainer = document.getElementById('upload-progress-container');
 const uploadProgress = document.getElementById('upload-progress');
@@ -190,6 +191,15 @@ const uploadStatus = document.getElementById('upload-status');
 const searchView = document.getElementById('search-view');
 const filePreviewView = document.getElementById('file-preview-view');
 const backToSearchBtn = document.getElementById('back-to-search');
+const scheduleView = document.getElementById('schedule-view');
+const backToSearchFromScheduleBtn = document.getElementById('back-to-search-from-schedule');
+const scheduleTableHeader = document.getElementById('schedule-table-header');
+const scheduleTableBody = document.getElementById('schedule-table-body');
+const scheduleMonthSelect = document.getElementById('schedule-month-select');
+const schedulePrevMonthBtn = document.getElementById('schedule-prev-month');
+const scheduleNextMonthBtn = document.getElementById('schedule-next-month');
+const scheduleTodayBtn = document.getElementById('schedule-today');
+const scheduleSubtitle = document.getElementById('schedule-subtitle');
 const previewMeta = document.getElementById('preview-meta');
 const loadingOverlay = document.getElementById('loading-overlay');
 const loadingTitleText = document.getElementById('welcome-text');
@@ -219,6 +229,9 @@ let modalController = null;
 
 /** @type {{ showSearch: Function, showPreview: Function } | null} */
 let previewController = null;
+
+/** @type {{ isVisible: Function, setAvailableMonthsList: Function, setMonthByKey: Function, renderMonthDays: Function, setSelectedDay: Function, goToday: Function } | null} */
+let scheduleController = null;
 
 /** @type {{ ensureSections: Function, updateCounts: Function, syncHeights: Function, toggleCategory: Function } | null} */
 let resultsCategoryController = null;
@@ -263,6 +276,14 @@ let loadedFiles = new Set();
 let fullFileData = {}; 
 let scheduleService = null;
 
+/**
+ * Indeks tras zaimportowanych do bazy (kod trasy -> nazwa pliku).
+ * Używany do ograniczenia klikalności w grafiku wyłącznie do tras dostępnych w IndexedDB.
+ *
+ * @type {Map<string, string>}
+ */
+let routeFileIndexByCode = new Map();
+
 /** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna. */
 let isSearchEnabled = false; 
 
@@ -302,7 +323,7 @@ let loadingFailed = false;
 let loadingStartedAt = 0;
 
 /** @type {Object} Ostatni stan podglądu pliku. */
-let lastPreviewState = { fileName: null, rowIndex: null };
+let lastPreviewState = { fileName: null, rowIndex: null, contextIsoDate: null };
 
 /**
  * Obserwatory odpowiedzialne za automatyczne aktualizowanie stanu scroll-indicator
@@ -645,6 +666,14 @@ function setupDragAndDropListeners() {
  */
 function setupNavigationListeners() {
     ensureNavigationService().attach({ backToSearchBtn, homeLink });
+    if (scheduleButton) {
+        scheduleButton.addEventListener('click', async () => {
+            try { await openScheduleView({ source: 'toolbar' }); } catch { }
+        });
+    }
+    if (backToSearchFromScheduleBtn) {
+        backToSearchFromScheduleBtn.addEventListener('click', () => handleBackFromSchedule());
+    }
 }
 
 function ensureNavigationApplication() {
@@ -653,7 +682,8 @@ function ensureNavigationApplication() {
         onLog: logAction,
         resetToInitialState,
         showFilePreview,
-        showSearchView: ({ source } = {}) => ensurePreviewApplication().openSearch({ source: String(source || '') }),
+        showSearchView: ({ source } = {}) => { goHome(); ensurePreviewApplication().openSearch({ source: String(source || '') }); },
+        showScheduleView: ({ ym, selectedIsoDate, skipPush, source } = {}) => openScheduleView({ ym: String(ym || ''), selectedIsoDate: selectedIsoDate ?? null, skipPush: Boolean(skipPush), source: String(source || '') }),
         setSearchInputValue: (value) => { if (searchInput) searchInput.value = String(value ?? ''); },
         performSearch: (q) => performSearch(String(q || '')),
         getIsSearchEnabled: () => Boolean(isSearchEnabled),
@@ -825,6 +855,7 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
     try {
         await loadScheduleFiles({ fullReload, showProgress });
         const spreadsheetFiles = await getRouteSpreadsheetFiles();
+        routeFileIndexByCode = buildRouteFileIndex(spreadsheetFiles);
         fileCountSpan.textContent = spreadsheetFiles.length;
         if (fullReload) resetAppData();
         const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter(f => !loadedFiles.has(f));
@@ -971,6 +1002,18 @@ function getDriverForRouteOnDate(routeCode, date) {
     return ensureScheduleService().getDriverNamesForRouteOnDate(routeCode, date);
 }
 
+/**
+ * Zwraca kierowcę dla trasy w konkretnym dniu (YYYY-MM-DD).
+ * To preferowana ścieżka dla UI, bo jest niezależna od stref czasowych.
+ *
+ * @param {string} routeCode
+ * @param {string} isoDate
+ * @returns {string[] | null}
+ */
+function getDriverForRouteOnIsoDate(routeCode, isoDate) {
+    return ensureScheduleService().getDriverNamesForRouteOnIsoDate(routeCode, isoDate);
+}
+
 function normalizeDriverDisplayName(value) {
     const raw = value === null || value === undefined ? '' : String(value);
     return raw.replace(/\s+/g, ' ').trim();
@@ -1068,6 +1111,43 @@ function extractRouteCodeFromFileName(fileName) {
         .replace(/[^A-Za-zĄĆĘŁŃÓŚŹŻ0-9-]/g, '')
         .toUpperCase();
     return normalized;
+}
+
+/**
+ * Normalizuje kod trasy do postaci porównywalnej między:
+ * - nazwą pliku trasy (extractRouteCodeFromFileName),
+ * - grafikiem (schedule-service).
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeRouteCodeForLookup(value) {
+    const raw = String(value ?? '').trim();
+    if (!raw) return '';
+    return raw
+        .replace(/[–—]/g, '-')
+        .replace(/\s*-\s*/g, '-')
+        .replace(/\s+/g, '')
+        .toUpperCase();
+}
+
+/**
+ * Buduje indeks kodów tras dostępnych w bazie (IndexedDB) na podstawie listy plików arkuszy.
+ *
+ * @param {string[]} spreadsheetFiles
+ * @returns {Map<string, string>}
+ */
+function buildRouteFileIndex(spreadsheetFiles) {
+    const list = Array.isArray(spreadsheetFiles) ? spreadsheetFiles : [];
+    const map = new Map();
+    for (const fileName of list) {
+        const name = String(fileName ?? '').trim();
+        if (!name) continue;
+        const code = normalizeRouteCodeForLookup(extractRouteCodeFromFileName(name));
+        if (!code) continue;
+        if (!map.has(code)) map.set(code, name);
+    }
+    return map;
 }
 
 /**
@@ -1610,10 +1690,12 @@ function isRouteCategoryCollapsed(category) {
 /**
  * Wyświetla widok podglądu pełnej tabeli pliku.
  */
-function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false }) {
+function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false, contextIsoDate: null }) {
+    if (scheduleView) scheduleView.classList.add('view-hidden');
     ensurePreviewApplication().openPreview({
         fileName: String(fileName || ''),
         rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null,
+        contextIsoDate: options?.contextIsoDate ?? null,
         skipPush: Boolean(options?.skipPush)
     });
 }
@@ -1622,9 +1704,9 @@ function ensurePreviewApplication() {
     if (previewApplication) return previewApplication;
     previewApplication = createPreviewApplication({
         getTableModel: (name) => fullFileData[String(name || '')],
-        pushPreview: ({ fileName, rowIndex }) => ensureNavigationService().pushPreview({ fileName, rowIndex }),
+        pushPreview: ({ fileName, rowIndex, contextIsoDate }) => ensureNavigationService().pushPreview({ fileName, rowIndex, contextIsoDate }),
         setLastPreviewState: (s) => { lastPreviewState = s; },
-        showPreview: ({ fileName, tableModel, highlightRowIndex }) => ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex }),
+        showPreview: ({ fileName, tableModel, highlightRowIndex, contextIsoDate }) => ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex, contextIsoDate }),
         showSearch: () => ensurePreviewController().showSearch(),
         queuePreviewReadyEvent,
         logClientEvent,
@@ -1689,9 +1771,33 @@ function ensurePreviewController() {
         getRouteCategoriesFromFileName,
         extractRouteCodeFromFileName,
         getDriverForRouteOnDate,
+        getDriverForRouteOnIsoDate,
         buildDriverBadgesHtml
     });
     return previewController;
+}
+
+function ensureScheduleController() {
+    if (scheduleController) return scheduleController;
+    scheduleController = createScheduleController({
+        scheduleView,
+        tableHeaderRow: scheduleTableHeader,
+        tableBody: scheduleTableBody,
+        monthSelect: scheduleMonthSelect,
+        subtitleEl: scheduleSubtitle,
+        prevMonthBtn: schedulePrevMonthBtn,
+        nextMonthBtn: scheduleNextMonthBtn,
+        todayBtn: scheduleTodayBtn,
+        getMonthScheduleTable: (year, month) => ensureScheduleService().getMonthScheduleTable(year, month),
+        markerMeanings: (qeConstants && qeConstants.SCHEDULE_MARKER_MEANINGS && typeof qeConstants.SCHEDULE_MARKER_MEANINGS === 'object')
+            ? qeConstants.SCHEDULE_MARKER_MEANINGS
+            : {},
+        isRouteAvailable: (routeCode) => routeFileIndexByCode.has(normalizeRouteCodeForLookup(routeCode)),
+        onOpenRoute: ({ routeCode, isoDate }) => openRouteFromSchedule(routeCode, isoDate),
+        storageGet,
+        storageSet
+    });
+    return scheduleController;
 }
 
 function ensureResultsCategoryController() {
@@ -1942,9 +2048,90 @@ function ensureLoadingApplication() {
  */
 function goHome() {
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
+    if (scheduleView) scheduleView.classList.add('view-hidden');
     if (searchView) searchView.classList.remove('view-hidden');
     if (isSearchEnabled) searchInput.focus();
     window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
+}
+
+/**
+ * Otwiera podgląd trasy z widoku grafiku, zachowując kontekst daty.
+ *
+ * @param {string} routeCode
+ * @param {string} isoDate
+ */
+function openRouteFromSchedule(routeCode, isoDate) {
+    const code = normalizeRouteCodeForLookup(routeCode);
+    const fileName = routeFileIndexByCode.get(code);
+    if (!fileName) return;
+    showFilePreview(fileName, null, { contextIsoDate: String(isoDate || '').trim() || null });
+}
+
+/**
+ * Pokazuje widok grafiku, ukrywając pozostałe widoki.
+ */
+function showScheduleShell() {
+    if (searchView) searchView.classList.add('view-hidden');
+    if (filePreviewView) filePreviewView.classList.add('view-hidden');
+    if (scheduleView) scheduleView.classList.remove('view-hidden');
+}
+
+/**
+ * Wczytuje i pokazuje widok grafiku dla wybranego miesiąca.
+ *
+ * @param {{ ym?: string, selectedIsoDate?: (string|null), skipPush?: boolean, source?: string }} opts
+ */
+async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source = '' } = {}) {
+    showScheduleShell();
+    if (scheduleSubtitle) scheduleSubtitle.textContent = 'Ładowanie grafiku...';
+
+    const scheduleFiles = await docsListFiles();
+    const monthKeys = [];
+    const list = Array.isArray(scheduleFiles) ? scheduleFiles : [];
+    for (const f of list) {
+        const name = String(f?.name ?? '').trim();
+        if (!name) continue;
+        const meta = parseScheduleFileNameYearMonth(name);
+        if (!meta?.key) continue;
+        monthKeys.push(meta.key);
+    }
+    monthKeys.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+    const uniqueMonthKeys = Array.from(new Set(monthKeys));
+
+    const now = new Date();
+    const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const requestedYm = String(ym || '').trim();
+    const defaultYm = uniqueMonthKeys.includes(nowYm)
+        ? nowYm
+        : (uniqueMonthKeys.length > 0 ? uniqueMonthKeys[uniqueMonthKeys.length - 1] : '');
+    const targetYm = uniqueMonthKeys.includes(requestedYm) ? requestedYm : defaultYm;
+
+    const spreadsheetFiles = await getRouteSpreadsheetFiles();
+    routeFileIndexByCode = buildRouteFileIndex(spreadsheetFiles);
+
+    const ctrl = ensureScheduleController();
+    ctrl.setAvailableMonthsList(uniqueMonthKeys);
+    if (targetYm) ctrl.setMonthByKey(targetYm);
+
+    const iso = typeof selectedIsoDate === 'string' ? selectedIsoDate.trim() : '';
+    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) ctrl.setSelectedDay(iso);
+
+    if (!skipPush && targetYm) {
+        ensureNavigationService().pushSchedule({ ym: targetYm, selectedIsoDate: iso || null });
+    }
+    logClientEvent('navigate', { to: 'schedule', ym: targetYm, source: String(source || '') });
+}
+
+/**
+ * Obsługuje powrót z widoku grafiku do poprzedniego widoku.
+ * Preferuje `history.back()`, aby zachować naturalny przebieg Back/Forward.
+ */
+function handleBackFromSchedule() {
+    const st = history.state || {};
+    if (st?.view === 'schedule') {
+        try { history.back(); return; } catch { }
+    }
+    goHome();
 }
 
 /**
