@@ -17,6 +17,7 @@
  * @param {(files: any, cfg: any) => Promise<({files: string[], records: number, errors: number} | null)>} cfg.importLocalFiles
  * @param {number} cfg.maxImportBytes
  * @param {(name: string) => Promise<boolean>} cfg.fileExists
+ * @param {(name: string) => Promise<({ name: string, size: number, updatedAt: number, driveModifiedAt: (number|null) } | null)>} [cfg.getFileRecord]
  * @param {(ctx: { files: any[], conflicts: any[] }) => Promise<any[]>} cfg.resolveConflicts
  * @param {(r: { name: string, reason: string }) => void} cfg.onRejected
  * @param {(loading: boolean, total?: number) => void} cfg.onLoadingState
@@ -58,6 +59,7 @@ export function createImportApplication(cfg) {
         const summary = await cfg.importLocalFiles(files, {
             maxImportBytes: cfg.maxImportBytes,
             fileExists: cfg.fileExists,
+            getFileRecord: cfg.getFileRecord,
             resolveConflicts: cfg.resolveConflicts,
             onRejected: cfg.onRejected,
             onLoadingState: cfg.onLoadingState,

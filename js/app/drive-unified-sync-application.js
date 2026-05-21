@@ -203,7 +203,12 @@ export function createDriveUnifiedSyncApplication(cfg) {
         cfg.setUploadProgressValue(0);
         cfg.setUploadStatusText(`Google Drive: synchronizacja ${list.length} plik(ów)...`, { animate: false });
 
-        const summary = { files: [], records: 0, errors: 0 };
+        /**
+         * Podsumowanie jest używane przez wspólny renderer importu (UI) do rozróżnienia:
+         * - nowych plików (pierwszy zapis w IndexedDB),
+         * - plików nadpisanych (istniały wcześniej).
+         */
+        const summary = { files: [], newFiles: [], updatedFiles: [], records: 0, errors: 0 };
         const before = cfg.getAllDataLength();
 
         try {
@@ -226,6 +231,16 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 const percent = list.length > 0 ? (processed / list.length) * 100 : 0;
                 cfg.setLoadingProgress(percent, `${Math.round(percent)}%`);
                 cfg.setUploadProgressValue(Math.max(0, Math.min(95, percent)));
+
+                let prevUpdatedAt = null;
+                let existedBefore = null;
+                try {
+                    const prevRecord = await cfg.getDbFileRecord(name);
+                    existedBefore = !!prevRecord;
+                    prevUpdatedAt = Number.isFinite(Number(prevRecord?.updatedAt)) && Number(prevRecord.updatedAt) > 0 ? Number(prevRecord.updatedAt) : null;
+                } catch {
+                    existedBefore = null;
+                }
 
                 try {
                     const buffer = await api.downloadFileArrayBuffer(id, token);
@@ -250,6 +265,15 @@ export function createDriveUnifiedSyncApplication(cfg) {
                     }
 
                     summary.files.push(name);
+                    /**
+                     * Dla Google Drive nie mamy File.lastModified, więc jako „Teraz” pokazujemy timestamp modyfikacji z Drive (jeśli dostępny),
+                     * a w przeciwnym razie moment pobrania/zapisu.
+                     */
+                    const nextUpdatedAt = Number.isFinite(Number(file?.driveModifiedAt)) && Number(file.driveModifiedAt) > 0 ? Number(file.driveModifiedAt) : Date.now();
+                    const entry = { name, prevUpdatedAt, nextUpdatedAt };
+                    const isNewInDb = file?.isNewInDb === true || (existedBefore === false);
+                    if (isNewInDb) summary.newFiles.push(entry);
+                    else if (existedBefore === true) summary.updatedFiles.push(entry);
                     if (progressItem) {
                         const defer = Boolean(cfg.shouldDeferWelcomeUpdates?.());
                         safeCall(() => cfg.updateWelcomeItem(progressItem, 100, 'Gotowe', { defer }), undefined);

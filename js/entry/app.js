@@ -22,8 +22,9 @@ import { createNavigationApplication } from '../app/navigation-application.js';
 import { createLoadingApplication } from '../app/loading-application.js';
 import { createScheduleService } from '../services/schedule-service.js';
 import { createSearchOrchestrator } from '../features/search/search-orchestrator.js';
+import { SEARCH_RESULTS_SORT_MODE_ALPHANUM, SEARCH_RESULTS_SORT_MODE_TIME, sortSearchResultGroups } from '../features/search/search-results-sort.js';
 import { createNavigationService } from '../services/navigation-service.js';
-import { createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScheduleController, createScrollIndicatorController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
+import { createImportSummaryRenderer, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScheduleController, createScrollIndicatorController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
 import { createDriveChangesModalController } from '../ui/drive/drive-changes-modal.js';
 import { createWelcomeLoadingOverlayController } from '../ui/loading/welcome-loading-overlay-controller.js';
 import { createPredictiveGhostController } from '../ui/search/predictive-ghost.js';
@@ -179,6 +180,7 @@ const resultsList = document.getElementById('results-list');
 const resultsInfo = document.getElementById('results-info');
 const statusIndicator = document.getElementById('status-indicator');
 const fileCountSpan = document.getElementById('file-count');
+const searchSortToggle = document.getElementById('search-sort-toggle');
 const themeToggle = document.getElementById('theme-toggle');
 const themeIcon = document.getElementById('theme-icon');
 const importButton = document.getElementById('import-button');
@@ -242,6 +244,8 @@ let resultsRenderer = null;
 /** @type {{ createItem: Function, updateItem: Function } | null} */
 let welcomeProgressRenderer = null;
 
+let importSummaryRenderer = null;
+
 /** @type {{ renderHeaderLogo: Function, refreshWelcomeGraphicIfPresent: Function, lazyLoadWelcomeGraphic: Function } | null} */
 let logoRenderer = null;
 
@@ -262,6 +266,19 @@ let matchedResults = [];
 
 /** @type {string} Ostatnie zapytanie użyte do wyszukiwania. */
 let lastQuery = ''; 
+
+/**
+ * Tryb sortowania wyników wyszukiwania (domyślnie alfanumerycznie).
+ * Wartość jest przechowywana w localStorage i odczytywana podczas startu aplikacji.
+ *
+ * @type {string}
+ */
+let searchResultsSortMode = SEARCH_RESULTS_SORT_MODE_ALPHANUM;
+
+/**
+ * Klucz localStorage dla trybu sortowania wyników wyszukiwania.
+ */
+const SEARCH_RESULTS_SORT_MODE_STORAGE_KEY = 'qeSearchResultsSortMode';
 
 /** @type {number} Rewizja danych (allData) używana do detekcji zmian wymagających ponownego renderu wyników. */
 let allDataRevision = 0;
@@ -570,9 +587,49 @@ function applyTheme(theme) {
 }
 
 /**
+ * Konfiguruje przełącznik trybu sortowania wyników wyszukiwania.
+ */
+function setupSearchResultsSortToggle() {
+    if (!searchSortToggle) return;
+
+    const rawMode = String(storageGet(SEARCH_RESULTS_SORT_MODE_STORAGE_KEY) || '').trim();
+    if (rawMode === SEARCH_RESULTS_SORT_MODE_TIME || rawMode === SEARCH_RESULTS_SORT_MODE_ALPHANUM) {
+        searchResultsSortMode = rawMode;
+    } else {
+        searchResultsSortMode = SEARCH_RESULTS_SORT_MODE_ALPHANUM;
+    }
+
+    const applyToggleState = () => {
+        const isTime = searchResultsSortMode === SEARCH_RESULTS_SORT_MODE_TIME;
+        searchSortToggle.checked = isTime;
+        const label = isTime ? 'Sortowanie godzinowe (najbliżej teraz)' : 'Sortowanie alfanumeryczne';
+        searchSortToggle.setAttribute('aria-label', label);
+        searchSortToggle.setAttribute('title', label);
+    };
+
+    applyToggleState();
+
+    searchSortToggle.addEventListener('change', () => {
+        searchResultsSortMode = searchSortToggle.checked ? SEARCH_RESULTS_SORT_MODE_TIME : SEARCH_RESULTS_SORT_MODE_ALPHANUM;
+        storageSet(SEARCH_RESULTS_SORT_MODE_STORAGE_KEY, searchResultsSortMode);
+        applyToggleState();
+
+        const hasResults = Array.isArray(currentResults) && currentResults.length > 0;
+        const activeQuery = String(lastQuery || '').trim();
+        if (hasResults && activeQuery.length >= 3) {
+            currentResults = sortSearchResultGroups(currentResults, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
+            void renderResults(activeQuery, { append: false, startIndex: 0 }).catch((err) => console.error(err));
+        }
+
+        logClientEvent('search_sort_mode', { mode: searchResultsSortMode });
+    });
+}
+
+/**
  * Rejestruje globalne event listenery.
  */
 function setupEventListeners() {
+    setupSearchResultsSortToggle();
     setupSearchListeners();
     setupImportListeners();
     setupDragAndDropListeners();
@@ -1190,6 +1247,7 @@ function ensureImportApplication() {
         importLocalFiles,
         maxImportBytes: MAX_IMPORT_BYTES,
         fileExists: docsFileExists,
+        getFileRecord: docsGetFileRecord,
         resolveConflicts: resolveImportConflicts,
         onRejected: (r) => logAction('import', { fileName: r?.name, reason: r?.reason }, 'WARN'),
         onLoadingState: setImportLoadingState,
@@ -1526,7 +1584,10 @@ function ensureSearchApplication() {
         },
         setLastQuery: (q) => { lastQuery = String(q || ''); },
         setMatchedResults: (results) => { matchedResults = Array.isArray(results) ? results : []; },
-        setCurrentResults: (results) => { currentResults = Array.isArray(results) ? results : []; },
+        setCurrentResults: (results) => {
+            const list = Array.isArray(results) ? results : [];
+            currentResults = sortSearchResultGroups(list, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
+        },
         renderResults: async (q) => { await renderResults(String(q || ''), { append: false, startIndex: 0 }); },
         handleShortQuery: handleSearchShortQuery,
         handleNoResults: handleNoSearchResults,
@@ -1848,6 +1909,12 @@ function ensureWelcomeProgressRenderer() {
     return welcomeProgressRenderer;
 }
 
+function ensureImportSummaryRenderer() {
+    if (importSummaryRenderer) return importSummaryRenderer;
+    importSummaryRenderer = createImportSummaryRenderer({ formatFileName, escapeHtml, now: () => Date.now() });
+    return importSummaryRenderer;
+}
+
 function ensureLogoRenderer() {
     if (logoRenderer) return logoRenderer;
     logoRenderer = createLogoRenderer({
@@ -1872,8 +1939,7 @@ function ensureScrollIndicatorController() {
  * Wyświetla podsumowanie po zakończeniu importu.
  */
 function displayImportSummary(summary) {
-    const safeFilesList = summary.files.map(f => escapeHtml(formatFileName(f))).join(', ');
-    setElementHtml(resultsInfo, `Zaimportowano rekordów: <strong>${escapeHtml(summary.records)}</strong><br>Pliki: <strong>${safeFilesList || '-'}</strong><br>Błędy: <strong>${escapeHtml(summary.errors)}</strong>`);
+    setElementHtml(resultsInfo, ensureImportSummaryRenderer().buildHtml(summary));
 }
 
 /**

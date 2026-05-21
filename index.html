@@ -99,13 +99,21 @@
         </header>
 
         <main>
-            <div id="search-view" class="view-transition">
+                <div id="search-view" class="view-transition">
                 <div class="search-container">
-                    <div class="search-input-wrap" id="search-input-wrap">
+                    <div class="search-input-wrap search-input-wrap--with-sort" id="search-input-wrap">
                         <div id="qe-ghost" class="qe-ghost is-hidden" aria-hidden="true">
                             <span id="qe-ghost-prefix" class="qe-ghost-prefix"></span><span id="qe-ghost-suffix" class="qe-ghost-suffix"></span>
                         </div>
                         <input type="text" id="search-input" placeholder="Przeszukaj trasy (min. 3 znaki)..." autocomplete="off">
+                        <div class="search-sort-switch" aria-label="Tryb sortowania wyników wyszukiwania">
+                            <span class="search-sort-switch-label" aria-hidden="true">A‑Z</span>
+                            <label class="switch">
+                                <input type="checkbox" id="search-sort-toggle" aria-label="Sortowanie alfanumeryczne">
+                                <span class="slider"></span>
+                            </label>
+                            <span class="search-sort-switch-label" aria-hidden="true">⏱</span>
+                        </div>
                     </div>
                     <div id="status-indicator" class="status">Ładowanie...</div>
                 </div>
@@ -134,9 +142,9 @@
                 <div class="schedule-bar">
                     <button id="back-to-search-from-schedule" class="btn-secondary" type="button">← Powrót</button>
                     <div class="schedule-controls" role="group" aria-label="Sterowanie grafikiem">
-                        <button id="schedule-prev-month" class="schedule-nav-btn" type="button" aria-label="Poprzedni miesiąc">←</button>
+                        <button id="schedule-prev-month" class="schedule-nav-btn" type="button" aria-label="Poprzedni dzień">←</button>
                         <select id="schedule-month-select" class="schedule-month-select" aria-label="Wybierz miesiąc grafiku"></select>
-                        <button id="schedule-next-month" class="schedule-nav-btn" type="button" aria-label="Następny miesiąc">→</button>
+                        <button id="schedule-next-month" class="schedule-nav-btn" type="button" aria-label="Następny dzień">→</button>
                         <button id="schedule-today" class="schedule-nav-btn schedule-nav-btn--primary" type="button">Dziś</button>
                     </div>
                     <div class="schedule-meta" aria-live="polite">

@@ -90,8 +90,7 @@ export const SCHEDULE_MARKER_MEANINGS = Object.freeze({
     Z: 'Urlop',
     'UŻ': 'Urlop na żądanie',
     UZ: 'Urlop na żądanie',
-    U: 'Urlop na żądanie',
-    DK: 'Dyżur koordynatora',
-    '*D': 'Dyżur',
-    '*P': 'Podmiana'
+    DK: 'Sobotni dyżur koordynatora',
+    '*D': 'Dyżur poranny',
+    '*P': 'Dyżur popołudniowy'
 });

@@ -58,6 +58,11 @@ export async function importLocalFiles(files, cfg = {}) {
 
     const conflicts = await buildConflictsList(accepted, cfg.fileExists);
     const hasConflicts = conflicts.length > 0;
+    /**
+     * Zbiór nazw plików wykrytych jako konflikty przed importem.
+     * To najpewniejszy sygnał „nadpisania” (niezależny od ewentualnych problemów z odczytem rekordu).
+     */
+    const conflictNames = new Set(conflicts.map(f => String(f?.name || '').trim()).filter(Boolean));
 
     let toImport = accepted;
     if (hasConflicts) {
@@ -73,7 +78,7 @@ export async function importLocalFiles(files, cfg = {}) {
 
     if (toImport.length === 0) return null;
 
-    const summary = { files: [], records: 0, errors: rejected.length };
+    const summary = { files: [], newFiles: [], updatedFiles: [], records: 0, errors: rejected.length };
     try {
         try { cfg.onLoadingState?.(true, toImport.length); } catch { }
 
@@ -81,6 +86,25 @@ export async function importLocalFiles(files, cfg = {}) {
         for (const file of toImport) {
             const name = String(file?.name || '').trim();
             if (!name) { processed += 1; continue; }
+
+            let prevUpdatedAt = null;
+            let existedBefore = null;
+            if (hasConflicts) {
+                /**
+                 * Jeśli konflikt był wykryty na etapie pre-scan, traktujemy plik jako nadpisany,
+                 * nawet jeśli odczyt rekordu z bazy (getFileRecord) chwilowo się nie powiedzie.
+                 */
+                existedBefore = conflictNames.has(name);
+            }
+            if (typeof cfg.getFileRecord === 'function') {
+                try {
+                    const prev = await cfg.getFileRecord(name);
+                    if (existedBefore === null) existedBefore = !!prev;
+                    prevUpdatedAt = Number.isFinite(Number(prev?.updatedAt)) && Number(prev.updatedAt) > 0 ? Number(prev.updatedAt) : null;
+                } catch {
+                    existedBefore = existedBefore === null ? null : existedBefore;
+                }
+            }
 
             try {
                 const label = typeof cfg.formatFileName === 'function' ? cfg.formatFileName(name) : name;
@@ -107,6 +131,14 @@ export async function importLocalFiles(files, cfg = {}) {
                 }
 
                 summary.files.push(name);
+                /**
+                 * Timestamp „Teraz” w UI importu ma odzwierciedlać modyfikację pliku na dysku (File.lastModified),
+                 * a nie moment zapisu do IndexedDB.
+                 */
+                const nextUpdatedAt = Number.isFinite(Number(file?.lastModified)) && Number(file.lastModified) > 0 ? Number(file.lastModified) : Date.now();
+                const entry = { name, prevUpdatedAt, nextUpdatedAt };
+                if (existedBefore === true) summary.updatedFiles.push(entry);
+                else if (existedBefore === false) summary.newFiles.push(entry);
             } catch (err) {
                 summary.errors += 1;
                 try { cfg.onFileError?.({ fileName: name, error: err }); } catch { }

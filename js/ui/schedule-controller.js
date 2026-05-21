@@ -164,6 +164,14 @@ export function createScheduleController(cfg = {}) {
 
         const parts = formatDayHeaderParts(iso);
         setSubtitle(`Wybrano: ${parts.weekday} ${parts.date}`);
+
+        updateDayNavButtons();
+
+        const safeIso = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(iso) : iso;
+        const headerCell = tableHeaderRow?.querySelector?.(`[data-iso-date="${safeIso}"]`);
+        if (headerCell instanceof HTMLElement) {
+            headerCell.scrollIntoView({ block: 'nearest', inline: 'center' });
+        }
     }
 
     function tryRestoreSelectedDay() {
@@ -190,17 +198,70 @@ export function createScheduleController(cfg = {}) {
         }
     }
 
-    function computePrevNextMonthKey(direction) {
-        const idx = availableMonths.findIndex(m => String(m?.key ?? '') === current.key);
-        if (idx < 0) return '';
-        const nextIdx = idx + (direction < 0 ? -1 : 1);
-        if (nextIdx < 0 || nextIdx >= availableMonths.length) return '';
-        return String(availableMonths[nextIdx]?.key ?? '');
+    /**
+     * Zwraca listę dni (ISO) aktualnie wyrenderowanych w nagłówku tabeli.
+     * Jest to źródło prawdy dla nawigacji ←/→, aby nie wiązać logiki z modelem danych.
+     *
+     * @returns {string[]}
+     */
+    function getRenderedDayIsoList() {
+        if (!tableHeaderRow) return [];
+        const ths = tableHeaderRow.querySelectorAll('[data-iso-date]');
+        const out = [];
+        for (const th of ths) {
+            if (!(th instanceof HTMLElement)) continue;
+            const iso = coerceIsoDate(th.dataset.isoDate);
+            if (iso) out.push(iso);
+        }
+        return out;
     }
 
-    function updateMonthNavButtons() {
-        if (prevMonthBtn) prevMonthBtn.disabled = !computePrevNextMonthKey(-1);
-        if (nextMonthBtn) nextMonthBtn.disabled = !computePrevNextMonthKey(1);
+    /**
+     * Zwraca indeks aktualnie zaznaczonego dnia w wyrenderowanej liście dni.
+     * Jeśli nie da się go ustalić, zwraca `-1`.
+     *
+     * @returns {number}
+     */
+    function getSelectedDayIndex() {
+        const days = getRenderedDayIsoList();
+        const iso = coerceIsoDate(selectedIsoDate);
+        if (!iso || days.length === 0) return -1;
+        return days.findIndex(d => d === iso);
+    }
+
+    /**
+     * Wylicza ISO poprzedniego/następnego dnia w aktualnie wyświetlanym miesiącu.
+     * Logika celowo nie zmienia miesiąca — do tego służy select.
+     *
+     * @param {number} direction
+     * @returns {string}
+     */
+    function computePrevNextSelectedDayIso(direction) {
+        const days = getRenderedDayIsoList();
+        if (days.length === 0) return '';
+        const idx = getSelectedDayIndex();
+        const baseIdx = idx >= 0 ? idx : 0;
+        const nextIdx = baseIdx + (direction < 0 ? -1 : 1);
+        if (nextIdx < 0 || nextIdx >= days.length) return '';
+        return String(days[nextIdx] ?? '');
+    }
+
+    /**
+     * Ustawia stan disabled przycisków ←/→ zgodnie z tym,
+     * czy można przesunąć akcent na sąsiednią kolumnę dnia.
+     */
+    function updateDayNavButtons() {
+        const days = getRenderedDayIsoList();
+        if (!prevMonthBtn || !nextMonthBtn) return;
+        if (days.length === 0) {
+            prevMonthBtn.disabled = true;
+            nextMonthBtn.disabled = true;
+            return;
+        }
+        const idx = getSelectedDayIndex();
+        const resolvedIdx = idx >= 0 ? idx : 0;
+        prevMonthBtn.disabled = resolvedIdx <= 0;
+        nextMonthBtn.disabled = resolvedIdx >= days.length - 1;
     }
 
     /**
@@ -330,8 +391,9 @@ export function createScheduleController(cfg = {}) {
         current = { year: y, month: m, key };
 
         buildMonthSelectOptions();
-        updateMonthNavButtons();
         clearTable();
+        lastMonthTable = null;
+        updateDayNavButtons();
 
         const table = getMonthScheduleTable(y, m);
         lastMonthTable = table;
@@ -367,7 +429,7 @@ export function createScheduleController(cfg = {}) {
         unique.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
         availableMonths = unique.map(key => Object.freeze({ key }));
         buildMonthSelectOptions();
-        updateMonthNavButtons();
+        updateDayNavButtons();
     }
 
     function setMonthByKey(ym) {
@@ -419,13 +481,13 @@ export function createScheduleController(cfg = {}) {
         });
 
         prevMonthBtn?.addEventListener?.('click', () => {
-            const key = computePrevNextMonthKey(-1);
-            if (key) setMonthByKey(key);
+            const iso = computePrevNextSelectedDayIso(-1);
+            if (iso) setSelectedDay(iso);
         });
 
         nextMonthBtn?.addEventListener?.('click', () => {
-            const key = computePrevNextMonthKey(1);
-            if (key) setMonthByKey(key);
+            const iso = computePrevNextSelectedDayIso(1);
+            if (iso) setSelectedDay(iso);
         });
 
         todayBtn?.addEventListener?.('click', () => goToday());

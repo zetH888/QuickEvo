@@ -12,6 +12,7 @@ const QuickEvoTests = {
         console.log("%c--- QuickEvo Test Suite ---", "color: #0066cc; font-weight: bold; font-size: 1.2rem;");
         const ctx = await this.loadModules();
         await this.testXlsxLoaded();
+        await this.testSearchResultsSorting(ctx);
         await this.testScheduleService(ctx);
         await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
@@ -30,15 +31,17 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
             import('../services/drive-service.js'),
             import('../ui/preview/preview-controller.js'),
-            import('../app/drive-unified-sync-application.js')
+            import('../app/drive-unified-sync-application.js'),
+            import('../features/search/search-results-sort.js'),
+            import('../core/formatters/route-name.js')
         ]);
-        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication };
+        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter };
     },
 
     async testXlsxLoaded() {
@@ -48,6 +51,79 @@ const QuickEvoTests = {
             this.assert(typeof excelProcessor.sheetToMatrix === 'function', "XLSX jest dostępne przez ESM (excel-processor)");
         } catch (e) {
             this.assert(false, "Nie udało się zaimportować XLSX przez ESM");
+            console.error(e);
+        }
+    },
+
+    async testSearchResultsSorting(ctx) {
+        console.log("\nTesting Sortowanie wyników wyszukiwania:");
+        try {
+            const sortMod = ctx?.searchResultsSort;
+            const formatRouteNameForResults = ctx?.routeNameFormatter?.formatRouteNameForResults || ((x) => String(x || ''));
+
+            this.assert(typeof sortMod?.sortSearchResultGroups === 'function', "search-results-sort jest dostępny przez import");
+            if (typeof sortMod?.sortSearchResultGroups !== 'function') return;
+
+            const groupsAlpha = [
+                { fileName: 'TRASA 11.xlsx', items: [] },
+                { fileName: 'TRASA 2.xlsx', items: [] },
+                { fileName: 'TRASA B.xlsx', items: [] },
+                { fileName: 'TRASA A.xlsx', items: [] }
+            ];
+            const alphaSorted = sortMod.sortSearchResultGroups(groupsAlpha, {
+                mode: sortMod.SEARCH_RESULTS_SORT_MODE_ALPHANUM,
+                formatRouteNameForResults
+            });
+            const alphaLabels = alphaSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
+            this.assert(alphaLabels === 'TRASA A,TRASA B,TRASA 2,TRASA 11', 'Sortowanie alfanumeryczne: litery + liczby (naturalnie)');
+
+            const now = new Date(2026, 4, 21, 13, 30, 0, 0);
+            const makeCompleteItem = (time) => ({ isComplete: true, headerMap: { GODZ: 0 }, cells: [time], displayText: `${time} | X | Y` });
+
+            const groupsTime = [
+                { fileName: 'TRASA 4.xlsx', items: [makeCompleteItem('08:00'), makeCompleteItem('13:29')] },
+                { fileName: 'TRASA 3.xlsx', items: [makeCompleteItem('13:25')] },
+                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('13:45')] },
+                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('13:15')] },
+                { fileName: 'TRASA 9.xlsx', items: [makeCompleteItem('-')] }
+            ];
+
+            const timeSorted = sortMod.sortSearchResultGroups(groupsTime, {
+                mode: sortMod.SEARCH_RESULTS_SORT_MODE_TIME,
+                now,
+                formatRouteNameForResults
+            });
+            const timeLabels = timeSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
+            this.assert(timeLabels === 'TRASA 4,TRASA 3,TRASA 1,TRASA 2,TRASA 9', 'Sortowanie godzinowe: najbliżej teraz');
+
+            const tieNow = new Date(2026, 4, 21, 13, 35, 0, 0);
+            const tieGroups = [
+                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('13:25')] },
+                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('13:45')] }
+            ];
+            const tieSorted = sortMod.sortSearchResultGroups(tieGroups, {
+                mode: sortMod.SEARCH_RESULTS_SORT_MODE_TIME,
+                now: tieNow,
+                formatRouteNameForResults
+            });
+            const tieLabels = tieSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
+            this.assert(tieLabels === 'TRASA 1,TRASA 2', 'Sortowanie godzinowe: remis odległości rozstrzyga deterministycznie po nazwie trasy (bez preferowania późniejszej godziny)');
+
+            const lateNow = new Date(2026, 4, 21, 20, 0, 0, 0);
+            const lateGroups = [
+                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('18:00')] },
+                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('03:00')] },
+                { fileName: 'TRASA 3.xlsx', items: [makeCompleteItem('07:50')] }
+            ];
+            const lateSorted = sortMod.sortSearchResultGroups(lateGroups, {
+                mode: sortMod.SEARCH_RESULTS_SORT_MODE_TIME,
+                now: lateNow,
+                formatRouteNameForResults
+            });
+            const lateLabels = lateSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
+            this.assert(lateLabels === 'TRASA 2,TRASA 3,TRASA 1', 'Sortowanie godzinowe po 20:00: traktuje godziny jako następny dzień (wczesne godziny rano najwyżej)');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować sortowania wyników wyszukiwania");
             console.error(e);
         }
     },
