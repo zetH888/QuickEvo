@@ -10,6 +10,27 @@ export const SEARCH_RESULTS_SORT_MODE_ALPHANUM = 'alphanum';
 export const SEARCH_RESULTS_SORT_MODE_TIME = 'time';
 
 /**
+ * Oblicza liczbę minut do kolejnego wystąpienia godziny `targetMinutes`, licząc od `nowMinutes`.
+ * Zasada: zawsze wybieramy „następny” moment w przyszłości (dziś lub kolejny dzień).
+ *
+ * Przykład:
+ * - now=20:51 (1251), target=08:00 (480) => delta=669 (11h09)
+ * - now=13:30 (810), target=13:25 (805) => delta=1435 (następny dzień)
+ *
+ * @param {number} targetMinutes
+ * @param {number} nowMinutes
+ * @returns {number}
+ */
+export function computeNextOccurrenceDeltaMinutes(targetMinutes, nowMinutes) {
+    const target = Number(targetMinutes);
+    const now = Number(nowMinutes);
+    if (!Number.isFinite(target) || !Number.isFinite(now)) return Number.POSITIVE_INFINITY;
+    const day = 24 * 60;
+    const raw = (target - now) % day;
+    return (raw + day) % day;
+}
+
+/**
  * Parsuje zapis godziny w formacie HH:MM do liczby minut od północy.
  *
  * @param {unknown} value
@@ -50,13 +71,11 @@ export function extractItemTimeMinutes(item) {
 }
 
 /**
- * Oblicza metrykę sortowania czasowego dla grupy.
+ * Oblicza metrykę sortowania czasowego dla grupy:
+ * - Kluczem jest „najwcześniejsza następna godzina” w grupie (najmniejsza liczba minut do przyszłego wystąpienia).
+ * - Godziny wcześniejsze niż bieżąca są traktowane jako godziny z następnego dnia.
  *
- * Zasady:
- * - Przed 20:00: kluczem jest minimalna odległość od aktualnej godziny (najbliżej teraz).
- * - Od 20:00: kluczem jest najwcześniejsza godzina z grupy (poranek następnego dnia).
- *
- * Uwaga: nie ma dodatkowej reguły preferującej „późniejszą godzinę” przy remisie.
+ * Uwaga: brak dodatkowej reguły preferowania „późniejszej godziny” przy remisie.
  *
  * @param {any} group
  * @param {Date} now
@@ -65,7 +84,6 @@ export function extractItemTimeMinutes(item) {
 export function computeGroupClosestTimeHit(group, now) {
     const items = Array.isArray(group?.items) ? group.items : [];
     const nowMinutes = (Number(now?.getHours?.()) || 0) * 60 + (Number(now?.getMinutes?.()) || 0);
-    const isAfterCutoff = nowMinutes >= (20 * 60);
 
     let bestKey = Number.POSITIVE_INFINITY;
     let bestHit = null;
@@ -73,7 +91,7 @@ export function computeGroupClosestTimeHit(group, now) {
     for (const item of items) {
         const mins = extractItemTimeMinutes(item);
         if (mins == null) continue;
-        const key = isAfterCutoff ? mins : Math.abs(mins - nowMinutes);
+        const key = computeNextOccurrenceDeltaMinutes(mins, nowMinutes);
         if (key < bestKey) {
             bestKey = key;
             bestHit = mins;
@@ -81,6 +99,33 @@ export function computeGroupClosestTimeHit(group, now) {
     }
 
     return { key: bestKey, hitMinutes: bestHit };
+}
+
+/**
+ * Sortuje wiersze (trafienia) w grupie tak, aby na górze znajdowały się te, które wystąpią najwcześniej „następnym razem”.
+ * Wiersze bez godziny (np. '-') trafiają na koniec, zachowując kolejność wejściową.
+ *
+ * @param {Array<any>} items
+ * @param {Date} now
+ * @returns {Array<any>}
+ */
+export function sortGroupItemsByNextTime(items, now) {
+    const list = Array.isArray(items) ? items.slice() : [];
+    if (list.length <= 1) return list;
+    const nowMinutes = (Number(now?.getHours?.()) || 0) * 60 + (Number(now?.getMinutes?.()) || 0);
+
+    const meta = list.map((item, index) => {
+        const mins = extractItemTimeMinutes(item);
+        const delta = mins == null ? Number.POSITIVE_INFINITY : computeNextOccurrenceDeltaMinutes(mins, nowMinutes);
+        return { item, index, delta };
+    });
+
+    meta.sort((a, b) => {
+        if (a.delta !== b.delta) return a.delta - b.delta;
+        return a.index - b.index;
+    });
+
+    return meta.map(m => m.item);
 }
 
 /**
@@ -115,15 +160,20 @@ export function sortSearchResultGroups(groups, opts = {}) {
 
     if (mode === SEARCH_RESULTS_SORT_MODE_TIME) {
         const meta = new Map();
-        for (const g of list) meta.set(g, computeGroupClosestTimeHit(g, now));
+        for (const g of list) {
+            const timeMeta = computeGroupClosestTimeHit(g, now);
+            const sortedItems = sortGroupItemsByNextTime(Array.isArray(g?.items) ? g.items : [], now);
+            meta.set(g, { key: timeMeta.key, group: { ...g, items: sortedItems } });
+        }
 
-        list.sort((a, b) => {
+        const sortedGroups = list.slice().sort((a, b) => {
             const ma = meta.get(a) || { key: Number.POSITIVE_INFINITY };
             const mb = meta.get(b) || { key: Number.POSITIVE_INFINITY };
             if (ma.key !== mb.key) return ma.key - mb.key;
             return collator.compare(getSortLabel(a), getSortLabel(b));
         });
-        return list;
+
+        return sortedGroups.map((g) => (meta.get(g)?.group ?? g));
     }
 
     list.sort((a, b) => {

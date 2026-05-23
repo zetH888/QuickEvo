@@ -16,6 +16,20 @@ export function createResultsRenderer(cfg) {
         '</svg>'
     ].join('');
 
+    const CLOCK_ICON_SVG = [
+        '<svg class="result-col-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" title="Godzina">',
+        '<path d="M12 7v5l3 2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        '<path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        '</svg>'
+    ].join('');
+
+    const PIN_ICON_SVG = [
+        '<svg class="result-col-icon" width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" title="Adres">',
+        '<path d="M12 21s-6-4.35-6-10a6 6 0 1 1 12 0c0 5.65-6 10-6 10Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        '<path d="M12 11.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>',
+        '</svg>'
+    ].join('');
+
     function isPhonePointTime(value) {
         const t = String(value ?? '').trim();
         return t === '' || t === '-';
@@ -32,14 +46,21 @@ export function createResultsRenderer(cfg) {
         return { time: nonEmpty[0] || '', address: nonEmpty[1] || '', facility: nonEmpty[2] || '' };
     }
 
-    function buildResultSummaryHtml(result, query, { isLab = false } = {}) {
+    function buildResultSummaryHtml(result, query, { isLab = false, useVariantA = false } = {}) {
         const { time, address, facility: rawFacility } = extractThreeParts(result);
-        const timeHtml = isPhonePointTime(time) ? PHONE_ICON_SVG : highlightText(time, query);
+        const timeTextHtml = highlightText(time, query);
+        const addressTextHtml = highlightText(address, query);
+        const timeHtml = isPhonePointTime(time)
+            ? PHONE_ICON_SVG
+            : (useVariantA ? `${CLOCK_ICON_SVG}${timeTextHtml}` : timeTextHtml);
+        const addressHtml = useVariantA && addressTextHtml.trim()
+            ? `${PIN_ICON_SVG}${addressTextHtml}`
+            : addressTextHtml;
         const facility = isLab ? toTitleCase(rawFacility) : rawFacility;
         const facilityClass = isLab ? 'result-col result-facility result-facility--lab' : 'result-col result-facility';
         return [
             `<span class="result-col result-time">${timeHtml}</span>`,
-            `<span class="result-col result-address">${highlightText(address, query)}</span>`,
+            `<span class="result-col result-address">${addressHtml}</span>`,
             `<span class="${facilityClass}">${highlightText(facility, query)}</span>`
         ].join('');
     }
@@ -60,16 +81,20 @@ export function createResultsRenderer(cfg) {
 
         const items = Array.isArray(group?.items) ? group.items : [];
         const rowsHtml = items.map(item => {
-            const isLab = item?.isComplete ? rowMatchesKeyLab((Array.isArray(item?.cells) ? item.cells : []).join(' ')) : false;
             const parts = extractThreeParts(item);
+            const isComplete = Boolean(item?.isComplete);
+            // Dopasowanie laboratoriów wykonuj wyłącznie na nazwie placówki, aby uniknąć fałszywych trafień
+            // z innych kolumn (np. „do lab. Dzika” w uwagach).
+            const isLab = isComplete ? rowMatchesKeyLab(parts.facility) : false;
             const isPhonePoint = isPhonePointTime(parts.time);
             const rowClass = [
                 'result-row',
+                isComplete ? 'result-row--complete' : 'result-row--incomplete',
                 isLab ? 'result-row--lab' : '',
                 isPhonePoint ? 'result-row--phonepoint' : ''
             ].filter(Boolean).join(' ');
             return `<div class="${rowClass}" data-row-index="${item.rowIndex}" data-file-name="${escapeHtml(item.fileName)}">
-            <div class="result-content">${buildResultSummaryHtml(item, query, { isLab })}</div>
+            <div class="result-content">${buildResultSummaryHtml(item, query, { isLab, useVariantA: isComplete })}</div>
         </div>`;
         }).join('');
 

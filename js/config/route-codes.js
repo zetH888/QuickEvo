@@ -56,7 +56,7 @@
     ]);
 
     const QE_ROUTE_CODES_SOBOTA = Object.freeze([
-        'S-1', 'S-2', 'S-3', 'S-4', 'S-5', 'S-6', 'S-7', 'S-8', 'S-9', 'S-10', 'S-11', 'S-12'
+        'S-1', 'S-2', 'S-3', 'S-4', 'S-5', 'S-6', 'S-7', 'S-8', 'S-9', 'S-10', 'S-11', 'S-12', 'S-13'
     ]);
 
     const QE_ROUTE_CODES_NIEDZIELA = Object.freeze([

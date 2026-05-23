@@ -91,7 +91,8 @@ export function buildTableModel(matrix) {
     const headerRowRel = findHeaderRowIndex(cropped);
     const rawHeaders = cropped[headerRowRel].map(cellToHeaderText);
     const headerMap = mapRequiredHeaders(rawHeaders);
-    const isCompleteStructure = Object.keys(headerMap).length === 5;
+    const isCompleteStructure = [headerMap.GODZ, headerMap.ADRES, headerMap.NAZWA_PLACOWKI]
+        .every((idx) => Number.isInteger(idx) && idx >= 0);
     const metaLines = extractMetaLines(cropped, headerRowRel);
     const dataRelRows = cropped.slice(headerRowRel + 1);
     const rawDataRows = processDataRows(dataRelRows, headerMap, bounds.minRow + headerRowRel + 1);
@@ -134,9 +135,9 @@ function cellToHeaderText(cell) {
  */
 function mapRequiredHeaders(rawHeaders) {
     const requiredHeaders = {
-        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA', 'NR'],
+        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'NR PÓŁ', 'PÓŁKA', 'POLKA', 'NR'],
         'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
-        'ADRES': ['ADRES', 'ULICA'],
+        'ADRES': ['ADRES', 'ULICA', 'LOKALIZACJA'],
         'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
         'UWAGI': ['UWAGI']
     };

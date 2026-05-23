@@ -3,6 +3,36 @@ export const ROUTE_CATEGORY_STORAGE_PREFIX = 'qe:routeCategoryCollapsed:';
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Zestawy tokenów do wykrywania wierszy związanych z laboratorium.
+ *
+ * Założenie biznesowe: badge „laboratorium” ma być nadawany tylko wtedy, gdy wymagane tokeny
+ * występują w nazwie placówki (kolumna z nazwą), a nie w innych polach (np. „uwagi”).
+ *
+ * Format: lista list tokenów/fraz. Tokenizacja wykonywana jest w search-engine (normalizacja + split).
+ *
+ * @type {ReadonlyArray<ReadonlyArray<string>>}
+ */
+export const KEY_LAB_TOKEN_SETS = Object.freeze([
+    Object.freeze(['dzika', 'laboratorium']),
+    Object.freeze(['dzika', 'lm']),
+    Object.freeze(['dzika', 'lab']),
+    Object.freeze(['dzika', 'lab.']),
+    Object.freeze(['piaseczno', 'laboratorium']),
+    Object.freeze(['piaseczno', 'lab']),
+    Object.freeze(['piaseczno', 'lab.']),
+    Object.freeze(['lodz', 'laboratorium']),
+    Object.freeze(['lodz', 'lab']),
+    Object.freeze(['lodz', 'lab.']),
+    Object.freeze(['wolomin', 'laboratorium']),
+    Object.freeze(['wolomin', 'lab']),
+    Object.freeze(['wolomin', 'lab.']),
+    Object.freeze(['wilanow', 'laboratorium']),
+    Object.freeze(['wilanow', 'lab']),
+    Object.freeze(['wilanow', 'lab.']),
+    Object.freeze(['szpital', 'medicover'])
+]);
+
 export const WELCOME_LOGO_ENTER_DELAY_MS = 420;
 export const WELCOME_SEQUENCE_UNLOCK_AFTER_MS = 1750;
 export const WELCOME_SEQUENCE_FAILSAFE_EXTRA_MS = 650;

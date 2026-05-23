@@ -16,25 +16,18 @@
  * - compileKeyLabTokenSets / rowMatchesKeyLab — reguły wykrywania wierszy „laboratorium”.
  */
  
+import { KEY_LAB_TOKEN_SETS as CONFIG_KEY_LAB_TOKEN_SETS } from '../config/constants.js';
 import { fuzzyNormalizeText, normalizeText } from './utils.js';
  
 /**
  * Zestawy tokenów do wykrywania wierszy związanych z laboratorium.
- * Format: lista fraz, które po tokenizacji tworzą wymagane tokeny do dopasowania.
  *
- * @type {Array<Array<string>>}
+ * Źródło konfiguracji: js/config/constants.js (łatwiejsza edycja bez grzebania w logice).
+ * Ten eksport jest zachowany dla kompatybilności z istniejącymi wywołaniami (np. app.js, testy).
+ *
+ * @type {ReadonlyArray<ReadonlyArray<string>>}
  */
-export const KEY_LAB_TOKEN_SETS = [
-    ['dzika', 'laboratorium'],
-    ['dzika', 'lm'],
-    ['dzika', 'lab'],
-    ['dzika', 'lab.'],
-    ['piaseczno', 'laboratorium'],
-    ['lodz', 'laboratorium'],
-    ['wolomin', 'laboratorium'],
-    ['szpital', 'medicover'],
-    ['wilanow', 'laboratorium']
-];
+export const KEY_LAB_TOKEN_SETS = CONFIG_KEY_LAB_TOKEN_SETS;
  
 /**
  * Kompiluje zestawy tokenów dla laboratoriów.

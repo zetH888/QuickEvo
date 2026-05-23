@@ -16,7 +16,6 @@ import { importLocalFiles } from '../services/import-service.js';
 import { createImportApplication } from '../app/import-application.js';
 import { createSearchApplication } from '../app/search-application.js';
 import { createPreviewApplication } from '../app/preview-application.js';
-import { createDriveSyncApplication } from '../app/drive-sync-application.js';
 import { createDriveUnifiedSyncApplication } from '../app/drive-unified-sync-application.js';
 import { createNavigationApplication } from '../app/navigation-application.js';
 import { createLoadingApplication } from '../app/loading-application.js';
@@ -166,10 +165,6 @@ let googleDriveSyncBusyLocks = 0;
  */
 const DRIVE_SCHEDULE_FOLDER_ID = '10m4VzgbWqLy3U5V4lP_e-TN-vZVCyhGj';
 
-/**
- * Interwał cyklicznego sprawdzania aktualności grafiku.
- */
-const SCHEDULE_AUTO_REFRESH_INTERVAL_MS = 60_000;
 
 //////////////////////////////////////////////////
 // CACHE ELEMENTÓW DOM
@@ -363,9 +358,6 @@ function prefersReducedMotion() {
     return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
 
-function clampNumber(v, min, max) {
-    return qeGetUtils().clampNumber(v, min, max);
-}
 
 function isLoadingVisualFinishAllowed() {
     return Boolean(loadingProgressDone && (loadingDataReady || loadingFailed));
@@ -602,7 +594,7 @@ function setupSearchResultsSortToggle() {
     const applyToggleState = () => {
         const isTime = searchResultsSortMode === SEARCH_RESULTS_SORT_MODE_TIME;
         searchSortToggle.checked = isTime;
-        const label = isTime ? 'Sortowanie godzinowe (najbliżej teraz)' : 'Sortowanie alfanumeryczne';
+        const label = isTime ? 'Sortowanie godzinowe (najbliższa następna godzina)' : 'Sortowanie alfanumeryczne';
         searchSortToggle.setAttribute('aria-label', label);
         searchSortToggle.setAttribute('title', label);
     };
@@ -1214,32 +1206,7 @@ async function readWorkbook(source, fileName) {
     return await qeGetExcelProcessor().readWorkbook(source, fileName);
 }
 
-/**
- * Konwertuje źródło danych na ArrayBuffer.
- */
-async function getArrayBufferFromSource(source) {
-    return await qeGetExcelProcessor().getArrayBufferFromSource(source);
-}
 
-/**
- * Importuje arkusz z ArrayBuffer.
- */
-async function importSpreadsheetArrayBuffer(fileName, arrayBuffer, mimeType) {
-    const safeName = String(fileName || '').trim();
-    if (!safeName) throw new Error('Brak nazwy pliku');
-    if (!(arrayBuffer instanceof ArrayBuffer)) throw new Error('Brak danych pliku (ArrayBuffer)');
-    const blob = new Blob([arrayBuffer], { type: String(mimeType || '') || 'application/octet-stream' });
-    await docsPutBlob(safeName, blob);
-    removeFileData(safeName);
-    loadedFiles.delete(safeName);
-    if (isScheduleFileName(safeName)) {
-        invalidateScheduleFile(safeName);
-        await parseScheduleSpreadsheet(arrayBuffer, safeName);
-    } else {
-        await parseSpreadsheet(arrayBuffer, safeName);
-        loadedFiles.add(safeName);
-    }
-}
 
 function ensureImportApplication() {
     if (importApplication) return importApplication;
@@ -1324,66 +1291,6 @@ function buildDriveNoChangesModalHtml() {
     return `<div class="qe-drive-modal qe-drive-modal--ok"><div class="qe-drive-summary"><strong>Dane aktualne.</strong> Nie wykryto zmian w folderze Google Drive od ostatniej synchronizacji.</div></div>`;
 }
 
-function ensureDriveSyncApplication() {
-    if (driveSyncApplication) return driveSyncApplication;
-    const FOLDER_ID = '1tyClIJEDwntOrYCMVYmyR5nR6LNHmN-x';
-    driveSyncApplication = createDriveSyncApplication({
-        getApi: () => qeGetDriveService(),
-        getFolderId: () => FOLDER_ID,
-        maxImportBytes: MAX_IMPORT_BYTES,
-        listDbFiles: () => docsListFiles(),
-        getDbFileRecord: (name) => docsGetFileRecord(name),
-        putDbBlob: (name, blob, meta) => docsPutBlob(name, blob, meta),
-        removeFileData,
-        isScheduleFileName,
-        invalidateScheduleFile,
-        processScheduleFile,
-        processFile,
-        loadedFiles,
-        getAllDataLength: () => allData.length,
-        finalizeImport: (summary, before) => ensureImportApplication().finalizeImport(summary, before),
-        logAction,
-        escapeHtml,
-        buildConnectingModalHtml: buildDriveConnectingModalHtml,
-        buildNoChangesModalHtml: buildDriveNoChangesModalHtml,
-        buildChangesModalHtml: (changed) => ensureDriveChangesModalController().buildChangesModalHtml(changed),
-        showModal: (title, content, actions) => showModal(title, content, actions),
-        hideModal: () => hideModal(),
-        setLoadingStatusText: (text) => {
-            setLoadingStatusText(text);
-            if (String(text || '').trim() === 'Dane aktualne.') {
-                if (statusIndicator) statusIndicator.textContent = 'Dane aktualne.';
-            }
-        },
-        setUploadStatusText: (text, opts) => setUploadStatusText(text, opts),
-        setUploadProgressValue: (v) => { if (uploadProgress) uploadProgress.value = Number(v) || 0; },
-        setLoadingProgress: (value, metaText) => {
-            if (loadingProgressBar) loadingProgressBar.value = Number(value) || 0;
-            if (loadingProgressMeta && metaText) loadingProgressMeta.textContent = String(metaText);
-        },
-        setUploadUiVisible: (visible, total) => {
-            if (visible) {
-                uploadProgressContainer?.classList.remove('hidden');
-                if (uploadProgress) uploadProgress.value = 0;
-                setUploadStatusText(`Google Drive: synchronizacja ${Number(total) || 0} plik(ów)...`, { animate: false });
-                return;
-            }
-            window.setTimeout(() => uploadProgressContainer?.classList.add('hidden'), 900);
-        },
-        setButtonsBusy: (busy) => setGoogleDriveSyncButtonsBusy(Boolean(busy)),
-        initChangesModal: (files, token) => ensureDriveChangesModalController().init({ files, token, api: qeGetDriveService() }),
-        formatFileName,
-        isWelcomeVisible: () => ensureWelcomeLoadingOverlayController().isVisible(),
-        prepareWelcomeProgressList: () => ensureWelcomeLoadingOverlayController().prepareWelcomeProgressList(),
-        createWelcomeItem: (name) => ensureWelcomeProgressRenderer().createItem(name),
-        appendWelcomeItem: (item) => { if (welcomeProgressList && item) welcomeProgressList.appendChild(item); },
-        scrollWelcomeItemIntoView: (item) => { try { item?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' }); } catch { } },
-        updateWelcomeItem: (item, percent, label, opts) => ensureWelcomeProgressRenderer().updateItem(item, percent, label, opts),
-        shouldDeferWelcomeUpdates: () => ensureWelcomeLoadingOverlayController().shouldDeferWelcomeUpdates(),
-        runWithConcurrency
-    });
-    return driveSyncApplication;
-}
 
 /**
  * Obsługuje synchronizację z Google Drive (folder stały).
@@ -1396,99 +1303,6 @@ async function handleGoogleDriveSync({ source } = {}) {
 //////////////////////////////////////////////////
 // GŁÓWNA LOGIKA PRZETWARZANIA DANYCH
 //////////////////////////////////////////////////
-
-/**
- * Buduje model tabeli z surowej macierzy danych.
- */
-function buildTableModel(matrix) {
-    return qeGetExcelProcessor().buildTableModel(matrix);
-}
-
-/**
- * Mapuje wymagane nagłówki na ich indeksy w tabeli.
- */
-function mapRequiredHeaders(rawHeaders) {
-    const requiredHeaders = {
-        'NR_POL': ['NR. PÓŁ', 'NR PÓŁ', 'NR. POL', 'NR POL', 'PÓŁKA', 'POLKA', 'NR'],
-        'GODZ': ['GODZ', 'GODZINA', 'GODZ.'],
-        'ADRES': ['ADRES', 'ULICA'],
-        'NAZWA_PLACOWKI': ['NAZWA PLACÓWKI', 'PLACÓWKA', 'PLACOWKA', 'NAZWA'],
-        'UWAGI': ['UWAGI']
-    };
-    const headerMap = {};
-    Object.entries(requiredHeaders).forEach(([key, aliases]) => {
-        const index = rawHeaders.findIndex(h => {
-            const normH = fuzzyNormalizeText(h).toUpperCase();
-            return aliases.some(alias => fuzzyNormalizeText(alias).toUpperCase() === normH);
-        });
-        if (index >= 0) headerMap[key] = index;
-    });
-    return headerMap;
-}
-
-/**
- * Wyodrębnia linie metadanych znajdujące się nad nagłówkiem.
- */
-function extractMetaLines(cropped, headerRowRel) {
-    const metaLines = [];
-    for (let r = 0; r < headerRowRel; r++) {
-        const parts = cropped[r].filter(v => !isEmptyCell(v)).map(v => String(formatCellValue(v)).trim()).filter(v => v.length > 0);
-        if (parts.length > 0) metaLines.push(parts.join(' | '));
-    }
-    return metaLines;
-}
-
-/**
- * Przetwarza wiersze danych.
- */
-function processDataRows(dataRelRows, headerMap, startRowIndex) {
-    const rawDataRows = [];
-    for (let r = 0; r < dataRelRows.length; r++) {
-        const row = dataRelRows[r];
-        if (row.every(isEmptyCell)) continue;
-        const cleanedCells = row.map((cell, idx) => formatCellContent(cell, idx, headerMap));
-        rawDataRows.push({ originalRowIndex: startRowIndex + r, cells: cleanedCells });
-    }
-    return rawDataRows;
-}
-
-/**
- * Normalizuje macierz danych do prostokąta.
- */
-function normalizeMatrix(matrix) {
-    return qeGetExcelProcessor().normalizeMatrix(matrix);
-}
-
-/**
- * Oblicza granice niepustych komórek w macierzy.
- */
-function computeNonEmptyBounds(matrix) {
-    let minRow = Infinity, maxRow = -1, minCol = Infinity, maxCol = -1;
-    for (let r = 0; r < matrix.length; r++) {
-        const row = matrix[r];
-        for (let c = 0; c < row.length; c++) {
-            if (!isEmptyCell(row[c])) {
-                if (r < minRow) minRow = r;
-                if (r > maxRow) maxRow = r;
-                if (c < minCol) minCol = c;
-                if (c > maxCol) maxCol = c;
-            }
-        }
-    }
-    return maxRow === -1 ? null : { minRow, maxRow, minCol, maxCol };
-}
-
-/**
- * Znajduje indeks wiersza nagłówkowego.
- */
-function findHeaderRowIndex(cropped) {
-    const counts = cropped.map(countNonEmpty);
-    for (let i = 0; i < cropped.length; i++) {
-        if (counts[i] < 2) continue;
-        if (counts.slice(i + 1).some(c => c >= 2)) return i;
-    }
-    return 0;
-}
 
 /**
  * Dodaje wiersze tabeli do globalnego zbioru allData.
@@ -1730,14 +1544,6 @@ function syncRouteCategorySectionHeights(sections) {
     ensureResultsCategoryController().syncHeights(sections);
 }
 
-function ensureRouteCategorySections({ animate = false } = {}) {
-    return ensureResultsCategoryController().ensureSections({ animate });
-}
-
-function updateRouteCategorySectionCounts(sections) {
-    ensureResultsCategoryController().updateCounts(sections, currentResults);
-}
-
 function toggleRouteCategorySection(category) {
     ensureResultsCategoryController().toggleCategory(category);
 }
@@ -1952,10 +1758,6 @@ function highlightLabsInPreviewTable() {
         escapeHtml,
         toTitleCase
     });
-}
-
-function scheduleWelcomeLogoEntrance() {
-    ensureWelcomeLoadingOverlayController().scheduleWelcomeLogoEntrance();
 }
 
 function startLoadingScreen() {
@@ -2240,24 +2042,10 @@ function formatCellValue(value) {
 }
 
 /**
- * Konwertuje ułamek doby na format czasu HH:MM.
- */
-function formatTimeFromDayFraction(fraction) {
-    return qeGetUtils().formatTimeFromDayFraction(fraction);
-}
-
-/**
  * Parsuje ciąg znaków do formatu czasu.
  */
 function parseTimeString(value) {
     return qeGetUtils().parseTimeString(value);
-}
-
-/**
- * Formatuje znacznik czasu na czytelną datę i czas.
- */
-function pad2(value) {
-    return qeGetUtils().pad2(value);
 }
 
 /**
@@ -2267,14 +2055,6 @@ function escapeHtml(value) {
     return qeGetUtils().escapeHtml(value);
 }
 
-/**
- * Konwertuje wartość komórki na tekst nagłówka.
- */
-function cellToHeaderText(cell) {
-    if (cell === null || cell === undefined) return '';
-    if (typeof cell === 'string') return cell.trim();
-    return parseTimeString(String(cell)) || String(cell).trim();
-}
 
 /**
  * Formatuje zawartość komórki zgodnie z jej typem.

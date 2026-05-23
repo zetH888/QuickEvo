@@ -12,6 +12,7 @@ const QuickEvoTests = {
         console.log("%c--- QuickEvo Test Suite ---", "color: #0066cc; font-weight: bold; font-size: 1.2rem;");
         const ctx = await this.loadModules();
         await this.testXlsxLoaded();
+        await this.testTableModelCoreColumns();
         await this.testSearchResultsSorting(ctx);
         await this.testScheduleService(ctx);
         await this.testPreviewDriverBadges(ctx);
@@ -21,6 +22,7 @@ const QuickEvoTests = {
         this.testNormalization(ctx);
         this.testFuzzySearch(ctx);
         this.testLegacySelfTests(ctx);
+        this.testLabBadgeScope(ctx);
         this.testDebuggerModule();
         console.log("%c--- Tests Completed ---", "color: #0066cc; font-weight: bold;");
     },
@@ -31,7 +33,7 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
@@ -39,9 +41,11 @@ const QuickEvoTests = {
             import('../ui/preview/preview-controller.js'),
             import('../app/drive-unified-sync-application.js'),
             import('../features/search/search-results-sort.js'),
-            import('../core/formatters/route-name.js')
+            import('../core/formatters/route-name.js'),
+            import('../ui/preview/preview-labs-highlight.js'),
+            import('../ui/results/results-renderer.js')
         ]);
-        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter };
+        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer };
     },
 
     async testXlsxLoaded() {
@@ -51,6 +55,36 @@ const QuickEvoTests = {
             this.assert(typeof excelProcessor.sheetToMatrix === 'function', "XLSX jest dostępne przez ESM (excel-processor)");
         } catch (e) {
             this.assert(false, "Nie udało się zaimportować XLSX przez ESM");
+            console.error(e);
+        }
+    },
+
+    async testTableModelCoreColumns() {
+        console.log("\nTesting excel-processor — minimalna struktura tabeli:");
+        try {
+            const excelProcessor = await import('../core/excel-processor.js');
+            this.assert(typeof excelProcessor.buildTableModel === 'function', "buildTableModel jest dostępne przez import");
+            if (typeof excelProcessor.buildTableModel !== 'function') return;
+
+            const modelMissingNotes = excelProcessor.buildTableModel([
+                ['NR', 'GODZ', 'ADRES', 'PLACÓWKA'],
+                [198, '09:45', 'Warszawa, Dzika 4', 'Dzika Laboratorium']
+            ]);
+            this.assert(Boolean(modelMissingNotes?.isCompleteStructure), 'Model z core kolumnami (bez UWAGI) jest traktowany jako kompletny dla UI');
+            this.assert(modelMissingNotes?.headerMap?.GODZ === 1, 'Mapuje GODZ na poprawny indeks');
+            this.assert(modelMissingNotes?.headerMap?.ADRES === 2, 'Mapuje ADRES na poprawny indeks');
+            this.assert(modelMissingNotes?.headerMap?.NAZWA_PLACOWKI === 3, 'Mapuje NAZWA_PLACOWKI na poprawny indeks');
+
+            const modelOnlyCore = excelProcessor.buildTableModel([
+                ['GODZ', 'ADRES', 'NAZWA PLACÓWKI'],
+                ['08:00', 'Warszawa, Dzika 4', 'Dzika Laboratorium']
+            ]);
+            this.assert(Boolean(modelOnlyCore?.isCompleteStructure), 'Model z samymi core kolumnami jest traktowany jako kompletny dla UI');
+            this.assert(modelOnlyCore?.headerMap?.GODZ === 0, 'Mapuje GODZ na poprawny indeks (core-only)');
+            this.assert(modelOnlyCore?.headerMap?.ADRES === 1, 'Mapuje ADRES na poprawny indeks (core-only)');
+            this.assert(modelOnlyCore?.headerMap?.NAZWA_PLACOWKI === 2, 'Mapuje NAZWA_PLACOWKI na poprawny indeks (core-only)');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować minimalnej struktury tabeli");
             console.error(e);
         }
     },
@@ -94,12 +128,13 @@ const QuickEvoTests = {
                 formatRouteNameForResults
             });
             const timeLabels = timeSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
-            this.assert(timeLabels === 'TRASA 4,TRASA 3,TRASA 1,TRASA 2,TRASA 9', 'Sortowanie godzinowe: najbliżej teraz');
+            this.assert(timeLabels === 'TRASA 1,TRASA 4,TRASA 2,TRASA 3,TRASA 9', 'Sortowanie godzinowe: najwcześniejsza następna godzina (z uwzględnieniem następnego dnia)');
+            this.assert(timeSorted[1]?.items?.[0]?.cells?.[0] === '08:00', 'Sortowanie godzinowe: sortuje wiersze w grupie (najwcześniejsza następna godzina na górze)');
 
             const tieNow = new Date(2026, 4, 21, 13, 35, 0, 0);
             const tieGroups = [
-                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('13:25')] },
-                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('13:45')] }
+                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('13:45')] },
+                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('13:45')] }
             ];
             const tieSorted = sortMod.sortSearchResultGroups(tieGroups, {
                 mode: sortMod.SEARCH_RESULTS_SORT_MODE_TIME,
@@ -107,21 +142,22 @@ const QuickEvoTests = {
                 formatRouteNameForResults
             });
             const tieLabels = tieSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
-            this.assert(tieLabels === 'TRASA 1,TRASA 2', 'Sortowanie godzinowe: remis odległości rozstrzyga deterministycznie po nazwie trasy (bez preferowania późniejszej godziny)');
+            this.assert(tieLabels === 'TRASA 1,TRASA 2', 'Sortowanie godzinowe: remis rozstrzyga deterministycznie po nazwie trasy');
 
-            const lateNow = new Date(2026, 4, 21, 20, 0, 0, 0);
-            const lateGroups = [
-                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('18:00')] },
-                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('03:00')] },
-                { fileName: 'TRASA 3.xlsx', items: [makeCompleteItem('07:50')] }
+            const wrapNow = new Date(2026, 4, 21, 20, 51, 0, 0);
+            const wrapGroups = [
+                { fileName: 'TRASA 1.xlsx', items: [makeCompleteItem('09:00')] },
+                { fileName: 'TRASA 2.xlsx', items: [makeCompleteItem('08:00'), makeCompleteItem('09:00')] },
+                { fileName: 'TRASA 3.xlsx', items: [makeCompleteItem('21:00')] }
             ];
-            const lateSorted = sortMod.sortSearchResultGroups(lateGroups, {
+            const wrapSorted = sortMod.sortSearchResultGroups(wrapGroups, {
                 mode: sortMod.SEARCH_RESULTS_SORT_MODE_TIME,
-                now: lateNow,
+                now: wrapNow,
                 formatRouteNameForResults
             });
-            const lateLabels = lateSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
-            this.assert(lateLabels === 'TRASA 2,TRASA 3,TRASA 1', 'Sortowanie godzinowe po 20:00: traktuje godziny jako następny dzień (wczesne godziny rano najwyżej)');
+            const wrapLabels = wrapSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
+            this.assert(wrapLabels === 'TRASA 3,TRASA 2,TRASA 1', 'Sortowanie godzinowe: wybiera najbliższą przyszłą godzinę (dziś lub kolejny dzień), bez progu 20:00');
+            this.assert(wrapSorted[1]?.items?.[0]?.cells?.[0] === '08:00', 'Sortowanie godzinowe: sortuje wiersze tak, aby najbliższa następna godzina była na górze grupy');
         } catch (e) {
             this.assert(false, "Nie udało się przetestować sortowania wyników wyszukiwania");
             console.error(e);
@@ -540,6 +576,86 @@ const QuickEvoTests = {
         if (typeof parseDisplayText === 'function') {
             this.assert(Boolean(parseDisplayText(' | Warszawa, Dzika 4 | Dzika Laboratorium')), 'Brak godziny nie blokuje wyniku');
             this.assert(Boolean(parseDisplayText('- | Warszawa, Dzika 4 | Dzika Laboratorium')), 'Niepoprawna godzina nie blokuje wyniku');
+        }
+    },
+
+    /**
+     * Test regresji: badge „laboratorium” nie może zostać przypisany, jeśli tokeny występują wyłącznie
+     * w innych kolumnach (np. „do lab. Dzika” w uwagach), a nie w nazwie placówki.
+     *
+     * @param {{ searchEngine: any, previewLabsHighlight: any, resultsRenderer: any }} ctx
+     */
+    testLabBadgeScope(ctx) {
+        console.log('\nTesting Badge „laboratorium” — dopasowanie tylko po nazwie placówki:');
+        try {
+            const compiled = ctx.searchEngine.compileKeyLabTokenSets(ctx.searchEngine.KEY_LAB_TOKEN_SETS);
+            const rowMatchesKeyLab = (text) => ctx.searchEngine.rowMatchesKeyLab(text, compiled);
+
+            const tbody = document.createElement('tbody');
+
+            const trFalsePositive = document.createElement('tr');
+            const facilityFalsePositive = document.createElement('td');
+            facilityFalsePositive.className = 'facility-column';
+            facilityFalsePositive.textContent = 'Cm Damian';
+            const notesFalsePositive = document.createElement('td');
+            notesFalsePositive.textContent = 'do lab. Dzika';
+            trFalsePositive.appendChild(facilityFalsePositive);
+            trFalsePositive.appendChild(notesFalsePositive);
+            tbody.appendChild(trFalsePositive);
+
+            const trLab = document.createElement('tr');
+            const facilityLab = document.createElement('td');
+            facilityLab.className = 'facility-column';
+            facilityLab.textContent = 'Dzika Laboratorium';
+            const notesLab = document.createElement('td');
+            notesLab.textContent = '-';
+            trLab.appendChild(facilityLab);
+            trLab.appendChild(notesLab);
+            tbody.appendChild(trLab);
+
+            ctx.previewLabsHighlight.highlightLabsInPreviewTableDom({
+                tbody,
+                rowMatchesKeyLab,
+                escapeHtml: (x) => String(x ?? ''),
+                toTitleCase: (x) => String(x ?? '')
+            });
+
+            this.assert(!trFalsePositive.classList.contains('highlight-lab'), 'Nie oznacza jako laboratorium, gdy tokeny są tylko w innych kolumnach');
+            this.assert(!facilityFalsePositive.querySelector('.lab-badge'), 'Nie renderuje badge w kolumnie placówki dla fałszywego trafienia');
+            this.assert(trLab.classList.contains('highlight-lab'), 'Oznacza jako laboratorium, gdy tokeny są w nazwie placówki');
+            this.assert(Boolean(facilityLab.querySelector('.lab-badge')), 'Renderuje badge w kolumnie placówki dla laboratorium');
+
+            const createResultsRenderer = ctx?.resultsRenderer?.createResultsRenderer;
+            this.assert(typeof createResultsRenderer === 'function', 'results-renderer jest dostępny przez import');
+            if (typeof createResultsRenderer !== 'function') return;
+
+            const renderer = createResultsRenderer({
+                formatRouteNameForResults: (x) => String(x || ''),
+                extractRouteCodeFromFileName: () => null,
+                getDriverForRouteOnDate: () => null,
+                buildDriverBadgesHtml: () => '',
+                escapeHtml: (x) => String(x ?? ''),
+                setElementHtml: (el, html) => { if (el) el.innerHTML = String(html ?? ''); },
+                rowMatchesKeyLab,
+                toTitleCase: (x) => String(x ?? ''),
+                highlightText: (t) => String(t ?? '')
+            });
+
+            const groupEl = renderer.createGroupElement({
+                fileName: 'TRASA 1.xlsx',
+                items: [{
+                    isComplete: true,
+                    fileName: 'TRASA 1.xlsx',
+                    rowIndex: 1,
+                    displayText: '08:00 | Adres | Cm Damian',
+                    cells: ['08:00', 'Adres', 'Cm Damian', 'do lab. Dzika']
+                }]
+            }, 0, '');
+
+            this.assert(!groupEl.querySelector('.result-row--lab'), 'Lista wyników: nie oznacza jako lab, gdy tokeny są tylko w innych kolumnach');
+        } catch (e) {
+            this.assert(false, 'Nie udało się przetestować zakresu dopasowania badge „laboratorium”');
+            console.error(e);
         }
     },
 
