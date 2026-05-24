@@ -23,6 +23,7 @@
  * @param {(query: string) => Promise<void>} cfg.performSearch
  * @param {() => boolean} cfg.getIsSearchEnabled
  * @param {() => void} cfg.clearSearchUi
+ * @param {(ctx: { state: any, source?: string }) => void} cfg.restoreSearchScroll
  * @param {() => void} cfg.onPageshowRestore
  * @param {(fileName: string) => boolean} cfg.canOpenPreview
  * @param {() => boolean} cfg.isHomeState
@@ -43,6 +44,7 @@ export function createNavigationApplication(cfg) {
             onSetSearchInputValue: (value) => cfg.setSearchInputValue(String(value ?? '')),
             onPerformSearch: (q) => { if (cfg.getIsSearchEnabled()) cfg.performSearch(String(q || '')); },
             onClearSearchUi: () => cfg.clearSearchUi(),
+            onRestoreSearchScroll: (ctx) => { try { cfg.restoreSearchScroll?.(ctx); } catch { } },
             onPageshowRestore: () => cfg.onPageshowRestore(),
             canOpenPreview: (fileName) => cfg.canOpenPreview(String(fileName || '')),
             onHomeClick: () => {

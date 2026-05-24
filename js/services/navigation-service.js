@@ -28,6 +28,7 @@ export function createNavigationService(cfg = {}) {
     const onSetSearchInputValue = typeof cfg?.onSetSearchInputValue === 'function' ? cfg.onSetSearchInputValue : (() => { });
     const onPerformSearch = typeof cfg?.onPerformSearch === 'function' ? cfg.onPerformSearch : (() => { });
     const onClearSearchUi = typeof cfg?.onClearSearchUi === 'function' ? cfg.onClearSearchUi : (() => { });
+    const onRestoreSearchScroll = typeof cfg?.onRestoreSearchScroll === 'function' ? cfg.onRestoreSearchScroll : (() => { });
     const onPageshowRestore = typeof cfg?.onPageshowRestore === 'function' ? cfg.onPageshowRestore : (() => { });
     const canOpenPreview = typeof cfg?.canOpenPreview === 'function' ? cfg.canOpenPreview : (() => true);
     const shouldIgnoreHomeClick = typeof cfg?.shouldIgnoreHomeClick === 'function' ? cfg.shouldIgnoreHomeClick : (() => false);
@@ -127,11 +128,13 @@ export function createNavigationService(cfg = {}) {
             if (!state?.search) {
                 onSetSearchInputValue('');
                 onClearSearchUi({ source: 'popstate_home_clear' });
+                safeCall(onRestoreSearchScroll, { state: state || {}, source: 'popstate_home_clear' });
                 return;
             }
             const q = String(state?.query || '');
             onSetSearchInputValue(q);
             if (q.trim().length >= 3) onPerformSearch(q);
+            safeCall(onRestoreSearchScroll, { state: state || {}, source: 'popstate_home_search' });
             return;
         }
 

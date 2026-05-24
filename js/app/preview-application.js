@@ -21,7 +21,6 @@
  * @param {() => void} cfg.showSearch
  * @param {(fileName: string) => void} cfg.queuePreviewReadyEvent
  * @param {(name: string, payload: any) => void} cfg.logClientEvent
- * @param {() => void} cfg.requestScrollIndicatorUpdate
  */
 export function createPreviewApplication(cfg) {
     if (!cfg || typeof cfg.getTableModel !== 'function') throw new Error('preview-application: brak getTableModel');
@@ -67,7 +66,6 @@ export function createPreviewApplication(cfg) {
         try { if (highlightedRowEl && typeof highlightedRowEl.scrollIntoView === 'function') highlightedRowEl.scrollIntoView({ block: 'center' }); } catch { }
         try { cfg.queuePreviewReadyEvent?.(name); } catch { }
         try { cfg.logClientEvent?.('preview', { fileName: name, rowIndex: idx, contextIsoDate: iso }); } catch { }
-        try { cfg.requestScrollIndicatorUpdate?.(); } catch { }
     }
 
     /**
@@ -76,7 +74,6 @@ export function createPreviewApplication(cfg) {
     function openSearch({ source } = {}) {
         try { cfg.showSearch?.(); } catch { }
         try { cfg.logClientEvent?.('navigate', { to: 'search', source: String(source || '') }); } catch { }
-        try { cfg.requestScrollIndicatorUpdate?.(); } catch { }
     }
 
     return Object.freeze({ openPreview, openSearch });

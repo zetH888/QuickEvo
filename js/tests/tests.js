@@ -109,7 +109,7 @@ const QuickEvoTests = {
                 formatRouteNameForResults
             });
             const alphaLabels = alphaSorted.map(g => formatRouteNameForResults(g.fileName)).join(',');
-            this.assert(alphaLabels === 'TRASA A,TRASA B,TRASA 2,TRASA 11', 'Sortowanie alfanumeryczne: litery + liczby (naturalnie)');
+            this.assert(alphaLabels === 'TRASA 2,TRASA 11,TRASA A,TRASA B', 'Sortowanie alfanumeryczne: najpierw liczby, potem litery (naturalnie)');
 
             const now = new Date(2026, 4, 21, 13, 30, 0, 0);
             const makeCompleteItem = (time) => ({ isComplete: true, headerMap: { GODZ: 0 }, cells: [time], displayText: `${time} | X | Y` });

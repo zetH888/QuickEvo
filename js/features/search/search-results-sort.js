@@ -155,8 +155,21 @@ export function sortSearchResultGroups(groups, opts = {}) {
         const withoutPrefix = label.replace(/^trasa\s+/i, '').trim();
         return withoutPrefix || label;
     };
-    const hasLetters = (s) => /[A-Za-zĄĆĘŁŃÓŚŹŻ]/.test(String(s || ''));
-    const hasDigits = (s) => /\d/.test(String(s || ''));
+    /**
+     * Określa priorytet sortowania dla kodu trasy.
+     * W trybie alfanumerycznym preferujemy najpierw kody zaczynające się od cyfr (np. 1, 2, 11, 12/H),
+     * a dopiero potem kody zaczynające się od liter (np. I, J, O, S-5).
+     *
+     * @param {string} code
+     * @returns {number}
+     */
+    const getAlphanumSortBucket = (code) => {
+        const c = String(code || '').trim();
+        if (!c) return 2;
+        if (/^\d/.test(c)) return 0;
+        if (/^[A-Za-zĄĆĘŁŃÓŚŹŻ]/.test(c)) return 1;
+        return 2;
+    };
 
     if (mode === SEARCH_RESULTS_SORT_MODE_TIME) {
         const meta = new Map();
@@ -179,13 +192,9 @@ export function sortSearchResultGroups(groups, opts = {}) {
     list.sort((a, b) => {
         const la = getSortCode(a);
         const lb = getSortCode(b);
-        const aHasL = hasLetters(la);
-        const bHasL = hasLetters(lb);
-        if (aHasL !== bHasL) return aHasL ? -1 : 1;
-        const aHasD = hasDigits(la);
-        const bHasD = hasDigits(lb);
-        if (aHasD && bHasD) return collator.compare(la, lb);
-        if (aHasD !== bHasD) return aHasD ? -1 : 1;
+        const ba = getAlphanumSortBucket(la);
+        const bb = getAlphanumSortBucket(lb);
+        if (ba !== bb) return ba - bb;
         return collator.compare(la, lb);
     });
 

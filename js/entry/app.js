@@ -23,7 +23,7 @@ import { createScheduleService } from '../services/schedule-service.js';
 import { createSearchOrchestrator } from '../features/search/search-orchestrator.js';
 import { SEARCH_RESULTS_SORT_MODE_ALPHANUM, SEARCH_RESULTS_SORT_MODE_TIME, sortSearchResultGroups } from '../features/search/search-results-sort.js';
 import { createNavigationService } from '../services/navigation-service.js';
-import { createImportSummaryRenderer, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScheduleController, createScrollIndicatorController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
+import { createImportSummaryRenderer, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScheduleController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
 import { createDriveChangesModalController } from '../ui/drive/drive-changes-modal.js';
 import { createWelcomeLoadingOverlayController } from '../ui/loading/welcome-loading-overlay-controller.js';
 import { createPredictiveGhostController } from '../ui/search/predictive-ghost.js';
@@ -216,7 +216,6 @@ const modalContent = document.getElementById('modal-content');
 const modalActions = document.getElementById('modal-actions');
 const welcomeImportProgress = document.getElementById('welcome-import-progress');
 const welcomeProgressList = document.getElementById('welcome-progress-list');
-const scrollIndicator = document.getElementById('scroll-indicator');
 const ghostOverlay = document.getElementById('qe-ghost');
 const ghostPrefix = document.getElementById('qe-ghost-prefix');
 const ghostSuffix = document.getElementById('qe-ghost-suffix');
@@ -244,8 +243,6 @@ let importSummaryRenderer = null;
 /** @type {{ renderHeaderLogo: Function, refreshWelcomeGraphicIfPresent: Function, lazyLoadWelcomeGraphic: Function } | null} */
 let logoRenderer = null;
 
-let scrollIndicatorController = null;
-
 //////////////////////////////////////////////////
 // KLUCZOWY STAN APLIKACJI
 //////////////////////////////////////////////////
@@ -258,6 +255,29 @@ let currentResults = [];
 
 /** @type {Array<Object>} Wszystkie dopasowania dla bieżącego zapytania. */
 let matchedResults = []; 
+
+/**
+ * Stan potrzebny do przywrócenia scrolla listy wyników po powrocie z podglądu (Back / „Powrót”).
+ * Zapisujemy zarówno `scrollTop`, jak i offset klikniętego wiersza względem górnej krawędzi kontenera,
+ * żeby po powrocie odtworzyć możliwie identyczne położenie wiersza na ekranie, niezależnie od rozdzielczości.
+ *
+ * @type {{
+ *   query: string,
+ *   fileName: string,
+ *   rowIndex: number,
+ *   scrollTop: number,
+ *   rowOffsetTop: number,
+ *   ts: number
+ * } | null}
+ */
+let pendingResultsScrollRestore = null;
+
+/**
+ * Kontroluje wielokrotne próby restore, gdy wynik DOM jeszcze się nie wyrenderował (np. po popstate + render).
+ *
+ * @type {{ attempt: number, maxAttempts: number, rafId: number, reason?: string } | null}
+ */
+let pendingResultsScrollRestoreRunner = null;
 
 /** @type {string} Ostatnie zapytanie użyte do wyszukiwania. */
 let lastQuery = ''; 
@@ -338,20 +358,15 @@ let loadingStartedAt = 0;
 let lastPreviewState = { fileName: null, rowIndex: null, contextIsoDate: null };
 
 /**
- * Obserwatory odpowiedzialne za automatyczne aktualizowanie stanu scroll-indicator
- * na podstawie faktycznego overflow listy wyników.
+ * Obserwatory listy wyników utrzymujące poprawny layout (np. wysokości sekcji kategorii)
+ * oraz umożliwiające odtworzenie scrolla po powrocie z podglądu.
+ *
  * @type {{
  *   resize: ResizeObserver | null,
- *   mutation: MutationObserver | null,
- *   attached: boolean,
- *   onWindowScroll: ((e?: Event) => void) | null,
- *   onWindowResize: ((e?: UIEvent) => void) | null,
- *   onListScroll: ((e?: Event) => void) | null
+ *   mutation: MutationObserver | null
  * }}
  */
-let resultsListOverflowObservers = { resize: null, mutation: null, attached: false, onWindowScroll: null, onWindowResize: null, onListScroll: null };
-
-let resultsEndIntersection = { observer: null, target: null, lastFullyVisible: false };
+let resultsListLayoutObservers = { resize: null, mutation: null };
 let bootWatchdogTimer = null;
 
 function prefersReducedMotion() {
@@ -439,7 +454,7 @@ async function init() {
     setupTheme();
     setupEventListeners();
     setupLoadingContinueHandlers();
-    setupMutationObserver();
+    setupResultsListLayoutObservers();
     compileKeyLabTokenSets();
     ensureWelcomeLoadingOverlayController().setupParallax();
 
@@ -741,19 +756,19 @@ function ensureNavigationApplication() {
             statusIndicator.textContent = 'Dane gotowe.';
             statusIndicator.classList.remove('status--hint');
         },
-        onPageshowRestore: () => {
-            window.requestAnimationFrame(() => {
-                try {
-                    const ctrl = ensureScrollIndicatorController();
-                    ctrl.syncResultsEndIntersectionObserver();
-                    ctrl.update();
-                } catch { }
-            });
+        restoreSearchScroll: ({ state, source } = {}) => {
+            const q = String(state?.query || '').trim();
+            if (pendingResultsScrollRestore && q) pendingResultsScrollRestore.query = q;
+            requestResultsScrollRestore({ reason: String(source || '') });
         },
+        onPageshowRestore: () => requestResultsScrollRestore({ reason: 'pageshow' }),
         canOpenPreview: (fileName) => Boolean(fullFileData && fullFileData[String(fileName || '')]),
         isHomeState: () => Boolean(history.state && history.state.view === 'home' && !history.state.search && !searchInput.value),
         shouldIgnoreHomeClick: (e) => Boolean(e?.metaKey || e?.ctrlKey || e?.shiftKey || e?.altKey),
-        onScrollTop: () => { try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { window.scrollTo(0, 0); } catch { } } },
+        onScrollTop: () => {
+            try { if (resultsList) resultsList.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { if (resultsList) resultsList.scrollTop = 0; } catch { } }
+            try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { window.scrollTo(0, 0); } catch { } }
+        },
         logClientEvent
     });
     return navigationApplication;
@@ -781,47 +796,33 @@ function setupGlobalErrorListeners() {
 }
 
 /**
- * Konfiguruje obserwatory i listenery odpowiedzialne za scroll-indicator.
- * Wskaźnik jest kontrolowany wyłącznie przez to, czy lista wyników wykracza poza viewport
- * kontenera przewijania (scrollHeight listy vs clientHeight kontenera).
+ * Konfiguruje obserwatory listy wyników, aby:
+ * - utrzymać poprawne wysokości sekcji kategorii (po renderze i mutacjach DOM),
+ * - umożliwić deterministyczne przywrócenie scrolla po powrocie z podglądu.
  */
-function setupMutationObserver() {
+function setupResultsListLayoutObservers() {
     if (!resultsList) return;
 
     const debouncedUpdate = debounce(() => {
         syncRouteCategorySectionHeights();
-        const ctrl = ensureScrollIndicatorController();
-        ctrl.syncResultsEndIntersectionObserver();
-        ctrl.update();
+        requestResultsScrollRestore({ reason: 'results_list_layout' });
     }, 120);
-    const scrollContainer = ensureScrollIndicatorController().getScrollContainer();
 
-    if (resultsListOverflowObservers.mutation) {
-        try { resultsListOverflowObservers.mutation.disconnect(); } catch { }
-        resultsListOverflowObservers.mutation = null;
+    if (resultsListLayoutObservers.mutation) {
+        try { resultsListLayoutObservers.mutation.disconnect(); } catch { }
+        resultsListLayoutObservers.mutation = null;
     }
-    if (resultsListOverflowObservers.resize) {
-        try { resultsListOverflowObservers.resize.disconnect(); } catch { }
-        resultsListOverflowObservers.resize = null;
+    if (resultsListLayoutObservers.resize) {
+        try { resultsListLayoutObservers.resize.disconnect(); } catch { }
+        resultsListLayoutObservers.resize = null;
     }
 
-    resultsListOverflowObservers.mutation = new MutationObserver(() => debouncedUpdate());
-    resultsListOverflowObservers.mutation.observe(resultsList, { childList: true, subtree: true, attributes: true });
+    resultsListLayoutObservers.mutation = new MutationObserver(() => debouncedUpdate());
+    resultsListLayoutObservers.mutation.observe(resultsList, { childList: true, subtree: true, attributes: true });
 
     if (typeof ResizeObserver === 'function') {
-        resultsListOverflowObservers.resize = new ResizeObserver(() => debouncedUpdate());
-        resultsListOverflowObservers.resize.observe(scrollContainer);
-    }
-
-    if (!resultsListOverflowObservers.attached) {
-        resultsListOverflowObservers.attached = true;
-        resultsListOverflowObservers.onWindowScroll = () => ensureScrollIndicatorController().update();
-        resultsListOverflowObservers.onWindowResize = () => debouncedUpdate();
-        resultsListOverflowObservers.onListScroll = () => ensureScrollIndicatorController().update();
-
-        window.addEventListener('scroll', resultsListOverflowObservers.onWindowScroll, { passive: true });
-        window.addEventListener('resize', resultsListOverflowObservers.onWindowResize, { passive: true });
-        resultsList.addEventListener('scroll', resultsListOverflowObservers.onListScroll, { passive: true });
+        resultsListLayoutObservers.resize = new ResizeObserver(() => debouncedUpdate());
+        resultsListLayoutObservers.resize.observe(resultsList);
     }
 
     debouncedUpdate();
@@ -1493,11 +1494,7 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
 
     if (currentResults.length === 0) {
         handleNoResultsToRender();
-        window.requestAnimationFrame(() => {
-            const ctrl = ensureScrollIndicatorController();
-            ctrl.syncResultsEndIntersectionObserver();
-            ctrl.update();
-        });
+        requestResultsScrollRestore({ reason: 'render_results_empty' });
         return;
     }
     updateResultsCountInfo();
@@ -1534,10 +1531,158 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
     ensureResultsCategoryController().syncHeights(sections);
     if (!append && startIndex === 0) lastRenderedSearch = { query: String(query || ''), dataRevision: allDataRevision };
     window.requestAnimationFrame(() => {
-        const ctrl = ensureScrollIndicatorController();
-        ctrl.syncResultsEndIntersectionObserver();
-        ctrl.update();
+        try { syncRouteCategorySectionHeights(sections); } catch { }
+        requestResultsScrollRestore({ reason: 'render_results' });
     });
+}
+
+function cssEscapeAttrValue(value) {
+    const v = String(value ?? '');
+    if (typeof CSS !== 'undefined' && CSS && typeof CSS.escape === 'function') return CSS.escape(v);
+    return v.replace(/["\\\]]/g, '\\$&');
+}
+
+function findResultRowElement(fileName, rowIndex) {
+    if (!resultsList) return null;
+    const safeName = String(fileName ?? '');
+    const idx = Number(rowIndex);
+    if (!safeName || !Number.isFinite(idx)) return null;
+    const selector = `.result-row[data-file-name="${cssEscapeAttrValue(safeName)}"][data-row-index="${String(idx)}"]`;
+    try { return resultsList.querySelector(selector); } catch { return null; }
+}
+
+function clearActiveResultRow() {
+    if (!resultsList) return;
+    const active = resultsList.querySelectorAll('.result-row--active');
+    for (const el of active) {
+        try { el.classList.remove('result-row--active'); } catch { }
+    }
+}
+
+function cancelResultsScrollRestore() {
+    if (!pendingResultsScrollRestoreRunner) return;
+    try { window.cancelAnimationFrame(pendingResultsScrollRestoreRunner.rafId); } catch { }
+    pendingResultsScrollRestoreRunner = null;
+}
+
+function applyResultsScrollRestoreOnce() {
+    if (!pendingResultsScrollRestore || !resultsList) return true;
+
+    const expectedQuery = String(pendingResultsScrollRestore.query || '').trim();
+    const currentQuery = String(lastQuery || '').trim();
+    if (expectedQuery && currentQuery && expectedQuery !== currentQuery) {
+        pendingResultsScrollRestore = null;
+        return true;
+    }
+
+    const rowEl = findResultRowElement(pendingResultsScrollRestore.fileName, pendingResultsScrollRestore.rowIndex);
+    if (!rowEl) return false;
+
+    clearActiveResultRow();
+    try { rowEl.classList.add('result-row--active'); } catch { }
+
+    const rowRect = rowEl.getBoundingClientRect();
+    const containerRect = resultsList.getBoundingClientRect();
+    const currentScrollTop = Number(resultsList.scrollTop) || 0;
+    const rowTopInContainer = (rowRect.top - containerRect.top) + currentScrollTop;
+    const savedOffset = Number(pendingResultsScrollRestore.rowOffsetTop);
+    const savedScrollTop = Number(pendingResultsScrollRestore.scrollTop);
+
+    let desiredScrollTop = Number.isFinite(savedOffset)
+        ? (rowTopInContainer - savedOffset)
+        : (Number.isFinite(savedScrollTop) ? savedScrollTop : 0);
+
+    const maxScrollTop = Math.max(0, resultsList.scrollHeight - resultsList.clientHeight);
+    desiredScrollTop = Math.min(Math.max(0, desiredScrollTop), maxScrollTop);
+
+    try { resultsList.scrollTop = desiredScrollTop; } catch { }
+
+    try {
+        const afterRowRect = rowEl.getBoundingClientRect();
+        const afterContainerRect = resultsList.getBoundingClientRect();
+        const margin = 10;
+        const isVisible = afterRowRect.top >= afterContainerRect.top + margin && afterRowRect.bottom <= afterContainerRect.bottom - margin;
+        if (!isVisible && typeof rowEl.scrollIntoView === 'function') rowEl.scrollIntoView({ block: 'nearest' });
+    } catch { }
+
+    pendingResultsScrollRestore = null;
+    return true;
+}
+
+/**
+ * Próbuje przywrócić scroll listy wyników po powrocie z podglądu.
+ * Mechanizm odpala się wielokrotnie w `requestAnimationFrame`, aby poczekać na render DOM po `popstate`.
+ *
+ * @param {{ reason?: string }} [opts]
+ */
+function requestResultsScrollRestore(opts = {}) {
+    if (!pendingResultsScrollRestore || !resultsList) return;
+    if (pendingResultsScrollRestoreRunner) return;
+
+    pendingResultsScrollRestoreRunner = {
+        attempt: 0,
+        maxAttempts: 24,
+        rafId: 0,
+        reason: String(opts?.reason || '')
+    };
+    const run = () => {
+        if (!pendingResultsScrollRestoreRunner) return;
+        const done = applyResultsScrollRestoreOnce();
+        if (done) { pendingResultsScrollRestoreRunner = null; return; }
+        pendingResultsScrollRestoreRunner.attempt += 1;
+        if (pendingResultsScrollRestoreRunner.attempt >= pendingResultsScrollRestoreRunner.maxAttempts) {
+            pendingResultsScrollRestoreRunner = null;
+            pendingResultsScrollRestore = null;
+            return;
+        }
+        pendingResultsScrollRestoreRunner.rafId = window.requestAnimationFrame(run);
+    };
+
+    pendingResultsScrollRestoreRunner.rafId = window.requestAnimationFrame(run);
+}
+
+/**
+ * Zapamiętuje pozycję scrolla i kontekst klikniętego wyniku, żeby po Back/„Powrót” wrócić dokładnie
+ * w to samo miejsce na liście.
+ *
+ * @param {Element|null} anchorEl
+ * @param {{ fileName?: string, rowIndex?: number }} opts
+ */
+function capturePendingResultsScrollRestore(anchorEl, { fileName, rowIndex } = {}) {
+    if (!resultsList) return;
+    const safeName = String(fileName ?? '');
+    const idx = Number(rowIndex);
+    if (!safeName || !Number.isFinite(idx)) return;
+
+    cancelResultsScrollRestore();
+
+    const scrollTop = Number(resultsList.scrollTop) || 0;
+    let rowOffsetTop = 0;
+    try {
+        if (anchorEl && typeof anchorEl.getBoundingClientRect === 'function') {
+            const rowRect = anchorEl.getBoundingClientRect();
+            const containerRect = resultsList.getBoundingClientRect();
+            const off = rowRect.top - containerRect.top;
+            if (Number.isFinite(off)) rowOffsetTop = off;
+        }
+    } catch { }
+
+    pendingResultsScrollRestore = {
+        query: String(lastQuery || '').trim(),
+        fileName: safeName,
+        rowIndex: idx,
+        scrollTop,
+        rowOffsetTop,
+        ts: Date.now()
+    };
+
+    const rowEl = anchorEl && anchorEl.classList && anchorEl.classList.contains('result-row')
+        ? anchorEl
+        : findResultRowElement(safeName, idx);
+    if (rowEl) {
+        clearActiveResultRow();
+        try { rowEl.classList.add('result-row--active'); } catch { }
+    }
 }
 
 function syncRouteCategorySectionHeights(sections) {
@@ -1576,8 +1721,7 @@ function ensurePreviewApplication() {
         showPreview: ({ fileName, tableModel, highlightRowIndex, contextIsoDate }) => ensurePreviewController().showPreview({ fileName, tableModel, highlightRowIndex, contextIsoDate }),
         showSearch: () => ensurePreviewController().showSearch(),
         queuePreviewReadyEvent,
-        logClientEvent,
-        requestScrollIndicatorUpdate: () => window.requestAnimationFrame(() => window.requestAnimationFrame(() => ensureScrollIndicatorController().update()))
+        logClientEvent
     });
     return previewApplication;
 }
@@ -1679,11 +1823,7 @@ function ensureResultsCategoryController() {
             storageSet(`${ROUTE_CATEGORY_STORAGE_PREFIX}${cat}`, collapsed ? '1' : '0');
         },
         prefersReducedMotion,
-        onLayout: () => {
-            const ctrl = ensureScrollIndicatorController();
-            ctrl.syncResultsEndIntersectionObserver();
-            ctrl.update();
-        }
+        onLayout: () => requestResultsScrollRestore({ reason: 'results_category_layout' })
     });
     return resultsCategoryController;
 }
@@ -1729,16 +1869,6 @@ function ensureLogoRenderer() {
         startLogoOrbitInContainer
     });
     return logoRenderer;
-}
-
-function ensureScrollIndicatorController() {
-    if (scrollIndicatorController) return scrollIndicatorController;
-    scrollIndicatorController = createScrollIndicatorController({
-        scrollIndicator,
-        resultsList,
-        resultsEndIntersection
-    });
-    return scrollIndicatorController;
 }
 
 /**
@@ -1808,11 +1938,9 @@ function clearResults() {
     lastRenderedSearch = { query: '', dataRevision: -1 };
     clearElement(resultsList);
     resultsInfo.textContent = '';
-    window.requestAnimationFrame(() => {
-        const ctrl = ensureScrollIndicatorController();
-        ctrl.syncResultsEndIntersectionObserver();
-        ctrl.update();
-    });
+    clearActiveResultRow();
+    cancelResultsScrollRestore();
+    pendingResultsScrollRestore = null;
 }
 
 /**
@@ -1905,8 +2033,7 @@ function ensureLoadingApplication() {
         setTimeout: (fn, ms) => window.setTimeout(fn, ms),
         requestAnimationFrame: (fn) => window.requestAnimationFrame(fn),
         showAppShell: () => { if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); } },
-        focusSearchIfEnabled: () => { if (isSearchEnabled) searchInput.focus(); },
-        updateScrollIndicator: () => ensureScrollIndicatorController().update()
+        focusSearchIfEnabled: () => { if (isSearchEnabled) searchInput.focus(); }
     });
     return loadingApplication;
 }
@@ -1919,7 +2046,7 @@ function goHome() {
     if (scheduleView) scheduleView.classList.add('view-hidden');
     if (searchView) searchView.classList.remove('view-hidden');
     if (isSearchEnabled) searchInput.focus();
-    window.requestAnimationFrame(() => ensureScrollIndicatorController().update());
+    requestResultsScrollRestore({ reason: 'go_home' });
 }
 
 /**
@@ -2080,25 +2207,22 @@ resultsList.addEventListener('click', (e) => {
     const row = e.target.closest('.result-row');
     if (row) {
         const fileName = row.dataset.fileName, rowIndex = parseInt(row.dataset.rowIndex);
-        if (fileName && !isNaN(rowIndex)) showFilePreview(fileName, rowIndex); return;
+        if (fileName && !isNaN(rowIndex)) {
+            capturePendingResultsScrollRestore(row, { fileName, rowIndex });
+            showFilePreview(fileName, rowIndex);
+        }
+        return;
     }
     const group = e.target.closest('.result-group');
     if (group) {
         const index = parseInt(group.dataset.index), groupData = currentResults[index];
-        if (groupData) showFilePreview(groupData.fileName, groupData.items[0].rowIndex);
+        if (groupData) {
+            const firstRow = group.querySelector('.result-row');
+            capturePendingResultsScrollRestore(firstRow || group, { fileName: groupData.fileName, rowIndex: groupData.items[0].rowIndex });
+            showFilePreview(groupData.fileName, groupData.items[0].rowIndex);
+        }
     }
 });
-
-// Obsługa wskaźnika przewijania
-if (scrollIndicator) {
-    scrollIndicator.addEventListener('click', () => {
-        if (!resultsList) return;
-        const container = ensureScrollIndicatorController().getScrollContainer();
-        const amount = container.clientHeight * 0.8;
-        try { container.scrollBy({ top: amount, behavior: 'smooth' }); }
-        catch { window.scrollBy({ top: amount, behavior: 'smooth' }); }
-    });
-}
 
 //////////////////////////////////////////////////
 // UTILITY / FALLBACK

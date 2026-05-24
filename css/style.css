@@ -68,6 +68,20 @@ html::-webkit-scrollbar {
     --qe-glass-edge-fog: rgba(0, 0, 0, 0.26);
     --qe-glass-shadow: 0 26px 64px rgba(0, 0, 0, 0.28);
     --qe-glass-blur: 22px;
+
+    /* Soft Containers: wyniki wyszukiwania (sekcje/grupy/wiersze) */
+    --qe-soft-separator: rgba(255, 255, 255, 0.08);
+    --qe-soft-group-bg: rgba(255, 255, 255, 0.035);
+    --qe-soft-group-border: rgba(255, 255, 255, 0.06);
+    /* Cień kafelków wyników: osłabiony, aby nie przyciemniał tła między kafelkami */
+    --qe-soft-group-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    --qe-soft-row-hover: rgba(255, 255, 255, 0.04);
+    --qe-soft-row-active: rgba(255, 255, 255, 0.06);
+
+    /* Badge LAB: obrys bez tła (czytelny na ciemnych kontenerach) */
+    --qe-lab-badge-bg: transparent;
+    --qe-lab-badge-text: rgba(255, 255, 255, 0.92);
+    --qe-lab-badge-border: rgba(255, 255, 255, 0.32);
 }
 
 body.light-theme {
@@ -116,6 +130,20 @@ body.light-theme {
     --qe-glass-edge-fog: rgba(93, 90, 86, 0.12);
     --qe-glass-shadow: 0 24px 60px rgba(139, 115, 85, 0.18);
     --qe-glass-blur: 18px;
+
+    /* Soft Containers: wyniki wyszukiwania (sekcje/grupy/wiersze) */
+    --qe-soft-separator: rgba(44, 44, 44, 0.10);
+    --qe-soft-group-bg: rgba(44, 44, 44, 0.03);
+    --qe-soft-group-border: rgba(44, 44, 44, 0.08);
+    /* Cień kafelków wyników: osłabiony, aby nie „brudził” tła między kafelkami */
+    --qe-soft-group-shadow: 0 10px 24px rgba(139, 115, 85, 0.10);
+    --qe-soft-row-hover: rgba(44, 44, 44, 0.04);
+    --qe-soft-row-active: rgba(44, 44, 44, 0.06);
+
+    /* Badge LAB: obrys bez tła (czytelny na jasnym tle) */
+    --qe-lab-badge-bg: transparent;
+    --qe-lab-badge-text: #2C2C2C;
+    --qe-lab-badge-border: rgba(44, 44, 44, 0.20);
 }
 
 body {
@@ -715,11 +743,12 @@ input:checked + .slider:before {
 }
 
 .results-category {
-    background: var(--card-gradient);
-    border-radius: 10px;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--shadow);
-    overflow: hidden;
+    /* Sekcja wyników: minimalistyczna (bez ciężkiego kontenera) */
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
 }
 
 .results-category-toggle {
@@ -728,22 +757,25 @@ input:checked + .slider:before {
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    padding: 12px 14px;
+    padding: 10px 10px;
     border: none;
+    /* Zakrzywiony nagłówek sekcji + separator 1px bez „ucinania” rogu */
+    border-radius: 14px;
+    box-shadow: inset 0 -1px 0 var(--qe-soft-separator);
     cursor: pointer;
     color: var(--text-color);
-    background: var(--highlight-color);
-    font-weight: 800;
+    background: transparent;
+    font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: 0.35px;
+    letter-spacing: 0.85px;
 }
 
 .results-category-toggle:hover {
-    background: var(--state-hover);
+    background: var(--qe-soft-row-hover);
 }
 
 .results-category-toggle:active {
-    background: var(--state-active);
+    background: var(--qe-soft-row-active);
 }
 
 .results-category-toggle::after {
@@ -773,8 +805,8 @@ input:checked + .slider:before {
     flex: 0 0 auto;
     padding: 2px 10px;
     border-radius: 999px;
-    border: 1px solid var(--border-color);
-    background: var(--card-bg);
+    border: 1px solid var(--qe-soft-separator);
+    background: rgba(255, 255, 255, 0.02);
     color: var(--secondary-text);
     font-weight: 900;
     font-size: 0.85rem;
@@ -800,7 +832,8 @@ input:checked + .slider:before {
 }
 
 .results-category-body-inner {
-    padding: 12px;
+    /* Zapewnia „oddech” grupom tras pod nagłówkiem sekcji */
+    padding: 12px 2px 2px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -808,12 +841,13 @@ input:checked + .slider:before {
 
 
 .result-group {
-    background: var(--card-gradient);
-    border-radius: 8px;
-    border-left: 4px solid var(--primary-color);
-    box-shadow: var(--shadow);
+    /* Grupa trasy: soft container */
+    background: var(--qe-soft-group-bg);
+    border-radius: 14px;
+    border: 1px solid var(--qe-soft-group-border);
+    box-shadow: var(--qe-soft-group-shadow);
     overflow: hidden;
-    transition: transform 0.1s, border-left-color 0.4s ease-in-out, background 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+    transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
     cursor: pointer;
     position: relative;
 }
@@ -908,9 +942,10 @@ input:checked + .slider:before {
 }
 
 .result-group-header {
-    padding: 10px 15px;
-    background: rgba(0, 102, 204, 0.04);
-    border-bottom: 1px solid var(--border-color);
+    /* Nagłówek grupy: czysty tekst bez dodatkowych linii pod tytułem */
+    padding: 12px 14px 8px;
+    background: transparent;
+    border-bottom: none;
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -919,27 +954,31 @@ input:checked + .slider:before {
 
 .result-group-header-inner {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     align-items: center;
-    text-align: center;
+    text-align: left;
     min-width: 0;
 }
 
 .result-group-body {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-    padding: 12px;
+    gap: 0;
+    padding: 4px 0 6px;
 }
 
 .result-row {
-    padding: 12px 14px;
+    /* Wiersze: bez ramek „mini-kart”, separacja tylko linią 1px */
+    padding: 10px 14px;
     cursor: pointer;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.02);
-    transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease, background-color 160ms ease, border-color 160ms ease;
-    will-change: transform;
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    transition: background-color 160ms ease, color 160ms ease;
+}
+
+.result-group-body .result-row + .result-row {
+    border-top: 1px solid var(--qe-soft-separator);
 }
 
 .result-row--phonepoint {
@@ -949,7 +988,8 @@ input:checked + .slider:before {
     font-weight: 400;
     opacity: 0.78;
     background: rgba(0, 0, 0, 0.10);
-    border-color: rgba(255, 255, 255, 0.06);
+    border-top-left-radius: 12px;
+    border-bottom-left-radius: 12px;
 }
 
 .result-row--phonepoint .result-content {
@@ -962,15 +1002,39 @@ input:checked + .slider:before {
 }
 
 .result-row:hover {
-    transform: translateY(-2px);
-    background-color: var(--state-hover);
-    border-color: var(--primary-color);
-    box-shadow: 0 14px 24px rgba(0, 0, 0, 0.22);
+    background-color: var(--qe-soft-row-hover);
+}
+
+.result-row--active {
+    background-color: var(--qe-soft-row-hover);
+    outline: 2px solid rgba(255, 255, 255, 0.10);
+    outline-offset: -2px;
 }
 
 .result-route-name {
-    color: var(--primary-color);
+    /* Nazwa trasy: akcent po lewej (wariant C) */
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 12px;
+    color: var(--text-color);
     text-transform: uppercase;
+    font-weight: 900;
+    letter-spacing: 0.7px;
+}
+
+.result-route-name::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    width: 3px;
+    height: 14px;
+    transform: translateY(-50%);
+    border-radius: 999px;
+    background: var(--primary-color);
+    opacity: 0.95;
 }
 
 .result-driver {
@@ -1010,8 +1074,9 @@ input:checked + .slider:before {
     font-size: 0.95rem;
     line-height: 1.4;
     display: grid;
-    grid-template-columns: auto 1fr auto;
-    gap: 15px;
+    /* Ułatwia skanowanie pionowe: godzina / adres / placówka */
+    grid-template-columns: 90px minmax(0, 1fr) auto;
+    gap: 12px;
     align-items: center;
     word-break: break-word;
 }
@@ -1076,11 +1141,11 @@ input:checked + .slider:before {
 .result-facility--lab {
     padding: 1px 6px;
     border-radius: 10px;
-    background: var(--state-active);
-    border: 1px solid var(--primary-color);
-    color: var(--text-color);
-    font-weight: 600;
-    opacity: 0.92;
+    background: var(--qe-lab-badge-bg);
+    border: 1px solid var(--qe-lab-badge-border);
+    color: var(--qe-lab-badge-text);
+    font-weight: 700;
+    opacity: 0.96;
 }
 
 .highlight {
@@ -1352,23 +1417,12 @@ tbody tr:nth-child(even) td:nth-child(even) {
     font-weight: 700;
     font-size: 0.85rem;
     letter-spacing: 0.3px;
-    border: 1px solid var(--primary-color);
-    background: var(--state-hover);
-    color: var(--primary-color);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    /* Badge LAB: biały, neutralny (używany w podglądzie tabeli) */
+    border: 1px solid var(--qe-lab-badge-border);
+    background: var(--qe-lab-badge-bg);
+    color: var(--qe-lab-badge-text);
+    box-shadow: none;
     white-space: nowrap;
-}
-
-body.dark-theme .lab-badge {
-    background: rgba(47, 140, 255, 0.15);
-    color: #7cc6ff;
-    border-color: #2f8cff;
-}
-
-body.light-theme .lab-badge {
-    background: #F5F3F0;
-    color: #8B7355;
-    border-color: #8B7355;
 }
 
 .row-num {
@@ -1754,50 +1808,6 @@ footer {
     color: var(--secondary-text);
     border-top: 1px solid var(--border-color);
     padding-top: 20px;
-}
-
-/* Wskaźnik przewijania (strzałka) */
-.scroll-indicator {
-    position: fixed;
-    bottom: 30px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 1000;
-    cursor: pointer;
-    background: var(--card-bg);
-    border: 1px solid var(--primary-color);
-    border-radius: 50%;
-    width: 44px;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--shadow);
-    opacity: 1;
-    filter: blur(0px);
-    visibility: visible;
-    transition: opacity 0.6s ease-out, filter 0.6s ease-out, transform 0.4s ease, visibility 0.6s;
-    animation: qeBounce 2s infinite;
-}
-
-.scroll-indicator svg {
-    width: 24px;
-    height: 24px;
-    fill: var(--primary-color);
-}
-
-.scroll-indicator.is-hidden {
-    opacity: 0;
-    filter: blur(20px);
-    visibility: hidden;
-    transform: translateX(-50%) translateY(20px);
-    pointer-events: none;
-}
-
-@keyframes qeBounce {
-    0%, 20%, 50%, 80%, 100% { transform: translateX(-50%) translateY(0); }
-    40% { transform: translateX(-50%) translateY(-10px); }
-    60% { transform: translateX(-50%) translateY(-5px); }
 }
 
 /* Loading Overlay */

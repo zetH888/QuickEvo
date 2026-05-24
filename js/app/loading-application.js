@@ -21,7 +21,6 @@
  * @param {(fn: () => void) => void} cfg.requestAnimationFrame
  * @param {() => void} cfg.showAppShell
  * @param {() => void} cfg.focusSearchIfEnabled
- * @param {() => void} cfg.updateScrollIndicator
  */
 export function createLoadingApplication(cfg) {
     if (!cfg || typeof cfg.stopLoadingScreen !== 'function') throw new Error('loading-application: brak stopLoadingScreen');
@@ -39,7 +38,6 @@ export function createLoadingApplication(cfg) {
         cfg.setTimeout(() => {
             cfg.showAppShell();
             cfg.focusSearchIfEnabled();
-            cfg.requestAnimationFrame(() => cfg.updateScrollIndicator());
         }, delay);
     }
 

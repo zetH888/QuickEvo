@@ -123,7 +123,6 @@ QuickEvo/
 │   │   │   ├── results-dom.js
 │   │   │   ├── results-category-controller.js
 │   │   │   ├── results-renderer.js
-│   │   │   └── scroll-indicator-controller.js
 │   │   ├── preview/
 │   │   │   ├── modal-controller.js
 │   │   │   ├── preview-controller.js

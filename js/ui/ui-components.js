@@ -19,7 +19,6 @@ export { createScheduleController } from './schedule-controller.js';
 
 export { createResultsCategoryController } from './results/results-category-controller.js';
 export { createResultsRenderer } from './results/results-renderer.js';
-export { createScrollIndicatorController } from './results/scroll-indicator-controller.js';
 export { prepareResultsListDom, updateResultsCountInfoDom } from './results/results-dom.js';
 
 export { createImportSummaryRenderer } from './import/import-summary-renderer.js';
