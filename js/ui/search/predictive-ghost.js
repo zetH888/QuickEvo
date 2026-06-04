@@ -3,15 +3,20 @@ export function createPredictiveGhostController(cfg) {
     const ghostOverlay = cfg?.ghostOverlay || null;
     const ghostPrefix = cfg?.ghostPrefix || null;
     const ghostSuffix = cfg?.ghostSuffix || null;
+    const suggestOverlay = cfg?.suggestOverlay || null;
+    const suggestList = cfg?.suggestList || null;
 
     const isSearchEnabled = typeof cfg?.isSearchEnabled === 'function' ? cfg.isSearchEnabled : (() => false);
     const fuzzyNormalizeText = typeof cfg?.fuzzyNormalizeText === 'function' ? cfg.fuzzyNormalizeText : ((x) => String(x ?? '').trim().toLowerCase());
     const getPredictiveSuggestions = typeof cfg?.getPredictiveSuggestions === 'function' ? cfg.getPredictiveSuggestions : (() => ({ hasIndex: false, options: [] }));
+    const onAcceptSuggestion = typeof cfg?.onAcceptSuggestion === 'function' ? cfg.onAcceptSuggestion : (() => { });
 
     const minChars = Number.isFinite(Number(cfg?.minChars)) ? Math.max(1, Number(cfg.minChars)) : 2;
+    const maxDropdownItems = Number.isFinite(Number(cfg?.maxDropdownItems)) ? Math.max(1, Number(cfg.maxDropdownItems)) : 5;
 
     let isComposing = false;
     let state = { raw: '', norm: '', options: [], index: 0, hidden: false };
+    let lastSuggestSig = '';
 
     function hide() {
         if (!ghostOverlay || !ghostPrefix || !ghostSuffix) return;
@@ -19,6 +24,13 @@ export function createPredictiveGhostController(cfg) {
         ghostSuffix.textContent = '';
         ghostOverlay.classList.remove('qe-ghost-loading');
         ghostOverlay.classList.add('is-hidden');
+    }
+
+    function hideSuggest() {
+        if (!suggestOverlay || !suggestList) return;
+        suggestOverlay.classList.add('is-hidden');
+        suggestList.textContent = '';
+        lastSuggestSig = '';
     }
 
     function syncScroll() {
@@ -60,6 +72,40 @@ export function createPredictiveGhostController(cfg) {
         syncScroll();
     }
 
+    function renderSuggestList() {
+        if (!suggestOverlay || !suggestList || !searchInput) return;
+        if (state.hidden) { hideSuggest(); return; }
+
+        const query = String(state.norm || '').trim();
+        const hasOptions = Array.isArray(state.options) && state.options.length > 0;
+        if (!query || !hasOptions || query.length < minChars) { hideSuggest(); return; }
+
+        const items = state.options.slice(0, maxDropdownItems).map(v => String(v || '').trim()).filter(Boolean);
+        if (items.length === 0) { hideSuggest(); return; }
+
+        const sig = `${query}::${state.index}::${items.join('\u0001')}`;
+        if (sig === lastSuggestSig) return;
+        lastSuggestSig = sig;
+
+        const frag = document.createDocumentFragment();
+        for (let i = 0; i < items.length; i++) {
+            const value = items[i];
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'qe-suggest-item' + (i === state.index ? ' is-active' : '');
+            btn.setAttribute('role', 'option');
+            btn.setAttribute('aria-selected', i === state.index ? 'true' : 'false');
+            btn.setAttribute('tabindex', '-1');
+            btn.dataset.index = String(i);
+            btn.textContent = value;
+            frag.appendChild(btn);
+        }
+
+        suggestList.textContent = '';
+        suggestList.appendChild(frag);
+        suggestOverlay.classList.toggle('is-hidden', false);
+    }
+
     function update(query, { source } = {}) {
         if (isComposing) return;
         if (!ghostOverlay || !ghostPrefix || !ghostSuffix || !searchInput) return;
@@ -82,6 +128,7 @@ export function createPredictiveGhostController(cfg) {
         if (!isSearchEnabled() || norm.length < minChars || raw !== norm) {
             state.hidden = true;
             hide();
+            hideSuggest();
             return;
         }
 
@@ -89,14 +136,16 @@ export function createPredictiveGhostController(cfg) {
         if (!res?.hasIndex) {
             state.hidden = true;
             hide();
+            hideSuggest();
             return;
         }
 
         ghostOverlay.classList.remove('qe-ghost-loading');
         state.options = Array.isArray(res?.options) ? res.options : [];
-        if (state.index >= state.options.length) state.index = 0;
+        if (state.index >= Math.min(state.options.length, maxDropdownItems)) state.index = 0;
         if (source === 'input') state.index = 0;
         render();
+        renderSuggestList();
     }
 
     function acceptSuggestion() {
@@ -109,7 +158,9 @@ export function createPredictiveGhostController(cfg) {
         searchInput.value = suggestion;
         try { searchInput.setSelectionRange(suggestion.length, suggestion.length); } catch { }
         state = { raw: suggestion, norm: suggestion, options: [], index: 0, hidden: false };
+        try { onAcceptSuggestion(query, suggestion); } catch { }
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+        hideSuggest();
         return true;
     }
 
@@ -131,9 +182,10 @@ export function createPredictiveGhostController(cfg) {
             e.preventDefault();
             state.hidden = false;
             const delta = key === 'ArrowDown' ? 1 : -1;
-            const n = state.options.length;
+            const n = Math.min(state.options.length, maxDropdownItems);
             state.index = (state.index + delta + n) % n;
             render();
+            renderSuggestList();
             return;
         }
 
@@ -153,15 +205,38 @@ export function createPredictiveGhostController(cfg) {
                 e.preventDefault();
                 state.hidden = true;
                 hide();
+                hideSuggest();
             }
         }
     }
 
     function onScroll() { syncScroll(); }
-    function onBlur() { hide(); }
+    function onBlur() { hide(); hideSuggest(); }
     function onCompositionStart() { isComposing = true; hide(); }
     function onCompositionEnd(value) { isComposing = false; update(value, { source: 'compositionend' }); }
 
-    return { update, onKeydown, onScroll, onBlur, onCompositionStart, onCompositionEnd, hide };
-}
+    function onSuggestMouseDown(e) {
+        if (!e) return;
+        try { e.preventDefault(); } catch { }
+    }
 
+    function onSuggestClick(e) {
+        if (!e) return;
+        const t = e?.target;
+        const idx = Number(t?.dataset?.index);
+        if (!Number.isFinite(idx) || idx < 0) return;
+        if (!Array.isArray(state.options) || state.options.length === 0) return;
+        state.index = Math.min(Math.min(state.options.length, maxDropdownItems) - 1, idx);
+        const ok = acceptSuggestion();
+        if (ok) {
+            try { e.preventDefault(); } catch { }
+        }
+    }
+
+    if (suggestList) {
+        try { suggestList.addEventListener('mousedown', onSuggestMouseDown); } catch { }
+        try { suggestList.addEventListener('click', onSuggestClick); } catch { }
+    }
+
+    return { update, onKeydown, onScroll, onBlur, onCompositionStart, onCompositionEnd, hide, hideSuggest };
+}

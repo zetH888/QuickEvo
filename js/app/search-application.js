@@ -94,5 +94,30 @@ export function createSearchApplication(cfg) {
         return ensureOrchestrator().getPredictiveSuggestions(String(normalizedQuery || ''), { lazyReason: lazyReason || 'unknown' });
     }
 
-    return Object.freeze({ search, schedulePredictiveIndexRebuild, getPredictiveSuggestions });
+    /**
+     * Aktualizuje wkład źródła (np. pliku) w indeksie predykcji (jeśli wspierane).
+     *
+     * @param {string} sourceId
+     * @param {any} payload
+     */
+    function upsertPredictiveSource(sourceId, payload) {
+        try { ensureOrchestrator().upsertPredictiveSource?.(String(sourceId || ''), payload); } catch { }
+    }
+
+    /**
+     * Usuwa wkład źródła (np. po skasowaniu pliku) z indeksu predykcji (jeśli wspierane).
+     *
+     * @param {string} sourceId
+     */
+    function removePredictiveSource(sourceId) {
+        try { ensureOrchestrator().removePredictiveSource?.(String(sourceId || '')); } catch { }
+    }
+
+    return Object.freeze({
+        search,
+        schedulePredictiveIndexRebuild,
+        getPredictiveSuggestions,
+        upsertPredictiveSource,
+        removePredictiveSource
+    });
 }

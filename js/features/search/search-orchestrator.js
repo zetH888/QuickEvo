@@ -1,6 +1,13 @@
+import { createPredictiveTrieIndex } from './predictive-trie-index.js';
+
 const PREDICT_MIN_CHARS = 2;
 const PREDICT_MAX_OPTIONS = 14;
 const PREDICT_BUCKET_PREFIX_LEN = 2;
+
+const PREDICT_INDEX_MODE = Object.freeze({
+    buckets: 'buckets',
+    trie: 'trie'
+});
 
 const PREDICT_TYPE_WEIGHT = Object.freeze({
     address: 330,
@@ -61,14 +68,164 @@ export function createSearchOrchestrator(cfg = {}) {
     const normalizeText = typeof cfg?.normalizeText === 'function' ? cfg.normalizeText : ((t) => String(t ?? '').toLowerCase());
     const fuzzyNormalizeText = typeof cfg?.fuzzyNormalizeText === 'function' ? cfg.fuzzyNormalizeText : ((t) => String(t ?? '').toLowerCase());
     const logAction = typeof cfg?.logAction === 'function' ? cfg.logAction : (() => { });
+    const getPredictiveAcceptCount = typeof cfg?.getPredictiveAcceptCount === 'function'
+        ? cfg.getPredictiveAcceptCount
+        : (() => 0);
+
+    /**
+     * Tryb indeksu predykcyjnego:
+     * - buckets: dotychczasowy mechanizm (bucketing po 2 znaki)
+     * - trie: nowe Trie (przygotowane do aktualizacji inkrementalnych; domyślnie wyłączone)
+     *
+     * @type {'buckets'|'trie'}
+     */
+    const predictiveIndexMode = cfg?.predictiveIndexMode === PREDICT_INDEX_MODE.trie ? PREDICT_INDEX_MODE.trie : PREDICT_INDEX_MODE.buckets;
 
     let predictiveIndex = null;
     let predictiveIndexBuildTimer = null;
 
+    /**
+     * Konfiguracja rebuildu w Web Workerze.
+     * W trybie Trie stary indeks pozostaje aktywny aż do zakończenia rebuildu i podmiany (swap).
+     *
+     * @type {boolean}
+     */
+    const enablePredictiveWorker = cfg?.enablePredictiveWorker !== false;
+
+    /**
+     * @type {Worker|null}
+     */
+    let predictiveWorker = null;
+
+    /**
+     * @type {number}
+     */
+    let predictiveWorkerSeq = 0;
+
+    /**
+     * @type {number|null}
+     */
+    let predictiveWorkerActiveSeq = null;
+
+    /**
+     * @type {boolean}
+     */
+    let predictiveWorkerBusy = false;
+
+    /**
+     * @type {string|null}
+     */
+    let predictiveWorkerPendingReason = null;
+
+    /**
+     * Rozszerza popularne skróty adresowe (dla predykcji), aby:
+     * - „ul.” i „ul” dopasowywały się do „ulica”
+     * - „pl.” i „pl” dopasowywały się do „plac”
+     * - „al.” i „al” dopasowywały się do „aleja”
+     * - „os.” i „os” dopasowywały się do „osiedle”
+     *
+     * Uwaga: działa wyłącznie w obrębie predykcji i nie zmienia globalnego `fuzzyNormalizeText`.
+     *
+     * @param {string} text
+     * @returns {string}
+     */
+    function expandPredictiveAbbreviations(text) {
+        const raw = String(text ?? '');
+        if (!raw) return '';
+        const t = raw
+            .replace(/[.]/g, '.')
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (!t) return '';
+
+        const replaceWord = (src, re, next) => src.replace(re, `$1${next}$2`);
+        let out = t;
+        out = replaceWord(out, /(^|\s)(ul)\.?(?=\s|$)/gi, 'ulica');
+        out = replaceWord(out, /(^|\s)(pl)\.?(?=\s|$)/gi, 'plac');
+        out = replaceWord(out, /(^|\s)(al)\.?(?=\s|$)/gi, 'aleja');
+        out = replaceWord(out, /(^|\s)(os)\.?(?=\s|$)/gi, 'osiedle');
+        return out;
+    }
+
+    /**
+     * Normalizacja rozmyta dla predykcji: dodatkowo uwzględnia skróty (ul./pl./al./os.).
+     *
+     * @param {unknown} text
+     * @returns {string}
+     */
+    function predictiveFuzzyNormalizeText(text) {
+        const expanded = expandPredictiveAbbreviations(String(text ?? ''));
+        return fuzzyNormalizeText(expanded);
+    }
+
+    /**
+     * Zapewnia istnienie indeksu Trie (tworzy pusty, gdy jeszcze nie istnieje).
+     * To pozwala wykonywać aktualizacje inkrementalne zanim zostanie wykonany pełny rebuild.
+     *
+     * @returns {any}
+     */
+    function ensureTrieIndex() {
+        if (predictiveIndex?.mode === PREDICT_INDEX_MODE.trie && predictiveIndex?.trieIndex) return predictiveIndex.trieIndex;
+        const trieIndex = createPredictiveTrieIndex({
+            fuzzyNormalizeText: predictiveFuzzyNormalizeText,
+            now: () => Date.now(),
+            minChars: PREDICT_MIN_CHARS,
+            maxCandidatesPerType: 420,
+            typeWeights: PREDICT_TYPE_WEIGHT
+        });
+        predictiveIndex = {
+            builtAt: Date.now(),
+            reason: 'init_trie',
+            mode: PREDICT_INDEX_MODE.trie,
+            trieIndex
+        };
+        return trieIndex;
+    }
+
+    /**
+     * Aktualizuje wkład źródła (np. pliku) w indeksie Trie.
+     * Metoda jest bezpieczna do wywoływania wielokrotnie dla tego samego sourceId.
+     *
+     * @param {string} sourceId
+     * @param {any} payload
+     */
+    function upsertPredictiveSource(sourceId, payload) {
+        if (predictiveIndexMode !== PREDICT_INDEX_MODE.trie) return;
+        const id = String(sourceId || '').trim();
+        if (!id) return;
+        const trieIndex = ensureTrieIndex();
+        trieIndex.upsertSource(id, payload);
+        safeClearCache(predictiveSuggestionsCache);
+    }
+
+    /**
+     * Usuwa wkład źródła (np. po usunięciu pliku) z indeksu Trie.
+     *
+     * @param {string} sourceId
+     */
+    function removePredictiveSource(sourceId) {
+        if (predictiveIndexMode !== PREDICT_INDEX_MODE.trie) return;
+        const id = String(sourceId || '').trim();
+        if (!id) return;
+        const trieIndex = ensureTrieIndex();
+        trieIndex.removeSource(id);
+        safeClearCache(predictiveSuggestionsCache);
+    }
+
+    /**
+     * @returns {number}
+     */
+    function getPredictiveSourcesCount() {
+        if (predictiveIndexMode !== PREDICT_INDEX_MODE.trie) return 0;
+        const idx = predictiveIndex?.trieIndex;
+        if (!idx?.getStats) return 0;
+        try { return Number(idx.getStats()?.sources) || 0; } catch { return 0; }
+    }
+
     function addPredictiveValue(map, rawValue) {
         const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
         if (!value) return;
-        const key = fuzzyNormalizeText(value);
+        const key = predictiveFuzzyNormalizeText(value);
         if (!key) return;
         const prev = map.get(key);
         if (!prev) map.set(key, { value, count: 1 });
@@ -127,15 +284,14 @@ export function createSearchOrchestrator(cfg = {}) {
     }
 
     function rebuildPredictiveIndex({ reason } = {}) {
+        if (predictiveIndexMode === PREDICT_INDEX_MODE.trie) {
+            rebuildPredictiveIndexTrie({ reason });
+            return;
+        }
         const addressMap = new Map();
         const facilityMap = new Map();
-        const routeMap = new Map();
-        const fileNames = new Set();
 
         for (const item of (Array.isArray(getAllData()) ? getAllData() : [])) {
-            const safeFileName = String(item?.fileName || '').trim();
-            if (safeFileName) fileNames.add(safeFileName);
-
             if (!item?.isComplete || !item?.headerMap || !Array.isArray(item?.cells)) continue;
             const h = item.headerMap;
 
@@ -146,24 +302,211 @@ export function createSearchOrchestrator(cfg = {}) {
             if (facility) addPredictiveValueWithVariants(facilityMap, facility);
         }
 
-        for (const fn of fileNames) {
-            const routeName = String(formatRouteNameForResults(fn) || '').trim();
-            if (routeName) addPredictiveValueWithVariants(routeMap, routeName);
-        }
-
         predictiveIndex = {
             builtAt: Date.now(),
             reason: String(reason || ''),
             buckets: {
                 address: buildPredictiveBuckets(addressMap, 'address'),
                 facility: buildPredictiveBuckets(facilityMap, 'facility'),
-                route: buildPredictiveBuckets(routeMap, 'route')
+                route: new Map()
             }
         };
         safeClearCache(predictiveSuggestionsCache);
     }
 
+    function rebuildPredictiveIndexTrie({ reason } = {}) {
+        if (enablePredictiveWorker && typeof Worker !== 'undefined' && typeof URL !== 'undefined') {
+            rebuildPredictiveIndexTrieInWorker({ reason });
+            return;
+        }
+        const trieIndex = createPredictiveTrieIndex({
+            fuzzyNormalizeText: predictiveFuzzyNormalizeText,
+            now: () => Date.now(),
+            minChars: PREDICT_MIN_CHARS,
+            maxCandidatesPerType: 420,
+            typeWeights: PREDICT_TYPE_WEIGHT
+        });
+
+        const perFile = new Map();
+
+        const ensureFileEntry = (fileName) => {
+            const fn = String(fileName || '').trim();
+            if (!fn) return null;
+            let entry = perFile.get(fn);
+            if (!entry) {
+                entry = { address: new Map(), facility: new Map() };
+                perFile.set(fn, entry);
+            }
+            return entry;
+        };
+
+        for (const item of (Array.isArray(getAllData()) ? getAllData() : [])) {
+            const safeFileName = String(item?.fileName || '').trim();
+            const entry = ensureFileEntry(safeFileName);
+            if (!entry) continue;
+
+            if (!item?.isComplete || !item?.headerMap || !Array.isArray(item?.cells)) continue;
+            const h = item.headerMap;
+
+            const address = String(item.cells[h.ADRES] || '').trim();
+            if (address) addPredictiveValueWithVariants(entry.address, address);
+
+            const facility = String(item.cells[h.NAZWA_PLACOWKI] || '').trim();
+            if (facility) addPredictiveValueWithVariants(entry.facility, facility);
+        }
+
+        for (const [fn, entry] of perFile.entries()) {
+            trieIndex.upsertSource(fn, {
+                importedAt: Date.now(),
+                byType: { address: entry.address, facility: entry.facility }
+            });
+        }
+
+        predictiveIndex = {
+            builtAt: Date.now(),
+            reason: String(reason || ''),
+            mode: PREDICT_INDEX_MODE.trie,
+            trieIndex
+        };
+        safeClearCache(predictiveSuggestionsCache);
+    }
+
+    /**
+     * Pełny rebuild indeksu Trie w Web Workerze:
+     * - przenosi generowanie map (wraz z wariantami) poza główny wątek,
+     * - utrzymuje stary indeks aktywny do czasu zakończenia budowy,
+     * - po zakończeniu tworzy nowy Trie i podmienia go atomowo.
+     *
+     * @param {{ reason?: string }} [opts]
+     */
+    function rebuildPredictiveIndexTrieInWorker({ reason } = {}) {
+        const r = String(reason || '');
+        if (predictiveWorkerBusy) {
+            predictiveWorkerPendingReason = r || 'unknown';
+            return;
+        }
+
+        if (!predictiveWorker) {
+            try {
+                predictiveWorker = new Worker(new URL('./predictive-index-worker.js', import.meta.url), { type: 'module' });
+                predictiveWorker.onmessage = (evt) => {
+                    const msg = evt?.data || {};
+                    const op = String(msg?.op || '');
+                    const seq = Number(msg?.seq || 0);
+                    if (predictiveWorkerActiveSeq !== seq) return;
+
+                    if (op === 'rebuild_error') {
+                        predictiveWorkerBusy = false;
+                        predictiveWorkerActiveSeq = null;
+                        logAction('predictive', { phase: 'worker_rebuild_error', message: String(msg?.message || 'Błąd') }, 'WARN');
+                        const pending = predictiveWorkerPendingReason;
+                        predictiveWorkerPendingReason = null;
+                        if (pending) rebuildPredictiveIndexTrieInWorker({ reason: pending });
+                        return;
+                    }
+
+                    if (op !== 'rebuild_done') return;
+                    const payloads = Array.isArray(msg?.payloads) ? msg.payloads : [];
+                    try {
+                        const trieIndex = createPredictiveTrieIndex({
+                            fuzzyNormalizeText: predictiveFuzzyNormalizeText,
+                            now: () => Date.now(),
+                            minChars: PREDICT_MIN_CHARS,
+                            maxCandidatesPerType: 420,
+                            typeWeights: PREDICT_TYPE_WEIGHT
+                        });
+
+                        for (const p of payloads) {
+                            const sourceId = String(p?.sourceId || '').trim();
+                            if (!sourceId) continue;
+                            const byType = p?.byType || {};
+
+                            const toMap = (entries) => {
+                                const map = new Map();
+                                for (const row of (Array.isArray(entries) ? entries : [])) {
+                                    const k = String(row?.[0] || '').trim();
+                                    const v = String(row?.[1] || '').trim();
+                                    const c = Math.max(0, Number(row?.[2] || 0));
+                                    if (!k || !v || !Number.isFinite(c) || c <= 0) continue;
+                                    map.set(k, { value: v, count: c });
+                                }
+                                return map;
+                            };
+
+                            trieIndex.upsertSource(sourceId, {
+                                importedAt: Number(p?.importedAt || Date.now()),
+                                byType: {
+                                    address: toMap(byType.address),
+                                    facility: toMap(byType.facility)
+                                }
+                            });
+                        }
+
+                        predictiveIndex = {
+                            builtAt: Date.now(),
+                            reason: r,
+                            mode: PREDICT_INDEX_MODE.trie,
+                            trieIndex
+                        };
+                        safeClearCache(predictiveSuggestionsCache);
+                        logAction('predictive', { phase: 'worker_rebuild_done', mode: 'trie', sources: trieIndex.getStats?.()?.sources || 0 }, 'INFO');
+                    } catch (err) {
+                        logAction('predictive', { phase: 'worker_rebuild_apply_failed', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
+                    } finally {
+                        predictiveWorkerBusy = false;
+                        predictiveWorkerActiveSeq = null;
+                        const pending = predictiveWorkerPendingReason;
+                        predictiveWorkerPendingReason = null;
+                        if (pending) rebuildPredictiveIndexTrieInWorker({ reason: pending });
+                    }
+                };
+                predictiveWorker.onerror = (err) => {
+                    predictiveWorkerBusy = false;
+                    predictiveWorkerActiveSeq = null;
+                    logAction('predictive', { phase: 'worker_error', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
+                };
+            } catch (err) {
+                predictiveWorker = null;
+                logAction('predictive', { phase: 'worker_init_failed', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
+                return;
+            }
+        }
+
+        const rows = [];
+        for (const item of (Array.isArray(getAllData()) ? getAllData() : [])) {
+            const safeFileName = String(item?.fileName || '').trim();
+            if (!item?.isComplete || !item?.headerMap || !Array.isArray(item?.cells)) continue;
+            const h = item.headerMap;
+            rows.push({
+                fileName: safeFileName,
+                address: String(item.cells[h.ADRES] || '').trim(),
+                facility: String(item.cells[h.NAZWA_PLACOWKI] || '').trim()
+            });
+        }
+
+        predictiveWorkerBusy = true;
+        predictiveWorkerActiveSeq = ++predictiveWorkerSeq;
+        try {
+            predictiveWorker.postMessage({ op: 'rebuild', seq: predictiveWorkerActiveSeq, rows });
+            logAction('predictive', { phase: 'worker_rebuild_start', mode: 'trie', rows: rows.length }, 'INFO');
+        } catch (err) {
+            predictiveWorkerBusy = false;
+            predictiveWorkerActiveSeq = null;
+            logAction('predictive', { phase: 'worker_post_failed', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
+        }
+    }
+
     function schedulePredictiveIndexRebuild({ reason } = {}) {
+        if (predictiveIndexMode === PREDICT_INDEX_MODE.trie) {
+            const r = String(reason || '');
+            const sources = getPredictiveSourcesCount();
+            const isForced =
+                r.includes('full_reload') ||
+                r.includes('dev_clear_db') ||
+                r.includes('dev_clear_rnd') ||
+                r.includes('force');
+            if (sources > 0 && !isForced) return;
+        }
         if (predictiveIndexBuildTimer) globalThis.clearTimeout?.(predictiveIndexBuildTimer);
         predictiveIndexBuildTimer = globalThis.setTimeout?.(() => {
             predictiveIndexBuildTimer = null;
@@ -176,8 +519,8 @@ export function createSearchOrchestrator(cfg = {}) {
         const q = String(query ?? '').trim();
         const c = String(candidate ?? '').trim();
         if (!q || !c) return false;
-        const qf = fuzzyNormalizeText(q);
-        const cf = fuzzyNormalizeText(c);
+        const qf = predictiveFuzzyNormalizeText(q);
+        const cf = predictiveFuzzyNormalizeText(c);
         return cf.startsWith(qf);
     }
 
@@ -212,22 +555,30 @@ export function createSearchOrchestrator(cfg = {}) {
             }
 
             const freqBonus = Math.min(50, Math.round(Math.log2(Math.max(1, Number(c.count || 1))) * 10));
-            target.push({ value: c.value, score: typeWeight + matchWeight + freqBonus });
+            const acceptCount = Math.max(0, Number(getPredictiveAcceptCount(fuzzyValue) || 0));
+            const acceptBonus = Math.min(120, Math.round(Math.log2(acceptCount + 1) * 45));
+
+            const builtAt = Number(predictiveIndex?.builtAt || 0);
+            const importedAt = Number.isFinite(Number(c?.importedAt)) ? Number(c.importedAt) : builtAt;
+            const ageMs = Math.max(0, Date.now() - Math.max(0, importedAt));
+            const ageDays = ageMs / (24 * 60 * 60 * 1000);
+            const recencyBonus = Math.max(0, Math.round(90 * Math.exp(-ageDays / 10)));
+
+            target.push({ value: c.value, score: typeWeight + matchWeight + freqBonus + acceptBonus + recencyBonus });
         }
     }
 
-    function computePredictiveSuggestions(query, limit) {
+    function computePredictiveSuggestionsTrie(query, limit) {
         const q = String(query || '').trim();
-        const qf = fuzzyNormalizeText(q);
-        if (!qf || qf.length < PREDICT_MIN_CHARS || !predictiveIndex?.buckets) return [];
+        const qf = predictiveFuzzyNormalizeText(q);
+        const idx = predictiveIndex?.trieIndex;
+        if (!qf || qf.length < PREDICT_MIN_CHARS || !idx) return [];
 
-        const bucketKey = qf.slice(0, PREDICT_BUCKET_PREFIX_LEN);
-        if (!bucketKey) return [];
-
+        const perTypeLimit = Math.max(1, Math.min(420, Number(limit || 0) || PREDICT_MAX_OPTIONS));
+        const res = idx.suggestByType(q, perTypeLimit);
         const scored = [];
-        scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.address?.get(bucketKey), q, qf, 'address');
-        scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.facility?.get(bucketKey), q, qf, 'facility');
-        scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.route?.get(bucketKey), q, qf, 'route');
+        scorePredictiveCandidatesInto(scored, res?.address, q, qf, 'address');
+        scorePredictiveCandidatesInto(scored, res?.facility, q, qf, 'facility');
 
         scored.sort((a, b) => (b.score - a.score) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
 
@@ -247,10 +598,48 @@ export function createSearchOrchestrator(cfg = {}) {
         return out;
     }
 
+    function computePredictiveSuggestions(query, limit) {
+        if (predictiveIndex?.mode === PREDICT_INDEX_MODE.trie) {
+            return computePredictiveSuggestionsTrie(query, limit);
+        }
+        const q = String(query || '').trim();
+        const qf = predictiveFuzzyNormalizeText(q);
+        if (!qf || qf.length < PREDICT_MIN_CHARS || !predictiveIndex?.buckets) return [];
+
+        const bucketKey = qf.slice(0, PREDICT_BUCKET_PREFIX_LEN);
+        if (!bucketKey) return [];
+
+        const scored = [];
+        scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.address?.get(bucketKey), q, qf, 'address');
+        scorePredictiveCandidatesInto(scored, predictiveIndex.buckets.facility?.get(bucketKey), q, qf, 'facility');
+
+        scored.sort((a, b) => (b.score - a.score) || String(a.value).localeCompare(String(b.value), 'pl', { sensitivity: 'base' }));
+
+        const out = [];
+        const seen = new Set();
+        for (const row of scored) {
+            const v = String(row.value || '').trim();
+            if (!v) continue;
+            if (!predictiveCandidateStartsWithQuery(q, v)) continue;
+            if (v.length <= q.length) continue;
+            const k = predictiveFuzzyNormalizeText(v);
+            if (!k || seen.has(k)) continue;
+            seen.add(k);
+            out.push(v);
+            if (out.length >= (Number(limit || 0) || PREDICT_MAX_OPTIONS)) break;
+        }
+        return out;
+    }
+
     function getPredictiveSuggestions(query, { lazyReason = 'predictive_lazy' } = {}) {
         const raw = String(query ?? '');
         const norm = raw.trim();
-        if (norm.length < PREDICT_MIN_CHARS || raw !== norm) return { options: [], hasIndex: Boolean(predictiveIndex) };
+        if (norm.length < PREDICT_MIN_CHARS || raw !== norm) {
+            const has = predictiveIndexMode === PREDICT_INDEX_MODE.trie
+                ? (getPredictiveSourcesCount() > 0)
+                : Boolean(predictiveIndex);
+            return { options: [], hasIndex: has };
+        }
 
         if (!predictiveIndex) {
             schedulePredictiveIndexRebuild({ reason: lazyReason });
@@ -260,7 +649,10 @@ export function createSearchOrchestrator(cfg = {}) {
         const cached = predictiveSuggestionsCache?.get?.(norm);
         const options = cached || computePredictiveSuggestions(norm, PREDICT_MAX_OPTIONS);
         if (!cached) predictiveSuggestionsCache?.set?.(norm, options);
-        return { options: Array.isArray(options) ? options : [], hasIndex: true };
+        const hasIndex = predictiveIndexMode === PREDICT_INDEX_MODE.trie
+            ? (getPredictiveSourcesCount() > 0)
+            : true;
+        return { options: Array.isArray(options) ? options : [], hasIndex };
     }
 
     async function executeSearch(query) {
@@ -282,9 +674,10 @@ export function createSearchOrchestrator(cfg = {}) {
         clearSearchCache,
         schedulePredictiveIndexRebuild,
         rebuildPredictiveIndex,
+        upsertPredictiveSource,
+        removePredictiveSource,
         getPredictiveSuggestions,
         normalizeText,
         fuzzyNormalizeText
     });
 }
-

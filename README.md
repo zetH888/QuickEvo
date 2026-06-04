@@ -7,7 +7,7 @@
 # QuickEvo
 
 ![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.26.18-blue)
+![Version](https://img.shields.io/badge/version-2.31.0-blue)
 
 Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
 
@@ -27,14 +27,31 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 
 ***
 
+## Plan dekompozycji JS
+
+Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniejszych, wyspecjalizowanych modułów:
+
+- Plan: `DEKOMPOZYCJA_JS_PLAN.md`
+- Stan startowy: `js/entry/app.js` — **2331 linii**
+- Aktualny stan: `js/entry/app.js` — **2569 linii**
+- Cel: `js/entry/app.js` ≤ **400 linii** (docelowo ~300–350)
+- Postęp:
+  - Faza 1: centralizacja referencji DOM w `js/core/dom-refs.js`
+  - Faza 2.1: dodany szkielet magazynu danych `js/core/data-store.js` (bez przepinania logiki)
+  - Faza 2.2 (w toku): `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` stopniowo przepinane na `dataStore` (bez zmiany zachowania)
+
+***
+
 ## Funkcjonalności
 
 ### Wyszukiwanie
 
 - Wyszukiwanie rozmyte (fuzzy matching) z wykorzystaniem odległości Levenshteina
-- Predykcyjne podpowiedzi inline podczas pisania z nawigacją klawiaturą (Tab/strzałki)
+- Predykcyjne podpowiedzi inline (ghost) + lista sugestii (top 5) podczas pisania z nawigacją klawiaturą (Tab/Enter/→/Esc/strzałki); podpowiedzi ignorują nazwy tras
 - Ważony indeks danych (adresy → obiekty → trasy)
 - Buforowanie wyników z LRU cache
+- Szybszy system predykcji oparty o Trie (drzewo prefiksowe) z aktualizacjami inkrementalnymi per plik (add/remove) oraz pełnym rebuildu w tle (Web Worker, bez zrywania działania starego indeksu)
+- Ranking predykcji uwzględnia recencję importu oraz historię akceptacji sugestii (localStorage)
 - Wyniki pogrupowane według plików źródłowych
 - Rekordy wyników w formie kafelków (hover „lift” + cień) oraz ikona telefonu dla punktów „na telefon” (brak godziny lub '-'); punkty „na telefon” są delikatnie wcięte i wizualnie mniejsze
 - Zwijane sekcje kategorii tras (STANDARD, WIECZOREK, SOBOTA, NIEDZIELA)
@@ -64,6 +81,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 ### Interfejs
 
 - Animacje wejścia/wyjścia wyników z efektem staggered
+- Zreorganizowany header: nawigacja w jednej linii oraz zgrupowane akcje importu (Import + Google Drive) dla lepszej czytelności
 - Płynniejszy powrót z podglądu trasy do listy wyników (bez zbędnego ponownego renderowania wyników przy niezmienionym zapytaniu)
 - Obsługa reduced motion (wyłączenie animacji dla użytkowników z wrażliwością na ruch)
 - Responsywny design z obsługą urządzeń mobilnych
@@ -102,7 +120,8 @@ QuickEvo/
 │   │   └── excel-processor.js
 │   ├── features/        # Logika specyficzna dla funkcji
 │   │   └── search/
-│   │       └── search-orchestrator.js
+│   │       ├── search-orchestrator.js
+│   │       └── predictive-trie-index.js
 │   ├── services/        # Integracje i efekty uboczne
 │   │   ├── drive-service.js
 │   │   ├── import-service.js
@@ -180,6 +199,7 @@ Moduł `qe-debugger.js` udostępnia:
 ## Optymalizacje wydajności
 
 - Bufor LRU dla wyników wyszukiwania i podpowiedzi predykcyjnych
+- Przygotowany moduł indeksu predykcyjnego Trie (szybsze wyszukiwanie prefiksów, podstawa pod aktualizacje inkrementalne)
 - Porcjowanie renderowania z `requestAnimationFrame`
 - Event delegation dla obsługi kliknięć na listach wyników
 - `ResizeObserver`, `MutationObserver` i `IntersectionObserver` do wykrywania overflow

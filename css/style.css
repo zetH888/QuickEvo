@@ -199,8 +199,17 @@ header {
 .header-top {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     gap: 14px;
+    flex-wrap: wrap;
+}
+
+.header-left {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    flex: 1 1 auto;
 }
 
 .logo {
@@ -258,6 +267,65 @@ header p {
     justify-content: flex-end;
 }
 
+/* Grupy przycisków w pasku narzędzi (toolbar) */
+.toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.toolbar-group--imports {
+    gap: 8px;
+}
+
+.primary-nav {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.primary-nav-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: var(--card-gradient);
+    color: var(--text-color);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    font-weight: 800;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    transition: transform 0.1s, border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+    user-select: none;
+}
+
+.primary-nav-button:hover {
+    transform: translateY(-1px);
+    border-color: var(--primary-color);
+}
+
+.primary-nav-button:active {
+    transform: translateY(0px);
+}
+
+.primary-nav-button:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 3px;
+}
+
+.primary-nav-button.is-active {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 1px rgba(0, 102, 204, 0.35), var(--shadow);
+}
+
 .icon-button {
     display: inline-flex;
     align-items: center;
@@ -272,6 +340,22 @@ header p {
     box-shadow: var(--shadow);
     cursor: pointer;
     transition: transform 0.1s, border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+}
+
+/* Wariant przycisku ikonowego z krótką etykietą (np. Import) */
+.icon-button--with-label {
+    width: auto;
+    padding: 0 12px;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.icon-button-label {
+    font-size: 0.82rem;
+    font-weight: 800;
+    letter-spacing: 0.35px;
+    text-transform: uppercase;
+    color: var(--text-color);
 }
 
 .icon-button:hover {
@@ -458,6 +542,55 @@ input:checked + .slider:before {
 
 @keyframes qe-spin {
     to { transform: rotate(360deg); }
+}
+
+.qe-suggest {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 6px);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-color);
+    box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55);
+    z-index: 999;
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+.qe-suggest.is-hidden {
+    display: none;
+}
+
+.qe-suggest-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+    overflow: hidden;
+    content-visibility: auto;
+    contain-intrinsic-size: 220px;
+}
+
+.qe-suggest-item {
+    width: 100%;
+    text-align: left;
+    padding: 10px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-color);
+    font: inherit;
+    cursor: pointer;
+}
+
+.qe-suggest-item:hover {
+    background: var(--state-hover);
+}
+
+.qe-suggest-item.is-active {
+    background: var(--state-hover);
+    font-weight: 700;
 }
 
 #search-input {
@@ -1170,10 +1303,27 @@ input:checked + .slider:before {
         align-items: flex-start;
     }
 
+    .primary-nav {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        min-width: 0;
+    }
+
     .toolbar {
         width: 100%;
         justify-content: flex-start;
         margin-top: 10px;
+    }
+
+    .icon-button--with-label {
+        width: 40px;
+        padding: 0;
+        gap: 0;
+    }
+
+    .icon-button-label {
+        display: none;
     }
 
     #search-input {
@@ -1465,6 +1615,107 @@ tbody tr:nth-child(even) td:nth-child(even) {
     pointer-events: none !important;
     position: absolute !important;
     visibility: hidden !important;
+}
+
+.qe-view-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.qe-view-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+}
+
+.qe-view-subtitle {
+    margin: 0 0 10px 0;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--secondary-text);
+}
+
+.routes-sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+.routes-section--bottom {
+    grid-column: 1 / -1;
+}
+
+.qe-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 12px;
+}
+
+.qe-tile {
+    --qe-tile-color: var(--border-color);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--card-gradient);
+    color: var(--text-color);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    text-align: center;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    transition: transform 0.1s, border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+}
+
+.qe-tile--STANDARD { --qe-tile-color: var(--secondary-text); }
+.qe-tile--WIECZOREK { --qe-tile-color: var(--primary-color); }
+.qe-tile--SOBOTA { --qe-tile-color: var(--state-warning); }
+.qe-tile--NIEDZIELA { --qe-tile-color: var(--state-success); }
+
+.qe-tile--STANDARD,
+.qe-tile--WIECZOREK,
+.qe-tile--SOBOTA,
+.qe-tile--NIEDZIELA {
+    border-color: color-mix(in srgb, var(--qe-tile-color) 55%, var(--border-color));
+    background:
+        linear-gradient(
+            0deg,
+            color-mix(in srgb, var(--qe-tile-color) 14%, transparent),
+            color-mix(in srgb, var(--qe-tile-color) 14%, transparent)
+        ),
+        var(--card-gradient);
+}
+
+.qe-tile:hover {
+    transform: translateY(-1px);
+    border-color: var(--qe-tile-color);
+}
+
+.qe-tile:active {
+    transform: translateY(0px);
+}
+
+.qe-tile:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 3px;
+}
+
+.qe-tile.is-passive {
+    cursor: default;
+}
+
+@media (max-width: 860px) {
+    .routes-sections {
+        grid-template-columns: 1fr;
+    }
 }
 
 /* Widok grafiku (przeglądanie harmonogramu) */

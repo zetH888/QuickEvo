@@ -19,6 +19,8 @@
  * @param {(fileName: string, rowIndex: number|null, opts?: { skipPush?: boolean, contextIsoDate?: (string|null) }) => void} cfg.showFilePreview
  * @param {(opts: { source?: string }) => void} cfg.showSearchView
  * @param {(opts: { ym?: string, selectedIsoDate?: (string|null), source?: string, skipPush?: boolean }) => void} cfg.showScheduleView
+ * @param {(opts: { source?: string, skipPush?: boolean }) => void} cfg.showRoutesView
+ * @param {(opts: { source?: string, skipPush?: boolean }) => void} cfg.showDriversView
  * @param {(value: string) => void} cfg.setSearchInputValue
  * @param {(query: string) => Promise<void>} cfg.performSearch
  * @param {() => boolean} cfg.getIsSearchEnabled
@@ -41,6 +43,8 @@ export function createNavigationApplication(cfg) {
             onShowPreview: ({ fileName, rowIndex, contextIsoDate, skipPush }) => cfg.showFilePreview(fileName, rowIndex, { contextIsoDate: contextIsoDate ?? null, skipPush: Boolean(skipPush) }),
             onShowSchedule: ({ ym, selectedIsoDate, skipPush, source }) => cfg.showScheduleView({ ym: String(ym || ''), selectedIsoDate: selectedIsoDate ?? null, skipPush: Boolean(skipPush), source: String(source || '') }),
             onShowSearchView: ({ source }) => cfg.showSearchView({ source: String(source || '') }),
+            onShowRoutes: ({ skipPush, source }) => cfg.showRoutesView({ skipPush: Boolean(skipPush), source: String(source || '') }),
+            onShowDrivers: ({ skipPush, source }) => cfg.showDriversView({ skipPush: Boolean(skipPush), source: String(source || '') }),
             onSetSearchInputValue: (value) => cfg.setSearchInputValue(String(value ?? '')),
             onPerformSearch: (q) => { if (cfg.getIsSearchEnabled()) cfg.performSearch(String(q || '')); },
             onClearSearchUi: () => cfg.clearSearchUi(),

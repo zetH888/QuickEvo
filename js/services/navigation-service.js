@@ -25,6 +25,8 @@ export function createNavigationService(cfg = {}) {
     const onShowPreview = typeof cfg?.onShowPreview === 'function' ? cfg.onShowPreview : (() => { });
     const onShowSchedule = typeof cfg?.onShowSchedule === 'function' ? cfg.onShowSchedule : (() => { });
     const onShowSearchView = typeof cfg?.onShowSearchView === 'function' ? cfg.onShowSearchView : (() => { });
+    const onShowRoutes = typeof cfg?.onShowRoutes === 'function' ? cfg.onShowRoutes : (() => { });
+    const onShowDrivers = typeof cfg?.onShowDrivers === 'function' ? cfg.onShowDrivers : (() => { });
     const onSetSearchInputValue = typeof cfg?.onSetSearchInputValue === 'function' ? cfg.onSetSearchInputValue : (() => { });
     const onPerformSearch = typeof cfg?.onPerformSearch === 'function' ? cfg.onPerformSearch : (() => { });
     const onClearSearchUi = typeof cfg?.onClearSearchUi === 'function' ? cfg.onClearSearchUi : (() => { });
@@ -95,6 +97,24 @@ export function createNavigationService(cfg = {}) {
         );
     }
 
+    function pushRoutes() {
+        return safePushState(
+            historyRef,
+            { view: 'routes' },
+            '#routes',
+            (e) => onLog('navigation', { error: 'pushState routes failed', msg: e?.message }, 'WARN')
+        );
+    }
+
+    function pushDrivers() {
+        return safePushState(
+            historyRef,
+            { view: 'drivers' },
+            '#drivers',
+            (e) => onLog('navigation', { error: 'pushState drivers failed', msg: e?.message }, 'WARN')
+        );
+    }
+
     function handleBackToSearchClick() {
         const st = historyRef.state || {};
         if (st?.view === 'preview' || st?.view === 'schedule') { try { historyRef.back(); } catch { onShowSearchView({ source: 'back_button_fallback' }); } }
@@ -120,6 +140,16 @@ export function createNavigationService(cfg = {}) {
 
         if (state?.view === 'schedule') {
             onShowSchedule({ ym: state.ym, selectedIsoDate: state.selectedIsoDate, skipPush: true, source: 'popstate' });
+            return;
+        }
+
+        if (state?.view === 'routes') {
+            onShowRoutes({ skipPush: true, source: 'popstate' });
+            return;
+        }
+
+        if (state?.view === 'drivers') {
+            onShowDrivers({ skipPush: true, source: 'popstate' });
             return;
         }
 
@@ -179,6 +209,8 @@ export function createNavigationService(cfg = {}) {
         pushHome,
         setSearchState,
         pushPreview,
-        pushSchedule
+        pushSchedule,
+        pushRoutes,
+        pushDrivers
     });
 }

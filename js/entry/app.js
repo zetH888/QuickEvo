@@ -10,6 +10,8 @@ import * as utils from '../core/utils.js';
 import * as searchEngine from '../core/search-engine.js';
 import * as state from '../core/state.js';
 import * as excelProcessor from '../core/excel-processor.js';
+import { createDataStore } from '../core/data-store.js';
+import { getAppDomRefs } from '../core/dom-refs.js';
 import * as driveService from '../services/drive-service.js';
 import { docsClearFilesStore, docsDeleteFiles, docsFileExists, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from '../storage/docs-db.js';
 import { importLocalFiles } from '../services/import-service.js';
@@ -170,55 +172,73 @@ const DRIVE_SCHEDULE_FOLDER_ID = '10m4VzgbWqLy3U5V4lP_e-TN-vZVCyhGj';
 // CACHE ELEMENTÓW DOM
 //////////////////////////////////////////////////
 
-const searchInput = document.getElementById('search-input');
-const resultsList = document.getElementById('results-list');
-const resultsInfo = document.getElementById('results-info');
-const statusIndicator = document.getElementById('status-indicator');
-const fileCountSpan = document.getElementById('file-count');
-const searchSortToggle = document.getElementById('search-sort-toggle');
-const themeToggle = document.getElementById('theme-toggle');
-const themeIcon = document.getElementById('theme-icon');
-const importButton = document.getElementById('import-button');
-const googleDriveButton = document.getElementById('import-google-drive-button');
-const scheduleButton = document.getElementById('schedule-button');
-const fileInput = document.getElementById('file-input');
-const uploadProgressContainer = document.getElementById('upload-progress-container');
-const uploadProgress = document.getElementById('upload-progress');
-const uploadStatus = document.getElementById('upload-status');
-const searchView = document.getElementById('search-view');
-const filePreviewView = document.getElementById('file-preview-view');
-const backToSearchBtn = document.getElementById('back-to-search');
-const scheduleView = document.getElementById('schedule-view');
-const backToSearchFromScheduleBtn = document.getElementById('back-to-search-from-schedule');
-const scheduleTableHeader = document.getElementById('schedule-table-header');
-const scheduleTableBody = document.getElementById('schedule-table-body');
-const scheduleMonthSelect = document.getElementById('schedule-month-select');
-const schedulePrevMonthBtn = document.getElementById('schedule-prev-month');
-const scheduleNextMonthBtn = document.getElementById('schedule-next-month');
-const scheduleTodayBtn = document.getElementById('schedule-today');
-const scheduleSubtitle = document.getElementById('schedule-subtitle');
-const previewMeta = document.getElementById('preview-meta');
-const loadingOverlay = document.getElementById('loading-overlay');
-const loadingTitleText = document.getElementById('welcome-text');
-const loadingStatusText = document.getElementById('loading-status-text');
-const loadingProgressBar = document.getElementById('loading-progress-bar');
-const loadingProgressMeta = document.getElementById('loading-progress-meta');
-const loadingError = document.getElementById('loading-error');
-const loadingContinueButton = document.getElementById('loading-continue-button');
-const appShell = document.getElementById('app-shell');
-const appHeaderLogo = document.getElementById('app-header-logo');
-const homeLink = document.getElementById('home-link');
-const dropZone = document.getElementById('drop-zone');
-const syncGDriveButton = document.getElementById('sync-gdrive-button');
-const modalOverlay = document.getElementById('modal-overlay');
-const modalTitle = document.getElementById('modal-title');
-const modalContent = document.getElementById('modal-content');
-const modalActions = document.getElementById('modal-actions');
-const welcomeImportProgress = document.getElementById('welcome-import-progress');
-const welcomeProgressList = document.getElementById('welcome-progress-list');
-const ghostOverlay = document.getElementById('qe-ghost');
-const ghostPrefix = document.getElementById('qe-ghost-prefix');
-const ghostSuffix = document.getElementById('qe-ghost-suffix');
+const dom = getAppDomRefs();
+const {
+    searchInput,
+    resultsList,
+    resultsInfo,
+    statusIndicator,
+    fileCountSpan,
+    searchSortToggle,
+    themeToggle,
+    themeIcon,
+    importButton,
+    googleDriveButton,
+    scheduleButton,
+    navRoutesButton,
+    navDriversButton,
+    navScheduleButton,
+    fileInput,
+    uploadProgressContainer,
+    uploadProgress,
+    uploadStatus,
+    searchView,
+    routesView,
+    routesStandardGrid,
+    routesEveningGrid,
+    routesWeekendGrid,
+    driversView,
+    driversGrid,
+    filePreviewView,
+    backToSearchBtn,
+    scheduleView,
+    backToSearchFromScheduleBtn,
+    scheduleTableHeader,
+    scheduleTableBody,
+    scheduleMonthSelect,
+    schedulePrevMonthBtn,
+    scheduleNextMonthBtn,
+    scheduleTodayBtn,
+    scheduleSubtitle,
+    previewMeta,
+    loadingOverlay,
+    loadingTitleText,
+    loadingStatusText,
+    loadingProgressBar,
+    loadingProgressMeta,
+    loadingError,
+    loadingContinueButton,
+    appShell,
+    appHeaderLogo,
+    homeLink,
+    dropZone,
+    syncGDriveButton,
+    modalOverlay,
+    modalTitle,
+    modalContent,
+    modalActions,
+    welcomeImportProgress,
+    welcomeProgressList,
+    ghostOverlay,
+    ghostPrefix,
+    ghostSuffix,
+    suggestOverlay,
+    suggestList,
+    previewFileName,
+    previewTableHeader,
+    previewTableBody,
+    welcomeGraphic
+} = dom;
 
 /** @type {{ show: Function, hide: Function } | null} */
 let modalController = null;
@@ -247,14 +267,33 @@ let logoRenderer = null;
 // KLUCZOWY STAN APLIKACJI
 //////////////////////////////////////////////////
 
-/** @type {Array<Object>} Znormalizowane wiersze ze wszystkich załadowanych plików. */
-let allData = []; 
+/**
+ * Znormalizowane wiersze ze wszystkich załadowanych plików.
+ * Tymczasowo zachowujemy zmienną `allData` dla kompatybilności w `app.js`,
+ * ale źródłem prawdy staje się `dataStore`.
+ *
+ * @type {ReturnType<typeof createDataStore>}
+ */
+const dataStore = createDataStore();
 
-/** @type {Array<Object>} Aktualnie wyświetlana strona wyników wyszukiwania. */
-let currentResults = []; 
+/** @type {Array<Object>} */
+let allData = dataStore.getAllData();
 
-/** @type {Array<Object>} Wszystkie dopasowania dla bieżącego zapytania. */
-let matchedResults = []; 
+/**
+ * Aktualnie wyświetlana strona wyników wyszukiwania.
+ * Referencja pochodzi z dataStore, aby ograniczyć stan trzymany bezpośrednio w `app.js`.
+ *
+ * @type {Array<any>}
+ */
+const currentResults = dataStore.getCurrentResults();
+
+/**
+ * Wszystkie dopasowania dla bieżącego zapytania.
+ * Referencja pochodzi z dataStore, aby ograniczyć stan trzymany bezpośrednio w `app.js`.
+ *
+ * @type {Array<any>}
+ */
+const matchedResults = dataStore.getMatchedResults();
 
 /**
  * Stan potrzebny do przywrócenia scrolla listy wyników po powrocie z podglądu (Back / „Powrót”).
@@ -296,16 +335,16 @@ let searchResultsSortMode = SEARCH_RESULTS_SORT_MODE_ALPHANUM;
 const SEARCH_RESULTS_SORT_MODE_STORAGE_KEY = 'qeSearchResultsSortMode';
 
 /** @type {number} Rewizja danych (allData) używana do detekcji zmian wymagających ponownego renderu wyników. */
-let allDataRevision = 0;
+let allDataRevision = dataStore.getRevision();
 
 /** @type {{ query: string, dataRevision: number }} Ostatnio wyrenderowane wyniki (zapytanie + rewizja danych). */
-let lastRenderedSearch = { query: '', dataRevision: -1 };
+const lastRenderedSearch = dataStore.getLastRenderedSearch();
 
 /** @type {Set<string>} Zbiór nazw plików, które zostały już przetworzone. */
-let loadedFiles = new Set(); 
+const loadedFiles = dataStore.getLoadedFiles();
 
 /** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli. */
-let fullFileData = {}; 
+const fullFileData = dataStore.getFullFileData(); 
 let scheduleService = null;
 
 /**
@@ -314,7 +353,7 @@ let scheduleService = null;
  *
  * @type {Map<string, string>}
  */
-let routeFileIndexByCode = new Map();
+const routeFileIndexByCode = dataStore.getRouteFileIndexByCode();
 
 /** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna. */
 let isSearchEnabled = false; 
@@ -410,7 +449,7 @@ function ensureWelcomeLoadingOverlayController() {
         prefersReducedMotion,
         isVisualFinishAllowed: isLoadingVisualFinishAllowed,
         focusBodySafely,
-        getWelcomeGraphicEl: () => document.getElementById('welcome-graphic'),
+        getWelcomeGraphicEl: () => welcomeGraphic,
         flags: {
             getLoadingProgressDone: () => loadingProgressDone,
             setLoadingProgressDone: (v) => { loadingProgressDone = Boolean(v); },
@@ -434,10 +473,14 @@ function ensurePredictiveGhostController() {
         ghostOverlay,
         ghostPrefix,
         ghostSuffix,
+        suggestOverlay,
+        suggestList,
         minChars: 2,
+        maxDropdownItems: 5,
         isSearchEnabled: () => isSearchEnabled,
         fuzzyNormalizeText,
-        getPredictiveSuggestions: (norm, opts) => ensureSearchApplication().getPredictiveSuggestions(norm, opts)
+        getPredictiveSuggestions: (norm, opts) => ensureSearchApplication().getPredictiveSuggestions(norm, opts),
+        onAcceptSuggestion: (_query, suggestion) => { try { qeIncrementPredictiveAcceptStat(suggestion); } catch { } }
     });
     return predictiveGhostController;
 }
@@ -458,7 +501,7 @@ async function init() {
     compileKeyLabTokenSets();
     ensureWelcomeLoadingOverlayController().setupParallax();
 
-    ensureLogoRenderer().lazyLoadWelcomeGraphic(document.getElementById('welcome-graphic'));
+    ensureLogoRenderer().lazyLoadWelcomeGraphic(welcomeGraphic);
     ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
 
     setSearchEnabled(false);
@@ -547,7 +590,7 @@ function setupTheme() {
         updateThemeToggleLock();
         // Prze-renderowanie logo zapewnia spójne kolory w headerze i na ekranie powitalnym.
         ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
-        ensureLogoRenderer().refreshWelcomeGraphicIfPresent(document.getElementById('welcome-graphic'));
+        ensureLogoRenderer().refreshWelcomeGraphicIfPresent(welcomeGraphic);
     }, { passive: true });
 
     function updateThemeToggleLock() {
@@ -590,7 +633,7 @@ function applyTheme(theme) {
     document.body.classList.add(theme + '-theme');
     themeIcon.textContent = theme === 'dark' ? '🌙' : '☀️';
     ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
-    ensureLogoRenderer().refreshWelcomeGraphicIfPresent(document.getElementById('welcome-graphic'));
+    ensureLogoRenderer().refreshWelcomeGraphicIfPresent(welcomeGraphic);
 }
 
 /**
@@ -624,7 +667,9 @@ function setupSearchResultsSortToggle() {
         const hasResults = Array.isArray(currentResults) && currentResults.length > 0;
         const activeQuery = String(lastQuery || '').trim();
         if (hasResults && activeQuery.length >= 3) {
-            currentResults = sortSearchResultGroups(currentResults, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
+            const sorted = sortSearchResultGroups(currentResults, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
+            currentResults.length = 0;
+            currentResults.push(...sorted);
             void renderResults(activeQuery, { append: false, startIndex: 0 }).catch((err) => console.error(err));
         }
 
@@ -735,8 +780,32 @@ function setupNavigationListeners() {
             try { await openScheduleView({ source: 'toolbar' }); } catch { }
         });
     }
+    if (navRoutesButton) {
+        navRoutesButton.addEventListener('click', async () => {
+            try { await openRoutesView({ source: 'nav' }); } catch { }
+        });
+    }
+    if (navDriversButton) {
+        navDriversButton.addEventListener('click', async () => {
+            try { await openDriversView({ source: 'nav' }); } catch { }
+        });
+    }
+    if (navScheduleButton) {
+        navScheduleButton.addEventListener('click', async () => {
+            try { await openScheduleView({ source: 'nav' }); } catch { }
+        });
+    }
     if (backToSearchFromScheduleBtn) {
         backToSearchFromScheduleBtn.addEventListener('click', () => handleBackFromSchedule());
+    }
+    if (routesView) {
+        routesView.addEventListener('click', (e) => {
+            const tile = e.target.closest('.qe-tile');
+            if (!tile) return;
+            const fileName = String(tile.dataset.fileName || '').trim();
+            if (!fileName) return;
+            showFilePreview(fileName, null);
+        });
     }
 }
 
@@ -748,6 +817,8 @@ function ensureNavigationApplication() {
         showFilePreview,
         showSearchView: ({ source } = {}) => { goHome(); ensurePreviewApplication().openSearch({ source: String(source || '') }); },
         showScheduleView: ({ ym, selectedIsoDate, skipPush, source } = {}) => openScheduleView({ ym: String(ym || ''), selectedIsoDate: selectedIsoDate ?? null, skipPush: Boolean(skipPush), source: String(source || '') }),
+        showRoutesView: ({ skipPush, source } = {}) => openRoutesView({ skipPush: Boolean(skipPush), source: String(source || '') }),
+        showDriversView: ({ skipPush, source } = {}) => openDriversView({ skipPush: Boolean(skipPush), source: String(source || '') }),
         setSearchInputValue: (value) => { if (searchInput) searchInput.value = String(value ?? ''); },
         performSearch: (q) => performSearch(String(q || '')),
         getIsSearchEnabled: () => Boolean(isSearchEnabled),
@@ -845,7 +916,7 @@ function setupLoadingContinueHandlers() {
  * Mechanizm działa wyłącznie wtedy, gdy faktyczne ładowanie danych jest zakończone, ale UI nadal symuluje domykanie progresu.
  */
 function setupDeveloperFakeLoadingBypass() {
-    const container = document.getElementById('welcome-graphic');
+    const container = welcomeGraphic;
     if (!container || !loadingOverlay) return;
 
     const HIT_RADIUS_SCALE = 0.72;
@@ -905,7 +976,7 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
     try {
         await loadScheduleFiles({ fullReload, showProgress });
         const spreadsheetFiles = await getRouteSpreadsheetFiles();
-        routeFileIndexByCode = buildRouteFileIndex(spreadsheetFiles);
+        dataStore.setRouteFileIndexByCode(buildRouteFileIndex(spreadsheetFiles));
         fileCountSpan.textContent = spreadsheetFiles.length;
         if (fullReload) resetAppData();
         const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter(f => !loadedFiles.has(f));
@@ -996,6 +1067,10 @@ async function parseSpreadsheet(source, fileName) {
         const tableModel = await qeGetExcelProcessor().parseTableModelFromSource(source, fileName);
         fullFileData[fileName] = tableModel;
         addTableRows(tableModel, fileName);
+        try {
+            const payload = qeBuildPredictiveSourcePayloadFromTableModel(tableModel, fileName);
+            if (payload) ensureSearchApplication().upsertPredictiveSource(fileName, payload);
+        } catch { }
     } catch (err) {
         logAction('parse', { fileName: String(fileName || ''), message: err?.message ? String(err.message) : 'Błąd parsowania' }, 'ERROR');
         throw err;
@@ -1318,8 +1393,8 @@ function addTableRows(tableModel, fileName) {
         const normalizedRow = createNormalizedRow(row, tableModel, fileName);
         if (normalizedRow) normalizedRows.push(normalizedRow);
     }
-    allData = allData.concat(normalizedRows);
-    if (normalizedRows.length > 0) allDataRevision += 1;
+    dataStore.addRows(normalizedRows);
+    allDataRevision = dataStore.getRevision();
     return normalizedRows.length;
 }
 
@@ -1388,6 +1463,8 @@ function ensureSearchApplication() {
                 formatRouteNameForResults,
                 normalizeText,
                 fuzzyNormalizeText,
+                predictiveIndexMode: 'trie',
+                getPredictiveAcceptCount: (fuzzyKey) => qeGetPredictiveAcceptCount(fuzzyKey),
                 logAction
             });
             return searchOrchestrator;
@@ -1398,10 +1475,16 @@ function ensureSearchApplication() {
             statusIndicator.classList.toggle('status--hint', Boolean(isHint));
         },
         setLastQuery: (q) => { lastQuery = String(q || ''); },
-        setMatchedResults: (results) => { matchedResults = Array.isArray(results) ? results : []; },
+        setMatchedResults: (results) => {
+            matchedResults.length = 0;
+            const list = Array.isArray(results) ? results : [];
+            matchedResults.push(...list);
+        },
         setCurrentResults: (results) => {
             const list = Array.isArray(results) ? results : [];
-            currentResults = sortSearchResultGroups(list, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
+            const sorted = sortSearchResultGroups(list, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
+            currentResults.length = 0;
+            currentResults.push(...sorted);
         },
         renderResults: async (q) => { await renderResults(String(q || ''), { append: false, startIndex: 0 }); },
         handleShortQuery: handleSearchShortQuery,
@@ -1465,20 +1548,25 @@ function removeFileData(fileName) {
     const safe = String(fileName || '');
     if (!safe) return;
     const beforeLen = allData.length;
-    allData = allData.filter(d => d?.fileName !== safe);
-    if (allData.length !== beforeLen) allDataRevision += 1;
+    dataStore.setAllData(allData.filter(d => d?.fileName !== safe));
+    if (allData.length !== beforeLen) allDataRevision = dataStore.getRevision();
     delete fullFileData[safe];
     loadErrors = loadErrors.filter(e => e?.fileName !== safe);
+    try { ensureSearchApplication().removePredictiveSource(safe); } catch { }
 }
 
 /**
  * Resetuje kluczowe dane aplikacji.
  */
 function resetAppData() {
-    allData = []; currentResults = []; lastQuery = '';
-    loadedFiles = new Set(); fullFileData = {}; loadErrors = [];
-    allDataRevision += 1;
-    lastRenderedSearch = { query: '', dataRevision: -1 };
+    dataStore.reset(); lastQuery = '';
+    dataStore.clearLoadedFiles(); dataStore.clearFullFileData(); loadErrors = [];
+    routeFileIndexByCode.clear();
+    allDataRevision = dataStore.getRevision();
+    dataStore.clearCurrentResults();
+    dataStore.clearMatchedResults();
+    dataStore.resetLastRenderedSearch();
+    try { schedulePredictiveIndexRebuild({ reason: 'full_reload_force' }); } catch { }
 }
 
 //////////////////////////////////////////////////
@@ -1529,7 +1617,10 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
 
     ensureResultsCategoryController().updateCounts(sections, currentResults);
     ensureResultsCategoryController().syncHeights(sections);
-    if (!append && startIndex === 0) lastRenderedSearch = { query: String(query || ''), dataRevision: allDataRevision };
+    if (!append && startIndex === 0) {
+        lastRenderedSearch.query = String(query || '');
+        lastRenderedSearch.dataRevision = allDataRevision;
+    }
     window.requestAnimationFrame(() => {
         try { syncRouteCategorySectionHeights(sections); } catch { }
         requestResultsScrollRestore({ reason: 'render_results' });
@@ -1704,6 +1795,9 @@ function isRouteCategoryCollapsed(category) {
  */
 function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false, contextIsoDate: null }) {
     if (scheduleView) scheduleView.classList.add('view-hidden');
+    if (routesView) routesView.classList.add('view-hidden');
+    if (driversView) driversView.classList.add('view-hidden');
+    setPrimaryNavActive(null);
     ensurePreviewApplication().openPreview({
         fileName: String(fileName || ''),
         rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null,
@@ -1775,9 +1869,9 @@ function ensurePreviewController() {
         searchView,
         filePreviewView,
         previewMeta,
-        previewFileName: document.getElementById('preview-filename'),
-        tableHeader: document.getElementById('table-header'),
-        tableBody: document.getElementById('table-body'),
+        previewFileName,
+        tableHeader: previewTableHeader,
+        tableBody: previewTableBody,
         formatFileName,
         getRouteCategoriesFromFileName,
         extractRouteCodeFromFileName,
@@ -1883,7 +1977,7 @@ function displayImportSummary(summary) {
  */
 function highlightLabsInPreviewTable() {
     highlightLabsInPreviewTableDom({
-        tbody: document.getElementById('table-body'),
+        tbody: previewTableBody,
         rowMatchesKeyLab,
         escapeHtml,
         toTitleCase
@@ -1934,8 +2028,10 @@ function setSearchEnabled(enabled) {
  * Czyści wyniki wyszukiwania.
  */
 function clearResults() {
-    lastQuery = ''; matchedResults = []; currentResults = [];
-    lastRenderedSearch = { query: '', dataRevision: -1 };
+    lastQuery = '';
+    dataStore.clearMatchedResults();
+    dataStore.clearCurrentResults();
+    dataStore.resetLastRenderedSearch();
     clearElement(resultsList);
     resultsInfo.textContent = '';
     clearActiveResultRow();
@@ -2038,15 +2134,272 @@ function ensureLoadingApplication() {
     return loadingApplication;
 }
 
+function setPrimaryNavActive(activeKey) {
+    const items = [
+        { key: 'routes', el: navRoutesButton },
+        { key: 'drivers', el: navDriversButton },
+        { key: 'schedule', el: navScheduleButton }
+    ];
+    for (const it of items) {
+        if (!it.el) continue;
+        try { it.el.classList.remove('is-active'); } catch { }
+        try { it.el.removeAttribute('aria-current'); } catch { }
+    }
+    const key = String(activeKey || '').trim();
+    if (!key) return;
+    const target = items.find(i => i.key === key);
+    if (!target?.el) return;
+    try { target.el.classList.add('is-active'); } catch { }
+    try { target.el.setAttribute('aria-current', 'page'); } catch { }
+}
+
 /**
  * Powraca do głównego widoku wyszukiwania.
  */
 function goHome() {
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
     if (scheduleView) scheduleView.classList.add('view-hidden');
+    if (routesView) routesView.classList.add('view-hidden');
+    if (driversView) driversView.classList.add('view-hidden');
     if (searchView) searchView.classList.remove('view-hidden');
+    setPrimaryNavActive(null);
     if (isSearchEnabled) searchInput.focus();
     requestResultsScrollRestore({ reason: 'go_home' });
+}
+
+function renderTileGrid(containerEl, items, { emptyText = 'Brak danych.', passive = false } = {}) {
+    if (!containerEl) return;
+    clearElement(containerEl);
+
+    const list = Array.isArray(items) ? items : [];
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'status status--hint';
+        empty.textContent = String(emptyText || 'Brak danych.');
+        containerEl.appendChild(empty);
+        return;
+    }
+
+    for (const item of list) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = passive ? 'qe-tile is-passive' : 'qe-tile';
+        const variantRaw = String(item?.variant ?? '').trim().toUpperCase();
+        const variant = variantRaw.replace(/[^A-Z0-9_-]/g, '');
+        if (variant) btn.classList.add(`qe-tile--${variant}`);
+        btn.textContent = String(item?.label ?? '');
+        btn.setAttribute('role', 'listitem');
+        const fileName = String(item?.fileName ?? '').trim();
+        if (fileName) btn.dataset.fileName = fileName;
+        containerEl.appendChild(btn);
+    }
+}
+
+async function renderRoutesView() {
+    const spreadsheetFiles = await getRouteSpreadsheetFiles();
+    const files = Array.isArray(spreadsheetFiles) ? spreadsheetFiles : [];
+
+    const standard = [];
+    const evening = [];
+    const weekend = [];
+
+    /**
+     * Buduje etykietę kafelka trasy bez prefiksu "TRASA", aby oszczędzić miejsce w UI.
+     *
+     * W praktyce:
+     * - preferuje kod trasy wyciągnięty z nazwy pliku (np. "1", "A", "S-12"),
+     * - w razie braku kodu, fallback do formatowania używanego w wynikach wyszukiwania.
+     *
+     * @param {string} fileName
+     * @returns {string}
+     */
+    const buildRouteTileLabel = (fileName) => {
+        const code = String(extractRouteCodeFromFileName(fileName) || '').trim();
+        if (code) return code;
+        const fallback = String(formatRouteNameForResults(fileName) || '').trim();
+        return fallback.replace(/^\s*trasa\s+/i, '').trim();
+    };
+
+    /**
+     * Dobiera wariant wizualny kafelka trasy na podstawie kategorii i/lub prefiksu kodu.
+     * Kolory odpowiadają chipom z widoku grafiku.
+     *
+     * @param {string[]} categories
+     * @param {string} label
+     * @returns {string}
+     */
+    const resolveRouteTileVariant = (categories, label) => {
+        const cats = Array.isArray(categories) ? categories.map(c => String(c || '').trim().toUpperCase()).filter(Boolean) : [];
+        if (cats.includes('WIECZOREK')) return 'WIECZOREK';
+        const code = String(label || '').trim().toUpperCase();
+        if (code.startsWith('S-') || cats.includes('SOBOTA')) return 'SOBOTA';
+        if (code.startsWith('N-') || cats.includes('NIEDZIELA')) return 'NIEDZIELA';
+        return 'STANDARD';
+    };
+
+    for (const fileName of files) {
+        const name = String(fileName ?? '').trim();
+        if (!name) continue;
+        const cats = getRouteCategoriesFromFileName(name);
+        const categories = Array.isArray(cats) ? cats.map(c => String(c || '').trim().toUpperCase()).filter(Boolean) : [];
+        const label = buildRouteTileLabel(name);
+        const model = { fileName: name, label, variant: resolveRouteTileVariant(categories, label) };
+
+        if (categories.includes('WIECZOREK')) evening.push(model);
+        else if (categories.includes('SOBOTA') || categories.includes('NIEDZIELA')) weekend.push(model);
+        else standard.push(model);
+    }
+
+    /**
+     * Sortowanie kafelków tras „0-9 i A-Z” (naturalne) z kontrolą pierwszeństwa:
+     * - STANDARD: zaczyna od tras numerycznych (0-9...), potem alfabetycznych (A-Z...),
+     * - WIECZOREK: zaczyna od tras alfabetycznych (A-Z...), potem numerycznych (0-9...),
+     * - liczby są porównywane numerycznie (2 < 10),
+     * - porównanie jest odporne na mieszane formaty (np. A-1, S-12).
+     */
+    const createRouteTilesComparator = ({ preferDigitsFirst }) => {
+        const digitsFirst = Boolean(preferDigitsFirst);
+
+        const extractCode = (label) => {
+            const raw = String(label ?? '').trim();
+            const m = raw.match(/^\s*trasa\s+(.+)\s*$/i);
+            return String(m?.[1] ?? raw).trim();
+        };
+
+        const classify = (code) => {
+            const c = String(code ?? '').trim();
+            if (!c) return 2;
+            const isDigitStart = /^\d/.test(c);
+            const isAlphaStart = /^[A-Za-zĄĆĘŁŃÓŚŹŻ]/.test(c);
+            if (isDigitStart) return digitsFirst ? 0 : 1;
+            if (isAlphaStart) return digitsFirst ? 1 : 0;
+            return 2;
+        };
+
+        const tokenize = (code) => {
+            const c = String(code ?? '').toUpperCase();
+            const parts = c.match(/[0-9]+|[A-ZĄĆĘŁŃÓŚŹŻ]+/g);
+            return Array.isArray(parts) && parts.length > 0 ? parts : [c];
+        };
+
+        return (a, b) => {
+            const codeA = extractCode(a?.label);
+            const codeB = extractCode(b?.label);
+            const groupA = classify(codeA);
+            const groupB = classify(codeB);
+            if (groupA !== groupB) return groupA - groupB;
+
+            const toksA = tokenize(codeA);
+            const toksB = tokenize(codeB);
+            const max = Math.max(toksA.length, toksB.length);
+            for (let i = 0; i < max; i++) {
+                const ta = toksA[i];
+                const tb = toksB[i];
+                if (ta === undefined) return -1;
+                if (tb === undefined) return 1;
+                if (ta === tb) continue;
+
+                const na = ta.match(/^\d+$/) ? Number(ta) : NaN;
+                const nb = tb.match(/^\d+$/) ? Number(tb) : NaN;
+                const isNumA = Number.isFinite(na);
+                const isNumB = Number.isFinite(nb);
+
+                if (isNumA && isNumB) {
+                    if (na !== nb) return na - nb;
+                    continue;
+                }
+                if (!isNumA && !isNumB) {
+                    const r = String(ta).localeCompare(String(tb), 'pl', { sensitivity: 'base' });
+                    if (r !== 0) return r;
+                    continue;
+                }
+                return isNumA ? 1 : -1;
+            }
+
+            return 0;
+        };
+    };
+
+    const standardCmp = createRouteTilesComparator({ preferDigitsFirst: true });
+    const eveningCmp = createRouteTilesComparator({ preferDigitsFirst: false });
+    const weekendBaseCmp = createRouteTilesComparator({ preferDigitsFirst: true });
+    const weekendCmp = (a, b) => {
+        const codeA = String(a?.label ?? '').trim().toUpperCase();
+        const codeB = String(b?.label ?? '').trim().toUpperCase();
+        const group = (code) => {
+            if (code.startsWith('S-')) return 0;
+            if (code.startsWith('N-')) return 2;
+            return 1;
+        };
+        const ga = group(codeA);
+        const gb = group(codeB);
+        if (ga !== gb) return ga - gb;
+        return weekendBaseCmp(a, b);
+    };
+
+    standard.sort(standardCmp);
+    evening.sort(eveningCmp);
+    weekend.sort(weekendCmp);
+
+    renderTileGrid(routesStandardGrid, standard, { emptyText: 'Brak tras standardowych.' });
+    renderTileGrid(routesEveningGrid, evening, { emptyText: 'Brak tras wieczorowych.' });
+    renderTileGrid(routesWeekendGrid, weekend, { emptyText: 'Brak tras na soboty i święta.' });
+}
+
+async function renderDriversView() {
+    await loadScheduleFiles({ fullReload: false, showProgress: false });
+    const scheduleFiles = await docsListFiles();
+    const list = Array.isArray(scheduleFiles) ? scheduleFiles : [];
+
+    const names = new Set();
+    for (const f of list) {
+        const name = String(f?.name ?? '').trim();
+        if (!name) continue;
+        const meta = parseScheduleFileNameYearMonth(name);
+        if (!meta?.year || !meta?.month) continue;
+        const table = ensureScheduleService().getMonthScheduleTable(meta.year, meta.month);
+        const rows = Array.isArray(table?.rows) ? table.rows : [];
+        for (const r of rows) {
+            const dn = String(r?.driverName ?? '').trim();
+            if (dn) names.add(dn);
+        }
+    }
+
+    const drivers = Array.from(names).sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+    const tiles = drivers.map(d => ({ label: d }));
+    renderTileGrid(driversGrid, tiles, { emptyText: 'Brak kierowców w zaimportowanych plikach grafiku.', passive: true });
+}
+
+function showRoutesShell() {
+    if (searchView) searchView.classList.add('view-hidden');
+    if (filePreviewView) filePreviewView.classList.add('view-hidden');
+    if (scheduleView) scheduleView.classList.add('view-hidden');
+    if (driversView) driversView.classList.add('view-hidden');
+    if (routesView) routesView.classList.remove('view-hidden');
+    setPrimaryNavActive('routes');
+}
+
+function showDriversShell() {
+    if (searchView) searchView.classList.add('view-hidden');
+    if (filePreviewView) filePreviewView.classList.add('view-hidden');
+    if (scheduleView) scheduleView.classList.add('view-hidden');
+    if (routesView) routesView.classList.add('view-hidden');
+    if (driversView) driversView.classList.remove('view-hidden');
+    setPrimaryNavActive('drivers');
+}
+
+async function openRoutesView({ skipPush = false, source = '' } = {}) {
+    showRoutesShell();
+    await renderRoutesView();
+    if (!skipPush) ensureNavigationService().pushRoutes();
+    logClientEvent('navigate', { to: 'routes', source: String(source || '') });
+}
+
+async function openDriversView({ skipPush = false, source = '' } = {}) {
+    showDriversShell();
+    await renderDriversView();
+    if (!skipPush) ensureNavigationService().pushDrivers();
+    logClientEvent('navigate', { to: 'drivers', source: String(source || '') });
 }
 
 /**
@@ -2068,7 +2421,10 @@ function openRouteFromSchedule(routeCode, isoDate) {
 function showScheduleShell() {
     if (searchView) searchView.classList.add('view-hidden');
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
+    if (routesView) routesView.classList.add('view-hidden');
+    if (driversView) driversView.classList.add('view-hidden');
     if (scheduleView) scheduleView.classList.remove('view-hidden');
+    setPrimaryNavActive('schedule');
 }
 
 /**
@@ -2102,7 +2458,7 @@ async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source 
     const targetYm = uniqueMonthKeys.includes(requestedYm) ? requestedYm : defaultYm;
 
     const spreadsheetFiles = await getRouteSpreadsheetFiles();
-    routeFileIndexByCode = buildRouteFileIndex(spreadsheetFiles);
+    dataStore.setRouteFileIndexByCode(buildRouteFileIndex(spreadsheetFiles));
 
     const ctrl = ensureScheduleController();
     ctrl.setAvailableMonthsList(uniqueMonthKeys);
@@ -2136,10 +2492,10 @@ function resetToInitialState({ source } = {}) {
     const now = Date.now(); if (now - lastHomeResetTs < 450) return; lastHomeResetTs = now;
     if (debouncedSearchRef?.cancel) debouncedSearchRef.cancel(); if (debouncedLogSearchRef?.cancel) debouncedLogSearchRef.cancel();
     if (searchInput) searchInput.value = ''; clearResults();
-    const thead = document.getElementById('table-header'), tbody = document.getElementById('table-body');
+    const thead = previewTableHeader, tbody = previewTableBody;
     clearElement(thead); clearElement(tbody);
     if (previewMeta) { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
-    const previewFilename = document.getElementById('preview-filename'); if (previewFilename) previewFilename.replaceChildren();
+    if (previewFileName) previewFileName.replaceChildren();
     goHome(); logClientEvent('home', { source: source || 'unknown' });
 }
 
@@ -2433,6 +2789,206 @@ function handleSearchInput(query, debouncedSearch, debouncedLogSearch) {
 //////////////////////////////////////////////////
 // PREDYKCJA / PODPOWIEDZI WPISYWANEJ FRAZY
 //////////////////////////////////////////////////
+
+/**
+ * Minimalna liczba znaków dla predykcji (zgodna z ghostem i orchestrator'em).
+ */
+const QE_PREDICT_MIN_CHARS = 2;
+
+/**
+ * Klucz localStorage do statystyk akceptacji predykcji.
+ */
+const QE_PREDICT_ACCEPT_STORAGE_KEY = 'qePredictiveAcceptStatsV1';
+
+/**
+ * Maksymalna liczba wariantów (sufiksów) generowanych dla jednej frazy.
+ * Odpowiada dotychczasowemu zachowaniu predykcji, aby zminimalizować ryzyko regresji.
+ */
+const QE_PREDICT_MAX_VARIANTS = 8;
+
+/**
+ * Bufor statystyk akceptacji predykcji:
+ * fuzzyKey -> liczba akceptacji.
+ *
+ * @type {Map<string, number>|null}
+ */
+let qePredictiveAcceptStats = null;
+
+/**
+ * @type {number|null}
+ */
+let qePredictiveAcceptWriteTimer = null;
+
+/**
+ * Rozszerza popularne skróty adresowe dla predykcji (ul./pl./al./os.).
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function qeExpandPredictiveAbbreviations(text) {
+    const raw = String(text ?? '');
+    if (!raw) return '';
+    const t = raw.replace(/\s+/g, ' ').trim();
+    if (!t) return '';
+
+    const replaceWord = (src, re, next) => src.replace(re, `$1${next}$2`);
+    let out = t;
+    out = replaceWord(out, /(^|\s)(ul)\.?(?=\s|$)/gi, 'ulica');
+    out = replaceWord(out, /(^|\s)(pl)\.?(?=\s|$)/gi, 'plac');
+    out = replaceWord(out, /(^|\s)(al)\.?(?=\s|$)/gi, 'aleja');
+    out = replaceWord(out, /(^|\s)(os)\.?(?=\s|$)/gi, 'osiedle');
+    return out;
+}
+
+/**
+ * Normalizacja rozmyta dla predykcji (z obsługą skrótów).
+ *
+ * @param {unknown} text
+ * @returns {string}
+ */
+function qePredictiveFuzzyNormalizeText(text) {
+    return fuzzyNormalizeText(qeExpandPredictiveAbbreviations(String(text ?? '')));
+}
+
+/**
+ * Wczytuje statystyki akceptacji z localStorage do Mapy.
+ *
+ * @returns {Map<string, number>}
+ */
+function qeLoadPredictiveAcceptStats() {
+    const map = new Map();
+    let raw = '';
+    try { raw = String(localStorage.getItem(QE_PREDICT_ACCEPT_STORAGE_KEY) || ''); } catch { raw = ''; }
+    if (!raw) return map;
+    try {
+        const obj = JSON.parse(raw);
+        if (!obj || typeof obj !== 'object') return map;
+        for (const [k, v] of Object.entries(obj)) {
+            const key = String(k || '').trim();
+            const n = Math.max(0, Number(v || 0));
+            if (key && Number.isFinite(n) && n > 0) map.set(key, n);
+        }
+    } catch { }
+    return map;
+}
+
+/**
+ * Zwraca liczbę akceptacji dla danego klucza rozmytego (fuzzyKey).
+ *
+ * @param {unknown} fuzzyKey
+ * @returns {number}
+ */
+function qeGetPredictiveAcceptCount(fuzzyKey) {
+    if (!qePredictiveAcceptStats) qePredictiveAcceptStats = qeLoadPredictiveAcceptStats();
+    const k = String(fuzzyKey ?? '').trim();
+    if (!k) return 0;
+    return Math.max(0, Number(qePredictiveAcceptStats.get(k) || 0));
+}
+
+/**
+ * Zapisuje statystyki akceptacji do localStorage z krótkim opóźnieniem (batching),
+ * aby ograniczyć liczbę zapisów przy częstych akceptacjach.
+ */
+function qeSchedulePredictiveAcceptStatsWrite() {
+    if (qePredictiveAcceptWriteTimer) return;
+    qePredictiveAcceptWriteTimer = globalThis.setTimeout?.(() => {
+        qePredictiveAcceptWriteTimer = null;
+        try {
+            const map = qePredictiveAcceptStats || new Map();
+            const obj = Object.fromEntries(Array.from(map.entries()));
+            localStorage.setItem(QE_PREDICT_ACCEPT_STORAGE_KEY, JSON.stringify(obj));
+        } catch { }
+    }, 250);
+}
+
+/**
+ * Zwiększa licznik akceptacji dla zaakceptowanej sugestii.
+ *
+ * @param {unknown} suggestion
+ */
+function qeIncrementPredictiveAcceptStat(suggestion) {
+    const s = String(suggestion ?? '').trim();
+    if (!s) return;
+    if (!qePredictiveAcceptStats) qePredictiveAcceptStats = qeLoadPredictiveAcceptStats();
+    const key = qePredictiveFuzzyNormalizeText(s);
+    if (!key) return;
+    const next = qeGetPredictiveAcceptCount(key) + 1;
+    qePredictiveAcceptStats.set(key, next);
+    qeSchedulePredictiveAcceptStatsWrite();
+}
+
+/**
+ * Dodaje wartość do mapy predykcji w postaci:
+ * fuzzyKey -> { value, count }
+ *
+ * @param {Map<string, { value: string, count: number }>} map
+ * @param {unknown} rawValue
+ */
+function qeAddPredictiveValue(map, rawValue) {
+    const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    const key = qePredictiveFuzzyNormalizeText(value);
+    if (!key) return;
+    const prev = map.get(key);
+    if (!prev) map.set(key, { value, count: 1 });
+    else prev.count += 1;
+}
+
+/**
+ * Dodaje wartość oraz jej warianty sufiksowe (od kolejnych tokenów).
+ * Zachowuje ten sam wzorzec tokenizacji co poprzednia implementacja orchestratora.
+ *
+ * @param {Map<string, { value: string, count: number }>} map
+ * @param {unknown} rawValue
+ */
+function qeAddPredictiveValueWithVariants(map, rawValue) {
+    const value = String(rawValue || '').replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    qeAddPredictiveValue(map, value);
+
+    const tokenRe = /[^\s,.;:/\\\-–—()]+/g;
+    const matches = Array.from(value.matchAll(tokenRe));
+    if (matches.length <= 1) return;
+
+    let added = 0;
+    for (let i = 1; i < matches.length && added < QE_PREDICT_MAX_VARIANTS; i++) {
+        const idx = matches[i]?.index;
+        if (typeof idx !== 'number' || idx < 0) continue;
+        const phrase = value.slice(idx).trimStart();
+        if (phrase.length < QE_PREDICT_MIN_CHARS) continue;
+        qeAddPredictiveValue(map, phrase);
+        added += 1;
+    }
+}
+
+/**
+ * Buduje payload predykcyjny dla pojedynczego pliku na podstawie `tableModel`.
+ * Używane do aktualizacji inkrementalnej indeksu Trie po imporcie lub podmianie pliku.
+ *
+ * @param {string} fileName
+ * @returns {{ importedAt: number, byType: { address: Map<string, { value: string, count: number }>, facility: Map<string, { value: string, count: number }> } } | null}
+ */
+function qeBuildPredictiveSourcePayloadFromTableModel(tableModel, fileName) {
+    const safe = String(fileName || '').trim();
+    if (!safe) return null;
+    if (!tableModel || !Array.isArray(tableModel.rows) || !tableModel.headerMap) return null;
+
+    const address = new Map();
+    const facility = new Map();
+
+    const isComplete = Boolean(tableModel.isCompleteStructure);
+    const h = tableModel.headerMap;
+    for (const row of tableModel.rows) {
+        if (!isComplete || !row || !Array.isArray(row.cells)) continue;
+        const addr = String(row.cells[h.ADRES] || '').trim();
+        if (addr) qeAddPredictiveValueWithVariants(address, addr);
+
+        const fac = String(row.cells[h.NAZWA_PLACOWKI] || '').trim();
+        if (fac) qeAddPredictiveValueWithVariants(facility, fac);
+    }
+
+    return { importedAt: Date.now(), byType: { address, facility } };
+}
 
 /**
  * Planista przebudowy indeksu podpowiedzi, aby nie wykonywać kosztownej pracy wielokrotnie podczas importu.
