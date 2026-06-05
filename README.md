@@ -6,16 +6,21 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success)
-![Version](https://img.shields.io/badge/version-2.31.0-blue)
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.31.0-blue) 
 
-Przeglądarkowe narzędzie do wyszukiwania i zarządzania danymi tras z plików Excel (.xlsx, .xls) oraz CSV.
+![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
+![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
+![CSS3](https://img.shields.io/badge/CSS3-styles-1572B6?logo=css3&logoColor=fff) 
+![IndexedDB](https://img.shields.io/badge/IndexedDB-storage-4479A1) 
+![Google%20Drive](https://img.shields.io/badge/Google%20Drive-sync-4285F4?logo=googledrive&logoColor=fff)
+
+Przeglądarkowe narzędzie do importu, wyszukiwania i podglądu tras z plików Excel (.xlsx, .xls) oraz CSV, z obsługą grafiku kierowców i synchronizacji z Google Drive.
 
 ***
 
 ## Krótki opis
 
-QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglądarce. Przetwarzanie plików, budowa indeksu wyszukiwania i przechowywanie danych odbywają się lokalnie z wykorzystaniem IndexedDB. Integracja z Google Drive umożliwia import dokumentów bezpośrednio z chmury.
+QuickEvo to aplikacja webowa działająca w całości po stronie klienta w przeglądarce. Przetwarzanie plików, budowa indeksu wyszukiwania i przechowywanie danych odbywają się lokalnie z wykorzystaniem IndexedDB. Integracja z Google Drive umożliwia ręczną synchronizację dokumentów (trasy + grafik) bezpośrednio z chmury.
 
 ***
 
@@ -23,6 +28,7 @@ QuickEvo to aplikacja PWA działająca w całości po stronie klienta w przeglą
 
 - **Client-Side Only** — cała logika biznesowa działa w przeglądarce użytkownika
 - **Modułowa struktura** — warstwowy podział `js/` (entry/app/core/services/ui/storage/features/config) oraz dalsza dekompozycja `js/entry/app.js` do wyspecjalizowanych modułów
+- **ESM (bez bundlera)** — logika aplikacji jest ładowana jako moduły (`<script type="module">`); SheetJS/XLSX jest importowany jako ESM z `https://esm.sh/`
 - **Shadow DOM** — debugger korzysta z izolowanego Shadow DOM, co zapobiega konfliktom stylów
 
 ***
@@ -33,7 +39,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 
 - Plan: `DEKOMPOZYCJA_JS_PLAN.md`
 - Stan startowy: `js/entry/app.js` — **2331 linii**
-- Aktualny stan: `js/entry/app.js` — **2569 linii**
+- Aktualny stan: `js/entry/app.js` — **2679 linii**
 - Cel: `js/entry/app.js` ≤ **400 linii** (docelowo ~300–350)
 - Postęp:
   - Faza 1: centralizacja referencji DOM w `js/core/dom-refs.js`
@@ -53,6 +59,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Szybszy system predykcji oparty o Trie (drzewo prefiksowe) z aktualizacjami inkrementalnymi per plik (add/remove) oraz pełnym rebuildu w tle (Web Worker, bez zrywania działania starego indeksu)
 - Ranking predykcji uwzględnia recencję importu oraz historię akceptacji sugestii (localStorage)
 - Wyniki pogrupowane według plików źródłowych
+- Przełącznik sortowania listy tras w wynikach: alfanumerycznie (A‑Z) lub „najbliższa następna godzina” (⏱); tryb ⏱ sortuje też trafienia w obrębie trasy
 - Rekordy wyników w formie kafelków (hover „lift” + cień) oraz ikona telefonu dla punktów „na telefon” (brak godziny lub '-'); punkty „na telefon” są delikatnie wcięte i wizualnie mniejsze
 - Zwijane sekcje kategorii tras (STANDARD, WIECZOREK, SOBOTA, NIEDZIELA)
 - Automatyczne wyświetlanie kierowcy przypisanego do trasy na podstawie grafiku dla daty kontekstowej (ISO, YYYY-MM-DD; domyślnie „dziś”) w podglądzie trasy
@@ -62,11 +69,12 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 ### Import danych
 
 - Lokalny import wielu plików jednocześnie (pliki Excel i CSV)
+- Limit rozmiaru importu: **5MB na plik** (dotyczy importu lokalnego i Google Drive)
 - Ulepszony widok podsumowania importu: rozróżnienie nowe vs nadpisane pliki (naprawione także dla importu z Google Drive), kafelki/chipy z podglądem poprzedniego i nowego timestampu na hover oraz możliwość przejścia do podglądu pliku
 - Integracja z Google Drive (Picker API + OAuth2)
 - Synchronizacja folderów z rekursywnym pobieraniem plików .xlsx
 - Rozwiązywanie konfliktów przy synchronizacji
-- Obsługa grafiku kierowców: plik CSV/XLSX o nazwie „MIASTO MIESIĄC ROK” jest parsowany do przypisań trasa→kierowca, bez indeksowania w wyszukiwarce
+- Obsługa grafiku kierowców: plik o nazwie „MIASTO MIESIĄC ROK.(xlsx/xls/csv)” jest parsowany do przypisań trasa→kierowca (bez indeksowania w wyszukiwarce)
 - API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate` i dat ISO (YYYY-MM-DD)
 - Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i diff dla tras; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
@@ -76,7 +84,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Przycisk różnic działa jako przełącznik „Pokaż/Ukryj różnice”, a dla nowych plików status jest sygnalizowany czerwonym „X”
 - Niestandardowy pasek przewijania w oknie zmian Google Drive (premium overlay, pełna funkcjonalność przewijania)
 - Diff jest automatycznie blokowany dla nowych plików (brak sensu porównania) oraz ograniczany dla bardzo dużych plików (ochrona wydajności)
-- Trwałe przechowywanie w IndexedDB (praca offline)
+- Trwałe przechowywanie w IndexedDB (dane lokalne; bez wysyłania na serwer)
 
 ### Interfejs
 
@@ -85,6 +93,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Płynniejszy powrót z podglądu trasy do listy wyników (bez zbędnego ponownego renderowania wyników przy niezmienionym zapytaniu)
 - Obsługa reduced motion (wyłączenie animacji dla użytkowników z wrażliwością na ruch)
 - Responsywny design z obsługą urządzeń mobilnych
+- Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
 - Ekran „Grafik” do swobodnego przeglądania harmonogramu w formie tabeli zbliżonej do arkusza: kierowcy w kolejności z pliku, kolumny dni z akcentem weekendów, zaznaczanie całej kolumny dnia oraz klikalne kody tras otwierające podgląd w kontekście wybranej daty
 - Ekran powitalny z efektem glassmorphism
 - Ciemny motyw (domyślny)
@@ -96,9 +105,11 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 
 ```
 QuickEvo/
+├── assets/
+│   └── hero.png           # Grafika do README
 ├── index.html           # Główny dokument HTML
 ├── css/
-│   ├── style.css        # Style główne (jasny/ciemny motyw)
+│   └── style.css        # Style główne
 ├── js/
 │   ├── entry/           # Entrypointy ładowane w index.html
 │   │   └── app.js       # Główny bootstrap aplikacji
@@ -114,14 +125,24 @@ QuickEvo/
 │   │   ├── constants.js
 │   │   └── route-codes.js
 │   ├── core/            # Silnik i czyste funkcje (bez DOM)
+│   │   ├── formatters/
+│   │   │   ├── file-name.js
+│   │   │   ├── highlight.js
+│   │   │   ├── route-categories.js
+│   │   │   ├── route-name.js
+│   │   │   └── title-case.js
+│   │   ├── data-store.js
+│   │   ├── dom-refs.js
 │   │   ├── utils.js
 │   │   ├── search-engine.js
 │   │   ├── state.js
 │   │   └── excel-processor.js
 │   ├── features/        # Logika specyficzna dla funkcji
 │   │   └── search/
+│   │       ├── predictive-index-worker.js
 │   │       ├── search-orchestrator.js
-│   │       └── predictive-trie-index.js
+│   │       ├── predictive-trie-index.js
+│   │       └── search-results-sort.js
 │   ├── services/        # Integracje i efekty uboczne
 │   │   ├── drive-service.js
 │   │   ├── import-service.js
@@ -131,6 +152,11 @@ QuickEvo/
 │   │   └── docs-db.js
 │   ├── ui/              # Warstwa UI (DOM)
 │   │   ├── ui-components.js
+│   │   ├── schedule-controller.js
+│   │   ├── import/
+│   │   │   └── import-summary-renderer.js
+│   │   ├── logo/
+│   │   │   └── quickevo-logo.js
 │   │   ├── loading/
 │   │   │   ├── loading-title.js
 │   │   │   ├── loading-progress-controller.js
@@ -164,15 +190,17 @@ QuickEvo/
 ## Schema IndexedDB
 
 **Baza danych:** `quickevo_docs_v2`
+**Wersja:** `2`
 
 **Magazyn** **`files`:**
 
-| Pole        | Typ    | Opis                            |
-| ----------- | ------ | ------------------------------- |
-| `name`      | String | Nazwa pliku (klucz główny)      |
-| `blob`      | Blob   | Surowa zawartość binarna        |
-| `size`      | Number | Rozmiar w bajtach               |
-| `updatedAt` | Number | Timestamp ostatniej modyfikacji |
+| Pole             | Typ    | Opis                                                    |
+| ---------------- | ------ | ------------------------------------------------------- |
+| `name`           | String | Nazwa pliku (klucz główny / `keyPath`)                  |
+| `blob`           | Blob   | Surowa zawartość binarna                                |
+| `size`           | Number | Rozmiar w bajtach                                       |
+| `updatedAt`      | Number | Timestamp ostatniej modyfikacji (ms)                    |
+| `driveModifiedAt`| Number | Timestamp modyfikacji z Google Drive (ms, opcjonalny)   |
 
 ***
 
@@ -191,8 +219,8 @@ Moduł `qe-debugger.js` udostępnia:
 
 ## Bezpieczeństwo (podstawy)
 
-- Polityka CSP ogranicza źródła skryptów i połączeń sieciowych oraz blokuje osadzanie aplikacji w ramkach (ochrona przed clickjackingiem).
-- Biblioteka SheetJS (XLSX) ładowana z CDN ma ustawioną integralność SRI, co utrudnia podmianę skryptu w łańcuchu dostaw.
+- Polityka CSP jest ustawiona przez `<meta http-equiv="Content-Security-Policy">` i ogranicza źródła skryptów/połączeń (w tym do Google Drive/OAuth) oraz zasoby statyczne (`'self'`, `blob:`, `data:`).
+- SheetJS/XLSX jest ładowane jako moduł ESM z `https://esm.sh/` (brak lokalnej paczki/bundlera w repo).
 
 ***
 
@@ -230,7 +258,7 @@ Moduł `qe-debugger.js` udostępnia:
 ## Zasady projektowe
 
 - Całe przetwarzanie odbywa się lokalnie w przeglądarce
-- Brak zewnętrznych zależności (poza SheetJS do parsowania Excel)
+- Minimalne zależności zewnętrzne: SheetJS/XLSX (ESM z `esm.sh`) oraz integracja z Google APIs dla Drive/OAuth
 - Izolacja komponentów przez Shadow DOM
 - Semantyczny HTML z dostępnością (progress elements, viewport-fit)
 
