@@ -242,7 +242,7 @@ export function createDriveSyncApplication(cfg) {
 
                 const displayName = cfg.formatFileName ? cfg.formatFileName(name) : name;
                 cfg.setLoadingStatusText(`Pobieranie: ${displayName}...`);
-                cfg.setUploadStatusText(`Google Drive: pobieram ${displayName}...`);
+                cfg.setUploadStatusText({ prefix: 'Pobieram: ', content: `${displayName}...` });
 
                 const percent = list.length > 0 ? (processed / list.length) * 100 : 0;
                 cfg.setLoadingProgress(percent, `${Math.round(percent)}%`);

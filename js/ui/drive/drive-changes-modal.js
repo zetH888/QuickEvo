@@ -13,20 +13,35 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
 
     function buildDriveChangesModalHtml(changed) {
         const safeList = Array.isArray(changed) ? changed : [];
+        const removedCount = safeList.filter((f) => Boolean(f?.isDeletedOnDrive) || String(f?.qeAction || '').trim() === 'delete_local').length;
+        const changedCount = safeList.length - removedCount;
+        const summaryParts = [];
+        if (changedCount > 0) summaryParts.push(`<strong>${escapeHtml(changedCount)}</strong> zmienionych lub nowych`);
+        if (removedCount > 0) summaryParts.push(`<strong>${escapeHtml(removedCount)}</strong> do usunięcia lokalnie`);
+        const summaryText = summaryParts.length > 0
+            ? `Wykryto ${summaryParts.join(' oraz ')} plik(ów).`
+            : `Wykryto <strong>${escapeHtml(safeList.length)}</strong> plik(ów) zmienionych od ostatniej synchronizacji.`;
+        const questionText = removedCount > 0 ? 'Zastosować wykryte zmiany?' : 'Nadpisać zmienione pliki?';
         const items = safeList.map((f) => {
             const rawName = String(f?.name || '').trim();
             const rawNameEsc = escapeHtml(rawName);
             const name = escapeHtml(formatFileName ? formatFileName(rawName) : rawName);
             const fileId = escapeHtml(String(f?.id || '').trim());
             const isNewInDb = Boolean(f?.isNewInDb);
+            const isDeletedOnDrive = Boolean(f?.isDeletedOnDrive) || String(f?.qeAction || '').trim() === 'delete_local';
             const reasonRaw = String(f?.changeReason || '').trim() || 'Zmieniono';
             const reason = escapeHtml(reasonRaw);
+            const chipClass = isDeletedOnDrive ? ' qe-drive-chip--deleted' : '';
             const prevTs = Number(f?.previousDriveModifiedAt);
             const nextTs = Number(f?.driveModifiedAt);
             const prev = Number.isFinite(prevTs) && prevTs > 0 ? escapeHtml(formatDriveTimestamp(prevTs)) : '';
             const next = Number.isFinite(nextTs) && nextTs > 0 ? escapeHtml(formatDriveTimestamp(nextTs)) : '';
             const prevRow = prev ? `<div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">${prev}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">Brak danych</span></div>`;
-            const nextRow = next ? `<div class="qe-drive-kv"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">${next}</span></div>` : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">Brak danych</span></div>`;
+            const nextRow = isDeletedOnDrive
+                ? `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">Plik usunięty</span></div>`
+                : (next
+                    ? `<div class="qe-drive-kv"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">${next}</span></div>`
+                    : `<div class="qe-drive-kv is-muted"><span class="qe-drive-k">Na Dysku</span><span class="qe-drive-v qe-drive-v--next">Brak danych</span></div>`);
             const chevron = `<svg class="qe-drive-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
             const customDisabledLabel = String(f?.diffDisabledLabel || '').trim();
             const customDisabledStatus = String(f?.diffDisabledStatus || '').trim();
@@ -54,7 +69,7 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
                 <div class="qe-drive-change-head">
                     <div class="qe-drive-change-name">${name}</div>
                     <div class="qe-drive-change-right">
-                        <div class="qe-drive-chip">${reason}</div>
+                        <div class="qe-drive-chip${chipClass}">${reason}</div>
                         ${chevron}
                     </div>
                 </div>
@@ -66,10 +81,11 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
         </li>`;
         }).join('');
 
-        const expandAllIcon = `<svg class="qe-drive-expandall-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.60"/><path d="M7 16l5-5 5 5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        // Ikona bazowa rysuje dwa chevrony w dol, a CSS obraca calosc dla stanu zwinięcia.
+        const expandAllIcon = `<svg class="qe-drive-expandall-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.60"/><path d="M7 12l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
         return `<div class="qe-drive-modal" data-qe-drive-changes="1">
         <div class="qe-drive-summary-row">
-            <div class="qe-drive-summary">Wykryto <strong>${escapeHtml(safeList.length)}</strong> plik(ów) zmienionych od ostatniej synchronizacji.</div>
+            <div class="qe-drive-summary">${summaryText}</div>
             <button class="qe-drive-expandall" type="button" aria-pressed="false" aria-label="Rozwiń wszystkie kafelki">${expandAllIcon}</button>
         </div>
         <div class="qe-drive-scroll-wrap">
@@ -80,7 +96,7 @@ export function createDriveChangesModalController({ modalOverlay, modalContent, 
                 <div class="qe-drive-scrollbar-thumb"></div>
             </div>
         </div>
-        <div class="qe-drive-question">Nadpisać zmienione pliki?</div>
+        <div class="qe-drive-question">${questionText}</div>
     </div>`;
     }
 

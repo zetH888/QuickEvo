@@ -250,20 +250,26 @@ export async function downloadFileArrayBuffer(fileId, token, { signal } = {}) {
 
 /**
  * Rekurencyjnie pobiera listę wszystkich plików .xlsx/.xls z folderu i jego podfolderów.
- * Zwraca metadane z timestampem modyfikacji (driveModifiedAt) do logiki „importuj tylko zmienione”.
+ * Zwraca metadane z timestampem modyfikacji (driveModifiedAt) oraz nazwą folderu
+ * pierwszego poziomu pod katalogiem startowym. Ta informacja jest używana jako
+ * źródło prawdy dla kategorii tras.
  *
  * @param {string} folderId
  * @param {string} token
  * @param {{ signal?: AbortSignal }} [opts]
- * @returns {Promise<Array<{id:string,name:string,mimeType:string,driveModifiedAt:(number|null)}>>}
+ * @returns {Promise<Array<{id:string,name:string,mimeType:string,driveModifiedAt:(number|null),topLevelFolderName:string}>>}
  */
 export async function crawlFolder(folderId, token, { signal } = {}) {
     const files = [];
-    const queue = [String(folderId || '').trim()].filter(Boolean);
+    const rootFolderId = String(folderId || '').trim();
+    const queue = rootFolderId ? [{ id: rootFolderId, topLevelFolderName: '' }] : [];
     const authHeader = { Authorization: `Bearer ${token}` };
 
     while (queue.length > 0) {
-        const currentFolderId = queue.shift();
+        const currentFolder = queue.shift();
+        const currentFolderId = String(currentFolder?.id || '').trim();
+        const currentTopLevelFolderName = String(currentFolder?.topLevelFolderName || '').trim();
+        if (!currentFolderId) continue;
         const q = `'${currentFolderId}' in parents and trashed = false and (mimeType = 'application/vnd.google-apps.folder' or name contains '.xlsx' or name contains '.xls')`;
 
         let pageToken = '';
@@ -285,7 +291,12 @@ export async function crawlFolder(folderId, token, { signal } = {}) {
             const list = Array.isArray(data?.files) ? data.files : [];
             for (const file of list) {
                 if (file?.mimeType === 'application/vnd.google-apps.folder' && file?.id) {
-                    queue.push(String(file.id));
+                    const folderName = String(file?.name || '').trim();
+                    const inheritedTopLevelFolderName = currentTopLevelFolderName || folderName;
+                    queue.push({
+                        id: String(file.id),
+                        topLevelFolderName: inheritedTopLevelFolderName
+                    });
                     continue;
                 }
                 const name = String(file?.name || '').trim();
@@ -296,7 +307,8 @@ export async function crawlFolder(folderId, token, { signal } = {}) {
                     id,
                     name,
                     mimeType: String(file?.mimeType || ''),
-                    driveModifiedAt: parseDriveModifiedAt(file?.modifiedTime)
+                    driveModifiedAt: parseDriveModifiedAt(file?.modifiedTime),
+                    topLevelFolderName: currentTopLevelFolderName
                 });
             }
 

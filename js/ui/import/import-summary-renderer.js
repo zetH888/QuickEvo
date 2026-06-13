@@ -28,15 +28,17 @@ export function createImportSummaryRenderer(cfg) {
         const safe = summary && typeof summary === 'object' ? summary : {};
         const hasNewFiles = Array.isArray(safe.newFiles);
         const hasUpdatedFiles = Array.isArray(safe.updatedFiles);
-        if (hasNewFiles || hasUpdatedFiles) {
+        const hasRemovedFiles = Array.isArray(safe.removedFiles);
+        if (hasNewFiles || hasUpdatedFiles || hasRemovedFiles) {
             return {
                 newFiles: hasNewFiles ? safe.newFiles : [],
-                updatedFiles: hasUpdatedFiles ? safe.updatedFiles : []
+                updatedFiles: hasUpdatedFiles ? safe.updatedFiles : [],
+                removedFiles: hasRemovedFiles ? safe.removedFiles : []
             };
         }
         const files = Array.isArray(safe.files) ? safe.files : [];
         const nextUpdatedAt = now();
-        return { newFiles: files.map(name => ({ name, prevUpdatedAt: null, nextUpdatedAt })), updatedFiles: [] };
+        return { newFiles: files.map(name => ({ name, prevUpdatedAt: null, nextUpdatedAt })), updatedFiles: [], removedFiles: [] };
     }
 
     function buildChipHtml(entry, variant) {
@@ -45,8 +47,12 @@ export function createImportSummaryRenderer(cfg) {
         const label = escapeHtml(formatFileName(safeName));
         const prevTs = formatTimestamp(entry?.prevUpdatedAt ?? null);
         const nextTs = formatTimestamp(entry?.nextUpdatedAt ?? null);
-        const typeLabel = variant === 'updated' ? 'Zaktualizowano' : 'Zaimportowano';
-        return `<span class="qe-import-chip qe-import-chip--${variant}" data-file-name="${escapeHtml(safeName)}"><span class="qe-import-chip-label">${label}</span><span class="qe-import-chip-tooltip" role="tooltip"><div class="qe-import-chip-tooltip-title">${escapeHtml(typeLabel)}</div><div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">${escapeHtml(prevTs)}</span></div><div class="qe-drive-kv"><span class="qe-drive-k">Teraz</span><span class="qe-drive-v qe-drive-v--next">${escapeHtml(nextTs)}</span></div></span></span>`;
+        const typeLabel = variant === 'updated'
+            ? 'Zaktualizowano'
+            : (variant === 'removed' ? 'Usunięto lokalnie' : 'Zaimportowano');
+        const nextLabel = variant === 'removed' ? 'Status' : 'Teraz';
+        const nextValue = variant === 'removed' ? 'Usunięto lokalnie' : nextTs;
+        return `<span class="qe-import-chip qe-import-chip--${variant}" data-file-name="${escapeHtml(safeName)}"><span class="qe-import-chip-label">${label}</span><span class="qe-import-chip-tooltip" role="tooltip"><div class="qe-import-chip-tooltip-title">${escapeHtml(typeLabel)}</div><div class="qe-drive-kv"><span class="qe-drive-k">Poprzednio</span><span class="qe-drive-v qe-drive-v--prev">${escapeHtml(prevTs)}</span></div><div class="qe-drive-kv"><span class="qe-drive-k">${escapeHtml(nextLabel)}</span><span class="qe-drive-v qe-drive-v--next">${escapeHtml(nextValue)}</span></div></span></span>`;
     }
 
     function buildSectionHtml(title, count, entries, variant) {
@@ -57,29 +63,33 @@ export function createImportSummaryRenderer(cfg) {
     }
 
     function buildHeaderLinesHtml(newCount, updatedCount) {
+        const removedCount = Number(arguments[2]) || 0;
         const lines = [];
         if (newCount > 0) lines.push(`<div class="qe-import-summary-hline">Zaimportowano ${escapeHtml(newCount)} ${escapeHtml(formatPluralPl(newCount, 'plik', 'pliki', 'plików'))}</div>`);
         if (updatedCount > 0) lines.push(`<div class="qe-import-summary-hline">Zaktualizowano ${escapeHtml(updatedCount)} ${escapeHtml(formatPluralPl(updatedCount, 'plik', 'pliki', 'plików'))}</div>`);
+        if (removedCount > 0) lines.push(`<div class="qe-import-summary-hline">Usunięto lokalnie ${escapeHtml(removedCount)} ${escapeHtml(formatPluralPl(removedCount, 'plik', 'pliki', 'plików'))}</div>`);
         return lines.join('');
     }
 
     function buildHtml(summary) {
         const safe = summary && typeof summary === 'object' ? summary : {};
-        const { newFiles, updatedFiles } = normalizeEntries(safe);
+        const { newFiles, updatedFiles, removedFiles } = normalizeEntries(safe);
         const newCount = newFiles.length;
         const updatedCount = updatedFiles.length;
+        const removedCount = removedFiles.length;
         const errors = Number.isFinite(Number(safe.errors)) ? Number(safe.errors) : 0;
         const records = Number.isFinite(Number(safe.records)) ? Number(safe.records) : 0;
 
-        const headerLines = buildHeaderLinesHtml(newCount, updatedCount) || `<div class="qe-import-summary-hline">Import zakończony.</div>`;
+        const headerLines = buildHeaderLinesHtml(newCount, updatedCount, removedCount) || `<div class="qe-import-summary-hline">Import zakończony.</div>`;
         const metaParts = [];
         metaParts.push(`Rekordów: <strong>${escapeHtml(records)}</strong>`);
         metaParts.push(`Błędy: <strong>${escapeHtml(errors)}</strong>`);
 
         const newSection = newCount > 0 ? buildSectionHtml('Nowe pliki', newCount, newFiles, 'new') : '';
         const updatedSection = updatedCount > 0 ? buildSectionHtml('Nadpisane pliki', updatedCount, updatedFiles, 'updated') : '';
+        const removedSection = removedCount > 0 ? buildSectionHtml('Usunięte lokalnie pliki', removedCount, removedFiles, 'removed') : '';
 
-        return `<div class="qe-import-summary" data-qe-import-summary="1"><div class="qe-import-summary-header">${headerLines}<div class="qe-import-summary-meta">${metaParts.join(' • ')}</div></div>${newSection}${updatedSection}</div>`;
+        return `<div class="qe-import-summary" data-qe-import-summary="1"><div class="qe-import-summary-header">${headerLines}<div class="qe-import-summary-meta">${metaParts.join(' • ')}</div></div>${newSection}${updatedSection}${removedSection}</div>`;
     }
 
     return Object.freeze({ buildHtml });

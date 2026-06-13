@@ -18,6 +18,7 @@ const QuickEvoTests = {
         await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
         await this.testDriveUnifiedSyncQueuedManual(ctx);
+        await this.testDriveUnifiedSyncDeletesMissingDriveFiles(ctx);
         this.testModuleIsolation(ctx);
         this.testNormalization(ctx);
         this.testFuzzySearch(ctx);
@@ -195,13 +196,15 @@ const QuickEvoTests = {
                 fuzzyNormalizeText: (t) => String(t ?? '').toLowerCase(),
                 getRouteScheduleConfig: () => ({
                     monthsPl: { MAJ: 5 },
-                    standard: ['12'],
-                    wieczorek: ['H'],
-                    sobota: ['S-5'],
-                    niedziela: ['N-2'],
                     dayMarkers: ['D'],
                     normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
                 }),
+                getRouteCatalog: async () => new Map([
+                    ['12', { code: '12', category: 'STANDARD' }],
+                    ['H', { code: 'H', category: 'WIECZOREK' }],
+                    ['S-5', { code: 'S-5', category: 'SOBOTA' }],
+                    ['N-2', { code: 'N-2', category: 'NIEDZIELA' }]
+                ]),
                 readWorkbook: async () => ({ SheetNames: ['S1'], Sheets: { S1: { __matrix: matrix } } }),
                 sheetToMatrix: (ws) => ws.__matrix,
                 getBlob: async () => null,
@@ -366,6 +369,9 @@ const QuickEvoTests = {
             const list = await driveService.crawlFolder('root', token);
             const names = Array.isArray(list) ? list.map(x => String(x?.name || '')).sort() : [];
             this.assert(Array.isArray(list) && names.join(',') === 'a.xlsx,b.xls', 'crawlFolder zwraca tylko pliki .xlsx/.xls (rekurencyjnie)');
+            const byName = new Map((Array.isArray(list) ? list : []).map(item => [String(item?.name || ''), item]));
+            this.assert(String(byName.get('a.xlsx')?.topLevelFolderName || '') === '', 'Plik z folderu głównego nie dostaje sztucznej kategorii folderowej');
+            this.assert(String(byName.get('b.xls')?.topLevelFolderName || '') === 'SubFolder', 'Plik z podfolderu zachowuje nazwę folderu pierwszego poziomu');
             this.assert(listCalls >= 2, 'crawlFolder wykonuje zapytania do folderu głównego i podfolderu');
         } catch (e) {
             this.assert(false, "Nie udało się przetestować drive-service");
@@ -459,6 +465,111 @@ const QuickEvoTests = {
             this.assert(tokenCalls === 2, "Kolejna synchronizacja uruchamia się automatycznie po zakończeniu poprzedniej (bez ponownego klikania)");
         } catch (e) {
             this.assert(false, "Nie udało się przetestować kolejki ręcznej synchronizacji");
+            console.error(e);
+        }
+    },
+
+    async testDriveUnifiedSyncDeletesMissingDriveFiles(ctx) {
+        console.log("\nTesting Google Drive — drive-unified-sync: lokalne usuwanie plików skasowanych z Drive:");
+        try {
+            const createApp = ctx?.driveUnifiedSyncApplication?.createDriveUnifiedSyncApplication;
+            this.assert(typeof createApp === 'function', "drive-unified-sync-application jest dostępny przez import");
+            if (typeof createApp !== 'function') return;
+
+            const modals = [];
+            const deletedBatches = [];
+            const removedData = [];
+            const invalidatedSchedules = [];
+            let finalizedSummary = null;
+
+            const app = createApp({
+                getApi: () => ({
+                    getAccessToken: async () => 'token-delete',
+                    crawlFolder: async () => [{ id: 'r-1', name: 'TRASA 1.xlsx', driveModifiedAt: Date.parse('2026-05-10T10:00:00Z') }],
+                    listFolderFilesShallow: async () => [],
+                    downloadFileArrayBuffer: async () => new ArrayBuffer(0)
+                }),
+                getFolderIdRoutes: () => 'routes',
+                getFolderIdSchedule: () => 'schedule',
+                parseScheduleMetaStrictXlsx: (name) => /MAJ 2026\.xlsx$/i.test(String(name || '')) ? { year: 2026, month: 5, key: '2026-05' } : null,
+                toTitleCase: (s) => String(s || ''),
+                maxImportBytes: 5_000_000,
+                listDbFiles: async () => ([
+                    { name: 'TRASA 1.xlsx', driveModifiedAt: Date.parse('2026-05-10T10:00:00Z') },
+                    { name: 'TRASA 2.xlsx', driveModifiedAt: Date.parse('2026-05-01T10:00:00Z') },
+                    { name: 'WARSZAWA MAJ 2026.xlsx', driveModifiedAt: Date.parse('2026-05-01T10:00:00Z') }
+                ]),
+                getDbFileRecord: async (name) => ({
+                    name,
+                    updatedAt: Date.parse('2026-05-05T09:00:00Z'),
+                    driveModifiedAt: Date.parse('2026-05-01T10:00:00Z')
+                }),
+                deleteDbFiles: async (names) => {
+                    deletedBatches.push([...(Array.isArray(names) ? names : [])]);
+                    return { deleted: Array.isArray(names) ? names.length : 0 };
+                },
+                putDbBlob: async () => { },
+                removeFileData: (name) => { removedData.push(String(name || '')); },
+                isScheduleFileName: (name) => /MAJ 2026\.xlsx$/i.test(String(name || '')),
+                invalidateScheduleFile: (name) => { invalidatedSchedules.push(String(name || '')); },
+                processScheduleFile: async () => { },
+                processFile: async () => { },
+                loadedFiles: new Set(['TRASA 2.xlsx']),
+                getAllDataLength: () => 2,
+                finalizeImport: async (summary) => { finalizedSummary = summary; },
+                logAction: () => { },
+                escapeHtml: (s) => String(s ?? ''),
+                buildConnectingModalHtml: (stage) => String(stage ?? ''),
+                buildNoChangesModalHtml: () => 'NO_CHANGES',
+                buildDeletionConfirmationModalHtml: (files) => `DELETE_CONFIRM:${files.map(f => String(f?.name || '')).join(',')}`,
+                buildChangesModalHtml: (changed) => changed.map(f => `${String(f?.name || '')}|${String(f?.changeReason || '')}|${String(f?.diffDisabledLabel || '')}`).join('\n'),
+                showModal: (title, content, actions) => { modals.push({ title, content, actions }); },
+                hideModal: () => { },
+                setLoadingStatusText: () => { },
+                setUploadStatusText: () => { },
+                setUploadProgressValue: () => { },
+                setLoadingProgress: () => { },
+                setUploadUiVisible: () => { },
+                setButtonsBusy: () => { },
+                initChangesModal: () => { },
+                formatFileName: (n) => String(n ?? ''),
+                isWelcomeVisible: () => false,
+                prepareWelcomeProgressList: () => { },
+                createWelcomeItem: () => null,
+                appendWelcomeItem: () => { },
+                scrollWelcomeItemIntoView: () => { },
+                updateWelcomeItem: () => { },
+                shouldDeferWelcomeUpdates: () => false,
+                runWithConcurrency: async (list, limit, fn) => {
+                    const items = Array.isArray(list) ? list : [];
+                    for (const item of items) await fn(item);
+                }
+            });
+
+            await app.start({ source: 'toolbar' });
+            const changesModal = modals[modals.length - 1];
+            this.assert(String(changesModal?.content || '').includes('TRASA 2.xlsx|Plik usunięty z Google Drive|Wymaga usunięcia lokalnie'), "Modal zmian zawiera trasę wymagającą lokalnego usunięcia");
+            this.assert(String(changesModal?.content || '').includes('WARSZAWA MAJ 2026.xlsx|Plik usunięty z Google Drive|Wymaga usunięcia lokalnie'), "Modal zmian zawiera grafik wymagający lokalnego usunięcia");
+
+            const openDeleteConfirm = changesModal?.actions?.[0]?.onClick;
+            this.assert(typeof openDeleteConfirm === 'function', "Główna akcja w modalu zmian jest dostępna");
+            if (typeof openDeleteConfirm === 'function') openDeleteConfirm();
+
+            const deleteConfirmModal = modals[modals.length - 1];
+            this.assert(String(deleteConfirmModal?.title || '') === 'Potwierdź lokalne usunięcie', "Przed usunięciem lokalnym pojawia się osobny modal potwierdzenia");
+            this.assert(String(deleteConfirmModal?.content || '').includes('DELETE_CONFIRM:TRASA 2.xlsx,WARSZAWA MAJ 2026.xlsx'), "Modal potwierdzenia zawiera listę plików do lokalnego usunięcia");
+
+            const confirmDelete = deleteConfirmModal?.actions?.[0]?.onClick;
+            this.assert(typeof confirmDelete === 'function', "Akcja potwierdzenia lokalnego usunięcia jest dostępna");
+            if (typeof confirmDelete === 'function') await confirmDelete();
+
+            this.assert(deletedBatches.length === 2, "Usunięcia z IndexedDB wykonują się osobno dla każdego brakującego pliku");
+            this.assert(deletedBatches[0]?.[0] === 'TRASA 2.xlsx' && deletedBatches[1]?.[0] === 'WARSZAWA MAJ 2026.xlsx', "Usuwane są dokładnie pliki brakujące na Google Drive");
+            this.assert(removedData.includes('TRASA 2.xlsx') && removedData.includes('WARSZAWA MAJ 2026.xlsx'), "Lokalny stan aplikacji jest czyszczony po usunięciu plików");
+            this.assert(invalidatedSchedules.includes('WARSZAWA MAJ 2026.xlsx'), "Usunięcie lokalnego grafiku unieważnia cache schedule-service");
+            this.assert(Array.isArray(finalizedSummary?.removedFiles) && finalizedSummary.removedFiles.length === 2, "Podsumowanie synchronizacji zawiera lokalnie usunięte pliki");
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować lokalnego usuwania plików skasowanych z Drive");
             console.error(e);
         }
     },

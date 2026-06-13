@@ -101,20 +101,109 @@ export function createDriveUnifiedSyncApplication(cfg) {
         return candidates[0];
     }
 
+    /**
+     * Sprawdza, czy wpis reprezentuje lokalne usunięcie pliku,
+     * bo plik zniknął już z Google Drive.
+     *
+     * @param {any} file
+     * @returns {boolean}
+     */
+    function isLocalDeleteChange(file) {
+        return Boolean(file?.isDeletedOnDrive) || String(file?.qeAction || '').trim() === 'delete_local';
+    }
+
+    /**
+     * Filtruje wpisy wymagające lokalnego usunięcia.
+     *
+     * @param {any[]} files
+     * @returns {any[]}
+     */
+    function getLocalDeleteChanges(files) {
+        const list = Array.isArray(files) ? files : [];
+        return list.filter(isLocalDeleteChange);
+    }
+
+    /**
+     * Otwiera modal potwierdzający lokalne usunięcie plików, które zniknęły z Drive.
+     *
+     * @param {any[]} files
+     * @param {string} token
+     * @param {{ source?: string }} opts
+     * @returns {void}
+     */
+    function confirmLocalDeletes(files, token, { source } = {}) {
+        const removals = getLocalDeleteChanges(files);
+        if (removals.length === 0) {
+            applyFiles(files, token, { source });
+            return;
+        }
+
+        const buildHtml = typeof cfg.buildDeletionConfirmationModalHtml === 'function'
+            ? cfg.buildDeletionConfirmationModalHtml
+            : (() => 'Te pliki zostaną usunięte lokalnie.');
+
+        cfg.showModal('Potwierdź lokalne usunięcie', buildHtml(removals), [
+            { label: 'Usuń lokalnie i synchronizuj', class: 'modal-btn--primary', onClick: () => applyFiles(files, token, { source }) },
+            {
+                label: 'Wróć',
+                onClick: () => {
+                    showChangesModal(files, token, { source });
+                }
+            }
+        ]);
+    }
+
+    /**
+     * Otwiera główny modal zmian wykrytych podczas synchronizacji Google Drive.
+     *
+     * @param {any[]} files
+     * @param {string} token
+     * @param {{ source?: string }} opts
+     * @returns {void}
+     */
+    function showChangesModal(files, token, { source } = {}) {
+        const list = Array.isArray(files) ? files : [];
+        const hasDeletes = getLocalDeleteChanges(list).length > 0;
+        const primaryLabel = hasDeletes ? 'Zastosuj zmiany' : 'Nadpisz zmienione';
+
+        cfg.showModal('Synchronizacja Google Drive', cfg.buildChangesModalHtml(list), [
+            {
+                label: primaryLabel,
+                class: 'modal-btn--primary',
+                onClick: () => {
+                    if (hasDeletes) {
+                        confirmLocalDeletes(list, token, { source });
+                        return;
+                    }
+                    applyFiles(list, token, { source });
+                }
+            },
+            { label: 'Anuluj', onClick: () => { try { cfg.logAction?.('sync', { phase: 'cancelled', source: source || 'unknown' }, 'INFO'); } catch { } } }
+        ]);
+        try { cfg.initChangesModal?.(list, token); } catch { }
+    }
+
     async function collectDriveFiles(folderIdRoutes, folderIdSchedule, token, { signal } = {}) {
         const api = cfg.getApi();
         const routes = await api.crawlFolder(folderIdRoutes, token, { signal });
         const scheduleAll = await api.listFolderFilesShallow(folderIdSchedule, token, { signal });
         const schedule = selectCurrentMonthScheduleDriveFile(scheduleAll);
-        return { routes, schedule };
+        return { routes, schedule, scheduleAll };
     }
 
-    async function computeChanges({ routes, schedule }) {
-        const listDb = await cfg.listDbFiles();
-        const dbNames = new Set(Array.isArray(listDb) ? listDb.map(r => String(r?.name ?? '').trim()).filter(Boolean) : []);
+    async function computeChanges({ routes, schedule, scheduleAll }) {
+        const dbListRaw = await cfg.listDbFiles();
+        const listDb = Array.isArray(dbListRaw) ? dbListRaw : [];
+        const dbNames = new Set(listDb.map(r => String(r?.name ?? '').trim()).filter(Boolean));
         const changed = [];
 
         const routeFiles = Array.isArray(routes) ? routes : [];
+        const scheduleFiles = Array.isArray(scheduleAll) ? scheduleAll : [];
+        const driveNames = new Set([
+            ...routeFiles.map((file) => String(file?.name || '').trim()).filter(Boolean),
+            ...scheduleFiles.map((file) => String(file?.name || '').trim()).filter(Boolean)
+        ]);
+
         await cfg.runWithConcurrency(routeFiles, 8, async (file) => {
             const name = String(file?.name || '').trim();
             if (!name) return;
@@ -138,6 +227,26 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 changed.push({ ...file, changeReason: 'Nowsza wersja na Google Drive', previousDriveModifiedAt: prev, isNewInDb: false, qeKind: 'route' });
             }
         });
+
+        for (const record of listDb) {
+            const name = String(record?.name ?? '').trim();
+            if (!name || driveNames.has(name)) continue;
+
+            const isSchedule = Boolean(cfg.isScheduleFileName?.(name));
+            changed.push({
+                name,
+                id: '',
+                qeKind: isSchedule ? 'schedule' : 'route',
+                qeAction: 'delete_local',
+                isDeletedOnDrive: true,
+                isNewInDb: false,
+                changeReason: 'Plik usunięty z Google Drive',
+                previousDriveModifiedAt: Number(record?.driveModifiedAt ?? 0) || null,
+                driveModifiedAt: null,
+                diffDisabledLabel: 'Wymaga usunięcia lokalnie',
+                diffDisabledStatus: 'blocked'
+            });
+        }
 
         if (schedule && schedule?.name) {
             const name = String(schedule.name).trim();
@@ -175,6 +284,9 @@ export function createDriveUnifiedSyncApplication(cfg) {
         }
 
         changed.sort((a, b) => {
+            const aa = isLocalDeleteChange(a) ? 0 : 1;
+            const bb = isLocalDeleteChange(b) ? 0 : 1;
+            if (aa !== bb) return aa - bb;
             const ka = String(a?.qeKind || 'route');
             const kb = String(b?.qeKind || 'route');
             if (ka !== kb) return ka.localeCompare(kb, 'pl', { sensitivity: 'base' });
@@ -206,9 +318,10 @@ export function createDriveUnifiedSyncApplication(cfg) {
         /**
          * Podsumowanie jest używane przez wspólny renderer importu (UI) do rozróżnienia:
          * - nowych plików (pierwszy zapis w IndexedDB),
-         * - plików nadpisanych (istniały wcześniej).
+         * - plików nadpisanych (istniały wcześniej),
+         * - plików usuniętych lokalnie po wykryciu braku na Google Drive.
          */
-        const summary = { files: [], newFiles: [], updatedFiles: [], records: 0, errors: 0 };
+        const summary = { files: [], newFiles: [], updatedFiles: [], removedFiles: [], records: 0, errors: 0 };
         const before = cfg.getAllDataLength();
 
         try {
@@ -216,7 +329,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
             for (const file of list) {
                 const name = String(file?.name || '').trim();
                 const id = String(file?.id || '').trim();
-                if (!name || !id) { processed += 1; continue; }
+                if (!name || (!id && !isLocalDeleteChange(file))) { processed += 1; continue; }
 
                 const progressItem = isWelcomeVisible ? safeCall(() => cfg.createWelcomeItem(name), null) : null;
                 if (progressItem) {
@@ -225,8 +338,6 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 }
 
                 const displayName = cfg.formatFileName ? cfg.formatFileName(name) : name;
-                cfg.setLoadingStatusText(`Pobieranie: ${displayName}...`);
-                cfg.setUploadStatusText(`Google Drive: pobieram ${displayName}...`);
 
                 const percent = list.length > 0 ? (processed / list.length) * 100 : 0;
                 cfg.setLoadingProgress(percent, `${Math.round(percent)}%`);
@@ -243,6 +354,34 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 }
 
                 try {
+                    if (isLocalDeleteChange(file)) {
+                        cfg.setLoadingStatusText(`Usuwanie lokalne: ${displayName}...`);
+                        cfg.setUploadStatusText({ prefix: 'Usuwam lokalnie: ', content: `${displayName}...` });
+
+                        if (typeof cfg.deleteDbFiles !== 'function') {
+                            throw new Error('Brak deleteDbFiles w konfiguracji synchronizacji');
+                        }
+
+                        await cfg.deleteDbFiles([name]);
+                        cfg.removeFileData(name);
+
+                        if (String(file?.qeKind || '') === 'schedule' || cfg.isScheduleFileName(name)) {
+                            cfg.invalidateScheduleFile(name);
+                        } else {
+                            try { cfg.loadedFiles?.delete?.(name); } catch { }
+                        }
+
+                        summary.files.push(name);
+                        summary.removedFiles.push({ name, prevUpdatedAt, nextUpdatedAt: null });
+                        if (progressItem) {
+                            const defer = Boolean(cfg.shouldDeferWelcomeUpdates?.());
+                            safeCall(() => cfg.updateWelcomeItem(progressItem, 100, 'Usunięto lokalnie', { defer }), undefined);
+                        }
+                        continue;
+                    }
+
+                    cfg.setLoadingStatusText(`Pobieranie: ${displayName}...`);
+                    cfg.setUploadStatusText({ prefix: 'Pobieram: ', content: `${displayName}...` });
                     const buffer = await api.downloadFileArrayBuffer(id, token);
                     if (Number(buffer?.byteLength || 0) > cfg.maxImportBytes) throw new Error('Plik przekracza limit 5MB');
 
@@ -391,11 +530,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 return;
             }
 
-            cfg.showModal('Synchronizacja Google Drive', cfg.buildChangesModalHtml(changed), [
-                { label: 'Nadpisz zmienione', class: 'modal-btn--primary', onClick: () => applyFiles(changed, token, { source }) },
-                { label: 'Anuluj', onClick: () => { try { cfg.logAction?.('sync', { phase: 'cancelled', source: source || 'unknown' }, 'INFO'); } catch { } } }
-            ]);
-            try { cfg.initChangesModal?.(changed, token); } catch { }
+            showChangesModal(changed, token, { source });
         } catch (err) {
             if (session.cancelled || err?.name === 'AbortError') return;
 

@@ -14,13 +14,13 @@
 ![IndexedDB](https://img.shields.io/badge/IndexedDB-storage-4479A1) 
 ![Google%20Drive](https://img.shields.io/badge/Google%20Drive-sync-4285F4?logo=googledrive&logoColor=fff)
 
-Przeglądarkowe narzędzie do importu, wyszukiwania i podglądu tras z plików Excel (.xlsx, .xls) oraz CSV, z obsługą grafiku kierowców i synchronizacji z Google Drive.
+Przeglądarkowe narzędzie do synchronizacji, wyszukiwania i podglądu tras z plików Excel (.xlsx, .xls) oraz CSV, z obsługą grafiku kierowców i Google Drive jako jedynego źródła danych.
 
 ***
 
 ## Krótki opis
 
-QuickEvo to aplikacja webowa działająca w całości po stronie klienta w przeglądarce. Przetwarzanie plików, budowa indeksu wyszukiwania i przechowywanie danych odbywają się lokalnie z wykorzystaniem IndexedDB. Integracja z Google Drive umożliwia ręczną synchronizację dokumentów (trasy + grafik) bezpośrednio z chmury.
+QuickEvo to aplikacja webowa działająca w całości po stronie klienta w przeglądarce. Przetwarzanie plików, budowa indeksu wyszukiwania i przechowywanie danych odbywają się lokalnie z wykorzystaniem IndexedDB. Integracja z Google Drive umożliwia ręczną synchronizację dokumentów (trasy + grafik) bezpośrednio z chmury i stanowi jedyny wspierany kanał dostarczania plików.
 
 ***
 
@@ -66,17 +66,18 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Obsługa wielu kierowców przypisanych do tej samej trasy w jednym dniu (np. „Jan Kowalski i/lub Anna Nowak”) w formie estetycznych badge’y
 - Automatyczna normalizacja zapytań (ignorowanie polskich znaków diakrytycznych i wielkości liter)
 
-### Import danych
+### Synchronizacja danych
 
-- Lokalny import wielu plików jednocześnie (pliki Excel i CSV)
-- Limit rozmiaru importu: **5MB na plik** (dotyczy importu lokalnego i Google Drive)
+- Google Drive jest jedynym wspieranym źródłem danych dla tras i grafiku
+- Limit rozmiaru importu: **5MB na plik** (dotyczy synchronizacji z Google Drive)
 - Ulepszony widok podsumowania importu: rozróżnienie nowe vs nadpisane pliki (naprawione także dla importu z Google Drive), kafelki/chipy z podglądem poprzedniego i nowego timestampu na hover oraz możliwość przejścia do podglądu pliku
 - Integracja z Google Drive (Picker API + OAuth2)
 - Synchronizacja folderów z rekursywnym pobieraniem plików .xlsx
 - Rozwiązywanie konfliktów przy synchronizacji
+- Kategorie tras są wyznaczane z folderu pierwszego poziomu pod `ROUTES_FOLDER_ID`: `Baltic Medica`, `Dostawy`, `Dzika`, `Wilanów`, `Wołomin` -> `STANDARD`; `Wieczorki` -> `WIECZOREK`; `Soboty` -> `SOBOTA`; `Niedziele` -> `NIEDZIELA`
 - Obsługa grafiku kierowców: plik o nazwie „MIASTO MIESIĄC ROK.(xlsx/xls/csv)” jest parsowany do przypisań trasa→kierowca (bez indeksowania w wyszukiwarce)
-- API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate` i dat ISO (YYYY-MM-DD)
-- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i diff dla tras; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
+- API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate`, dat ISO (YYYY-MM-DD) oraz dynamicznego katalogu tras zbudowanego z plików zsynchronizowanych z Google Drive
+- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i diff dla tras; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
 - Widok różnic porównuje rekordy po stabilnym ID z pierwszej kolumny (Rxx), a nie po indeksie wiersza
 - Widok różnic prezentuje unified diff (styl Git/VSCode), pokazuje kontekst (3 rekordy przed/po), wyrównuje kolumny i obsługuje przewijanie poziome
@@ -89,7 +90,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 ### Interfejs
 
 - Animacje wejścia/wyjścia wyników z efektem staggered
-- Zreorganizowany header: nawigacja w jednej linii oraz zgrupowane akcje importu (Import + Google Drive) dla lepszej czytelności
+- Zreorganizowany header: nawigacja w jednej linii oraz pojedyncza akcja synchronizacji Google Drive dla lepszej czytelności
 - Płynniejszy powrót z podglądu trasy do listy wyników (bez zbędnego ponownego renderowania wyników przy niezmienionym zapytaniu)
 - Obsługa reduced motion (wyłączenie animacji dla użytkowników z wrażliwością na ruch)
 - Responsywny design z obsługą urządzeń mobilnych
@@ -114,7 +115,6 @@ QuickEvo/
 │   ├── entry/           # Entrypointy ładowane w index.html
 │   │   └── app.js       # Główny bootstrap aplikacji
 │   ├── app/             # Warstwa aplikacyjna (orchestracja use-case)
-│   │   ├── import-application.js
 │   │   ├── search-application.js
 │   │   ├── preview-application.js
 │   │   ├── drive-sync-application.js
@@ -145,7 +145,6 @@ QuickEvo/
 │   │       └── search-results-sort.js
 │   ├── services/        # Integracje i efekty uboczne
 │   │   ├── drive-service.js
-│   │   ├── import-service.js
 │   │   ├── navigation-service.js
 │   │   └── schedule-service.js
 │   ├── storage/         # Persystencja (IndexedDB)
@@ -201,6 +200,8 @@ QuickEvo/
 | `size`           | Number | Rozmiar w bajtach                                       |
 | `updatedAt`      | Number | Timestamp ostatniej modyfikacji (ms)                    |
 | `driveModifiedAt`| Number | Timestamp modyfikacji z Google Drive (ms, opcjonalny)   |
+| `routeCategory`  | String | Kategoria trasy wyliczona z folderu Google Drive        |
+| `topLevelFolderName` | String | Nazwa folderu pierwszego poziomu pod `ROUTES_FOLDER_ID` |
 
 ***
 

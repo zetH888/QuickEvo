@@ -70,14 +70,8 @@
                     </nav>
                 </div>
                 <div class="toolbar">
-                    <!-- Grupa akcji importu i synchronizacji -->
-                    <div class="toolbar-group toolbar-group--imports" role="group" aria-label="Import i synchronizacja">
-                        <button id="import-button" class="icon-button" type="button" aria-label="Importuj pliki .xlsx/.xls/.csv z dysku">
-                            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M12 3a1 1 0 0 1 1 1v8.59l2.3-2.3a1 1 0 1 1 1.4 1.42l-4 4a1 1 0 0 1-1.4 0l-4-4a1 1 0 1 1 1.4-1.42L11 12.59V4a1 1 0 0 1 1-1z"></path>
-                                <path d="M5 14a1 1 0 0 1 1 1v3h12v-3a1 1 0 1 1 2 0v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-4a1 1 0 0 1 1-1z"></path>
-                            </svg>
-                        </button>
+                    <!-- Grupa akcji synchronizacji z Google Drive -->
+                    <div class="toolbar-group toolbar-group--imports" role="group" aria-label="Synchronizacja z Google Drive">
                         <button id="import-google-drive-button" class="loading-sync-button" type="button" aria-label="Google Drive — synchronizuj folder">
                             <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M9.5 3h5L22 16l-3.2 5H5.2L2 16l7.5-13zm1.16 2L5.26 14h3.71l3.19-9zm2.49 0L16.34 14h3.71L14.65 5h-1.5zM8.97 16H4.38l1.9 3h12.44l1.9-3H8.97z"></path>
@@ -85,7 +79,6 @@
                             Google Drive
                         </button>
                     </div>
-                    <input type="file" name="file" id="file-input" class="visually-hidden" accept=".xlsx,.xls,.csv" multiple>
                     <div id="upload-progress-container" class="hidden">
                         <span id="upload-status">Wysyłanie...</span>
                         <progress id="upload-progress" class="upload-progress" max="100" value="0"></progress>
@@ -200,12 +193,6 @@
         <footer>
             <div id="file-list-info">Monitorowane pliki: <span id="file-count">0</span></div>
         </footer>
-    </div>
-    <div id="drop-zone" class="drop-zone hidden" aria-hidden="true">
-        <div class="drop-zone-card">
-            <div class="drop-zone-title">Upuść pliki .xlsx/.xls/.csv</div>
-            <div class="drop-zone-subtitle">Limit: 5MB na plik</div>
-        </div>
     </div>
     <!-- Logika aplikacji (bez parametrów wersji w URL) -->
     <script src="js/ui/theme/MatrixThemeToggle.js"></script>

@@ -2,7 +2,7 @@
  * QuickEvo - Logika Frontendowa
  * 
  * Aplikacja do wyszukiwania tras i dokumentów w plikach Excel (.xlsx, .xls) oraz CSV.
- * Obsługuje import plików z dysku lokalnego oraz z Google Drive.
+ * Obsługuje synchronizację plików z Google Drive oraz lokalne przetwarzanie danych w przeglądarce.
  * Wykorzystuje IndexedDB do przechowywania plików i Web Workers (opcjonalnie) do przetwarzania.
  */
 
@@ -13,9 +13,7 @@ import * as excelProcessor from '../core/excel-processor.js';
 import { createDataStore } from '../core/data-store.js';
 import { getAppDomRefs } from '../core/dom-refs.js';
 import * as driveService from '../services/drive-service.js';
-import { docsClearFilesStore, docsDeleteFiles, docsFileExists, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from '../storage/docs-db.js';
-import { importLocalFiles } from '../services/import-service.js';
-import { createImportApplication } from '../app/import-application.js';
+import { docsClearFilesStore, docsDeleteFiles, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from '../storage/docs-db.js';
 import { createSearchApplication } from '../app/search-application.js';
 import { createPreviewApplication } from '../app/preview-application.js';
 import { createDriveUnifiedSyncApplication } from '../app/drive-unified-sync-application.js';
@@ -145,7 +143,6 @@ const DOM_READY_TS = performance.now();
 let searchCache = null;
 let searchOrchestrator = null;
 let navigationService = null;
-let importApplication = null;
 let searchApplication = null;
 let previewApplication = null;
 let driveSyncApplication = null;
@@ -182,13 +179,11 @@ const {
     searchSortToggle,
     themeToggle,
     themeIcon,
-    importButton,
     googleDriveButton,
     scheduleButton,
     navRoutesButton,
     navDriversButton,
     navScheduleButton,
-    fileInput,
     uploadProgressContainer,
     uploadProgress,
     uploadStatus,
@@ -221,7 +216,6 @@ const {
     appShell,
     appHeaderLogo,
     homeLink,
-    dropZone,
     syncGDriveButton,
     modalOverlay,
     modalTitle,
@@ -354,6 +348,19 @@ let scheduleService = null;
  * @type {Map<string, string>}
  */
 const routeFileIndexByCode = dataStore.getRouteFileIndexByCode();
+
+/**
+ * Pamięciowy indeks metadanych tras pobranych z Google Drive.
+ * Kluczem jest nazwa pliku, a wartością kategoria wyznaczona z folderu pierwszego poziomu.
+ *
+ * Folder jest źródłem prawdy dla kategorii tras:
+ * - STANDARD: Baltic Medica, Dostawy, Dzika, Wilanów, Wołomin
+ * - WIECZOREK: Wieczorki
+ * - SOBOTA / NIEDZIELA: odpowiednio foldery Soboty / Niedziele
+ *
+ * @type {Map<string, { category: string, topLevelFolderName: string }>}
+ */
+const routeMetaByFileName = new Map();
 
 /** @type {boolean} Flaga określająca, czy wyszukiwarka jest aktywna. */
 let isSearchEnabled = false; 
@@ -519,7 +526,7 @@ async function init() {
         forceWelcomeSequenceDone();
         loadingFailed = true;
         setLoadingProgressPercent(100, { force: true });
-        showLoadingError('Ładowanie trwa zbyt długo. Możesz przejść dalej do aplikacji i zaimportować dane ręcznie.');
+        showLoadingError('Ładowanie trwa zbyt długo. Możesz przejść dalej do aplikacji i uruchomić synchronizację z Google Drive.');
         finalizeBoot();
     }, BOOT_WATCHDOG_MS);
 
@@ -537,7 +544,7 @@ async function performInitialDataLoad() {
         loadingFailed = false;
         setSearchEnabled(allData.length > 0);
         if (allData.length === 0) {
-            setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem zaimportuj pliki .xlsx/.xls/.csv.');
+            setLoadingStatusText('Brak danych. Kliknij „Dalej”, a potem uruchom synchronizację z Google Drive.');
         }
     } catch (err) {
         handleInitialLoadError(err);
@@ -552,7 +559,7 @@ async function performInitialDataLoad() {
 function handleInitialLoadError(err) {
     loadingFailed = true;
     setSearchEnabled(false);
-    showLoadingError('Błąd ładowania danych. Zaimportuj pliki .xlsx/.xls/.csv.');
+    showLoadingError('Błąd ładowania danych. Uruchom synchronizację z Google Drive.');
     logAction('boot', { phase: 'error', message: err?.message ? String(err.message) : 'error' }, 'ERROR');
 }
 
@@ -683,8 +690,7 @@ function setupSearchResultsSortToggle() {
 function setupEventListeners() {
     setupSearchResultsSortToggle();
     setupSearchListeners();
-    setupImportListeners();
-    setupDragAndDropListeners();
+    setupSyncListeners();
     setupNavigationListeners();
     setupGlobalErrorListeners();
     setupDeveloperFakeLoadingBypass();
@@ -717,56 +723,12 @@ function setupSearchListeners() {
 }
 
 /**
- * Konfiguruje listenery importu plików.
+ * Konfiguruje listenery synchronizacji z Google Drive.
  */
-function setupImportListeners() {
-    if (importButton) importButton.addEventListener('click', () => {
-        logAction('import', { phase: 'open_dialog' }, 'INFO');
-        fileInput?.click();
-    });
+function setupSyncListeners() {
     if (googleDriveButton) googleDriveButton.addEventListener('click', async () => {
         logAction('sync', { phase: 'start', source: 'toolbar' }, 'INFO');
         await handleGoogleDriveSync({ source: 'toolbar' });
-    });
-    if (fileInput) {
-        fileInput.addEventListener('change', async (e) => {
-            const files = Array.from(e.target.files || []);
-            if (files.length) await handleImportFiles(files);
-            fileInput.value = '';
-        });
-    }
-}
-
-/**
- * Konfiguruje obsługę przeciągania plików.
- */
-function setupDragAndDropListeners() {
-    let dragDepth = 0;
-    document.addEventListener('dragenter', (e) => {
-        const dt = e.dataTransfer;
-        if (!dt || !Array.from(dt.types || []).includes('Files')) return;
-        dragDepth += 1;
-        setDropZoneVisible(true);
-    });
-    document.addEventListener('dragleave', (e) => {
-        const dt = e.dataTransfer;
-        if (!dt || !Array.from(dt.types || []).includes('Files')) return;
-        dragDepth = Math.max(0, dragDepth - 1);
-        if (dragDepth === 0) setDropZoneVisible(false);
-    });
-    document.addEventListener('dragover', (e) => {
-        const dt = e.dataTransfer;
-        if (!dt || !Array.from(dt.types || []).includes('Files')) return;
-        e.preventDefault();
-    });
-    document.addEventListener('drop', async (e) => {
-        const dt = e.dataTransfer;
-        if (!dt || !dt.files || dt.files.length === 0) return;
-        e.preventDefault();
-        dragDepth = 0;
-        setDropZoneVisible(false);
-        logAction('import', { phase: 'drop', files: dt.files.length }, 'INFO');
-        await handleImportFiles(Array.from(dt.files));
     });
 }
 
@@ -975,9 +937,11 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
 
     try {
         await loadScheduleFiles({ fullReload, showProgress });
-        const spreadsheetFiles = await getRouteSpreadsheetFiles();
-        dataStore.setRouteFileIndexByCode(buildRouteFileIndex(spreadsheetFiles));
-        fileCountSpan.textContent = spreadsheetFiles.length;
+        const routeRecords = await getRouteFileRecords();
+        refreshRouteMetaIndex(routeRecords);
+        const spreadsheetFiles = routeRecords.map(r => String(r?.name ?? '')).filter(Boolean);
+        dataStore.setRouteFileIndexByCode(buildRouteFileIndex(routeRecords));
+        fileCountSpan.textContent = String(routeRecords.length);
         if (fullReload) resetAppData();
         const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter(f => !loadedFiles.has(f));
         if (showProgress) updateLoadingProgressStart(filesToLoad.length);
@@ -1006,17 +970,9 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
  * Pliki grafiku są celowo pomijane, aby nie zanieczyszczały indeksu wyszukiwania.
  */
 async function getRouteSpreadsheetFiles() {
-    statusIndicator.textContent = 'Sprawdzanie plików...';
-    const files = await docsListFiles();
-    const spreadsheetFiles = Array.isArray(files)
-        ? files.map(f => String(f?.name ?? '')).filter(f => {
-            const lower = f.toLowerCase();
-            const isSpreadsheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
-            return isSpreadsheet && !isScheduleFileName(f);
-        })
-        : [];
-    spreadsheetFiles.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-    return spreadsheetFiles;
+    const routeRecords = await getRouteFileRecords();
+    refreshRouteMetaIndex(routeRecords);
+    return routeRecords.map(r => String(r?.name ?? '')).filter(Boolean);
 }
 
 /**
@@ -1089,6 +1045,7 @@ function ensureScheduleService() {
         sheetToMatrix: (worksheet) => qeGetExcelProcessor().sheetToMatrix(worksheet),
         getBlob: docsGetBlob,
         listFiles: docsListFiles,
+        getRouteCatalog: () => buildRouteCatalogForSchedule(),
         logAction
     });
     return scheduleService;
@@ -1155,6 +1112,34 @@ function buildDriverBadgesHtml(driverNames) {
     return parts.join('');
 }
 
+/**
+ * Finalizuje import plików po synchronizacji z Google Drive.
+ * To wydzielony wariant wspólny dla ścieżki synchronizacji, po usunięciu importu lokalnego.
+ *
+ * @param {{ files?: string[], records?: number, errors?: number }} summary
+ * @param {number} before
+ * @returns {Promise<void>}
+ */
+async function finalizeImportedFiles(summary, before) {
+    const after = Number(allData.length) || 0;
+    const base = summary && typeof summary === 'object' ? summary : { files: [], records: 0, errors: 0 };
+    base.records = Math.max(0, after - (Number(before) || 0));
+
+    try { if (uploadProgress) uploadProgress.value = 100; } catch { }
+    try { setUploadStatusText('Synchronizacja zakończona.'); } catch { }
+    try { logAction('import', { files: base.files?.length || 0, records: base.records, errors: base.errors }, 'INFO'); } catch { }
+    try { displayImportSummary(base); } catch { }
+    try { fileCountSpan.textContent = String((await getRouteFileRecords()).length); } catch { }
+    try { setSearchEnabled(after > 0); } catch { }
+
+    const q = String(lastQuery || '').trim();
+    if (q.length >= 3 && Boolean(isSearchEnabled)) {
+        try { performSearch(q); } catch { }
+    }
+
+    try { schedulePredictiveIndexRebuild({ reason: 'drive_sync_done' }); } catch { }
+}
+
 //////////////////////////////////////////////////
 // OBSŁUGA IMPORTU GRAFIKU Z GOOGLE DRIVE
 //////////////////////////////////////////////////
@@ -1173,7 +1158,12 @@ function ensureDriveUnifiedSyncApplication() {
         maxImportBytes: MAX_IMPORT_BYTES,
         listDbFiles: () => docsListFiles(),
         getDbFileRecord: (name) => docsGetFileRecord(name),
-        putDbBlob: (name, blob, meta) => docsPutBlob(name, blob, meta),
+        deleteDbFiles: (names) => docsDeleteFiles(names),
+        putDbBlob: (name, blob, meta) => docsPutBlob(name, blob, {
+            driveModifiedAt: meta?.driveModifiedAt ?? null,
+            topLevelFolderName: meta?.topLevelFolderName ?? '',
+            routeCategory: mapTopLevelRouteFolderToCategory(meta?.topLevelFolderName)
+        }),
         removeFileData,
         isScheduleFileName,
         invalidateScheduleFile,
@@ -1181,11 +1171,12 @@ function ensureDriveUnifiedSyncApplication() {
         processFile,
         loadedFiles,
         getAllDataLength: () => allData.length,
-        finalizeImport: (summary, before) => ensureImportApplication().finalizeImport(summary, before),
+        finalizeImport: (summary, before) => finalizeImportedFiles(summary, before),
         logAction,
         escapeHtml,
         buildConnectingModalHtml: buildDriveConnectingModalHtml,
         buildNoChangesModalHtml: buildDriveNoChangesModalHtml,
+        buildDeletionConfirmationModalHtml: buildDriveDeletionConfirmationModalHtml,
         buildChangesModalHtml: (changed) => ensureDriveChangesModalController().buildChangesModalHtml(changed),
         showModal: (title, content, actions) => showModal(title, content, actions),
         hideModal: () => hideModal(),
@@ -1257,16 +1248,114 @@ function normalizeRouteCodeForLookup(value) {
 }
 
 /**
+ * Normalizuje nazwę folderu z Google Drive do postaci porównywalnej.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeTopLevelRouteFolderName(value) {
+    return fuzzyNormalizeText(String(value ?? ''))
+        .replace(/[()]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .toUpperCase();
+}
+
+/**
+ * Mapuje nazwę folderu pierwszego poziomu pod `ROUTES_FOLDER_ID` na kategorię trasy.
+ *
+ * @param {unknown} folderName
+ * @returns {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'|''}
+ */
+function mapTopLevelRouteFolderToCategory(folderName) {
+    const norm = normalizeTopLevelRouteFolderName(folderName);
+    if (!norm) return '';
+
+    if (norm === 'WIECZORKI') return 'WIECZOREK';
+    if (norm === 'SOBOTY') return 'SOBOTA';
+    if (norm === 'NIEDZIELE') return 'NIEDZIELA';
+
+    if (norm === 'BALTIC MEDICA' || norm === 'DOSTAWY' || norm === 'DZIKA' || norm === 'WILANOW' || norm === 'WOLOMIN') {
+        return 'STANDARD';
+    }
+
+    if (norm.includes('DOSTAWY') || norm.includes('DZIKA')) return 'STANDARD';
+    return '';
+}
+
+/**
+ * Odczytuje kategorię trasy z rekordu IndexedDB.
+ * Priorytet:
+ * 1. jawnie zapisane `routeCategory`,
+ * 2. mapowanie z `topLevelFolderName`,
+ * 3. fallback po nazwie pliku dla rekordów historycznych bez metadanych folderu.
+ *
+ * @param {{ name?: string, routeCategory?: string, topLevelFolderName?: string } | null | undefined} record
+ * @returns {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'|''}
+ */
+function resolveStoredRouteCategory(record) {
+    const rawCategory = String(record?.routeCategory ?? '').trim().toUpperCase();
+    if (rawCategory === 'STANDARD' || rawCategory === 'WIECZOREK' || rawCategory === 'SOBOTA' || rawCategory === 'NIEDZIELA') {
+        return rawCategory;
+    }
+
+    const folderCategory = mapTopLevelRouteFolderToCategory(record?.topLevelFolderName);
+    if (folderCategory) return folderCategory;
+
+    const legacy = getRouteCategoriesFromFileName(String(record?.name ?? ''));
+    const category = String(Array.isArray(legacy) && legacy.length > 0 ? legacy[0] : '').trim().toUpperCase();
+    if (category === 'WIECZOREK' || category === 'SOBOTA' || category === 'NIEDZIELA') return category;
+    return category === 'STANDARD' ? 'STANDARD' : '';
+}
+
+/**
+ * Aktualizuje pamięciowy indeks metadanych tras na podstawie rekordów z bazy.
+ *
+ * @param {Array<{ name?: string, routeCategory?: string, topLevelFolderName?: string }>} routeRecords
+ */
+function refreshRouteMetaIndex(routeRecords) {
+    routeMetaByFileName.clear();
+    const list = Array.isArray(routeRecords) ? routeRecords : [];
+    for (const record of list) {
+        const fileName = String(record?.name ?? '').trim();
+        if (!fileName) continue;
+        const category = resolveStoredRouteCategory(record);
+        routeMetaByFileName.set(fileName, {
+            category,
+            topLevelFolderName: String(record?.topLevelFolderName ?? '').trim()
+        });
+    }
+}
+
+/**
+ * Zwraca kategorie trasy dla pliku, preferując metadane zapisane z Google Drive.
+ *
+ * @param {string} fileName
+ * @returns {string[]}
+ */
+function getRouteCategoriesForFile(fileName) {
+    const safe = String(fileName ?? '').trim();
+    if (!safe) return ['STANDARD'];
+    const stored = routeMetaByFileName.get(safe);
+    const category = String(stored?.category ?? '').trim().toUpperCase();
+    if (category === 'STANDARD' || category === 'WIECZOREK' || category === 'SOBOTA' || category === 'NIEDZIELA') {
+        return [category];
+    }
+    const fallback = getRouteCategoriesFromFileName(safe);
+    return Array.isArray(fallback) && fallback.length > 0 ? fallback : ['STANDARD'];
+}
+
+/**
  * Buduje indeks kodów tras dostępnych w bazie (IndexedDB) na podstawie listy plików arkuszy.
  *
- * @param {string[]} spreadsheetFiles
+ * @param {Array<{ name?: string, routeCategory?: string, topLevelFolderName?: string }>} routeRecords
  * @returns {Map<string, string>}
  */
-function buildRouteFileIndex(spreadsheetFiles) {
-    const list = Array.isArray(spreadsheetFiles) ? spreadsheetFiles : [];
+function buildRouteFileIndex(routeRecords) {
+    const list = Array.isArray(routeRecords) ? routeRecords : [];
     const map = new Map();
-    for (const fileName of list) {
-        const name = String(fileName ?? '').trim();
+    for (const record of list) {
+        const name = String(record?.name ?? '').trim();
         if (!name) continue;
         const code = normalizeRouteCodeForLookup(extractRouteCodeFromFileName(name));
         if (!code) continue;
@@ -1276,58 +1365,57 @@ function buildRouteFileIndex(spreadsheetFiles) {
 }
 
 /**
+ * Pobiera rekordy plików tras z bazy, razem z metadanymi kategorii pochodzącymi z Google Drive.
+ *
+ * @returns {Promise<Array<{ name: string, size: number, updatedAt: number, driveModifiedAt: (number|null), routeCategory?: string, topLevelFolderName?: string }>>}
+ */
+async function getRouteFileRecords() {
+    statusIndicator.textContent = 'Sprawdzanie plików...';
+    const files = await docsListFiles();
+    const routeRecords = Array.isArray(files)
+        ? files.filter(f => {
+            const name = String(f?.name ?? '').trim();
+            const lower = name.toLowerCase();
+            const isSpreadsheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
+            return Boolean(name) && isSpreadsheet && !isScheduleFileName(name);
+        })
+        : [];
+    routeRecords.sort((a, b) => String(a?.name ?? '').localeCompare(String(b?.name ?? ''), 'pl', { sensitivity: 'base' }));
+    return routeRecords;
+}
+
+/**
+ * Buduje katalog tras na potrzeby parsowania grafiku.
+ * Kluczem jest znormalizowany kod trasy, a wartością kanoniczny kod i kategoria
+ * wyliczona z folderu pierwszego poziomu w Google Drive.
+ *
+ * @returns {Promise<Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>>}
+ */
+async function buildRouteCatalogForSchedule() {
+    const routeRecords = await getRouteFileRecords();
+    refreshRouteMetaIndex(routeRecords);
+
+    const catalog = new Map();
+    for (const record of routeRecords) {
+        const fileName = String(record?.name ?? '').trim();
+        if (!fileName) continue;
+
+        const code = normalizeRouteCodeForLookup(extractRouteCodeFromFileName(fileName));
+        if (!code) continue;
+
+        const category = resolveStoredRouteCategory(record);
+        if (!category) continue;
+
+        catalog.set(code, Object.freeze({ code, category }));
+    }
+    return catalog;
+}
+
+/**
  * Odczytuje skoroszyt z różnych źródeł danych.
  */
 async function readWorkbook(source, fileName) {
     return await qeGetExcelProcessor().readWorkbook(source, fileName);
-}
-
-
-
-function ensureImportApplication() {
-    if (importApplication) return importApplication;
-    importApplication = createImportApplication({
-        importLocalFiles,
-        maxImportBytes: MAX_IMPORT_BYTES,
-        fileExists: docsFileExists,
-        getFileRecord: docsGetFileRecord,
-        resolveConflicts: resolveImportConflicts,
-        onRejected: (r) => logAction('import', { fileName: r?.name, reason: r?.reason }, 'WARN'),
-        onLoadingState: setImportLoadingState,
-        onStatusText: (text) => setUploadStatusText(text),
-        onProgress: (value) => { if (uploadProgress) uploadProgress.value = Number(value) || 0; },
-        putBlob: docsPutBlob,
-        removeFileData,
-        isScheduleFileName,
-        invalidateScheduleFile,
-        loadedFiles,
-        processScheduleFile,
-        processFile,
-        formatFileName,
-        onFileError: ({ fileName, error }) => logAction('import', { fileName, message: error?.message }, 'ERROR'),
-        getAllDataLength: () => allData.length,
-        setSearchEnabled,
-        getLastQuery: () => lastQuery,
-        getIsSearchEnabled: () => Boolean(isSearchEnabled),
-        performSearch: (query) => performSearch(query),
-        schedulePredictiveIndexRebuild,
-        displayImportSummary,
-        refreshFileCount: async () => {
-            if (!fileCountSpan) return;
-            fileCountSpan.textContent = String((await getRouteSpreadsheetFiles()).length);
-        },
-        setUploadProgressValue: (value) => { if (uploadProgress) uploadProgress.value = Number(value) || 0; },
-        setUploadStatusText: (text) => setUploadStatusText(text),
-        logAction
-    });
-    return importApplication;
-}
-
-/**
- * Obsługuje import plików z dysku lokalnego.
- */
-async function handleImportFiles(files) {
-    await ensureImportApplication().importLocal(files);
 }
 
 /**
@@ -1365,6 +1453,28 @@ function buildDriveConnectingModalHtml(stageText) {
 
 function buildDriveNoChangesModalHtml() {
     return `<div class="qe-drive-modal qe-drive-modal--ok"><div class="qe-drive-summary"><strong>Dane aktualne.</strong> Nie wykryto zmian w folderze Google Drive od ostatniej synchronizacji.</div></div>`;
+}
+
+/**
+ * Buduje modal potwierdzający lokalne usunięcie plików,
+ * które nie istnieją już na Google Drive.
+ *
+ * @param {Array<{ name?: string }>} files
+ * @returns {string}
+ */
+function buildDriveDeletionConfirmationModalHtml(files) {
+    const list = Array.isArray(files) ? files : [];
+    const items = list
+        .map((file) => {
+            const name = String(file?.name || '').trim();
+            if (!name) return '';
+            return `<li class="qe-drive-delete-item">${escapeHtml(formatFileName(name))}</li>`;
+        })
+        .filter(Boolean)
+        .join('');
+
+    const count = items ? list.length : 0;
+    return `<div class="qe-drive-modal qe-drive-modal--warn"><div class="qe-drive-summary"><strong>Potwierdź lokalne usunięcie.</strong> Poniższe pliki nie istnieją już na Google Drive i zostaną skasowane z lokalnej bazy aplikacji:</div><ul class="qe-drive-delete-list">${items}</ul><div class="qe-drive-question">Usunąć lokalnie ${escapeHtml(count)} plik(ów) i kontynuować synchronizację?</div></div>`;
 }
 
 
@@ -1459,7 +1569,7 @@ function ensureSearchApplication() {
                 searchEngine: qeGetSearchEngine(),
                 searchCache,
                 predictiveSuggestionsCache,
-                getRouteCategoriesFromFileName,
+                getRouteCategoriesFromFileName: getRouteCategoriesForFile,
                 formatRouteNameForResults,
                 normalizeText,
                 fuzzyNormalizeText,
@@ -1513,32 +1623,6 @@ function compileKeyLabTokenSets() {
     const compiled = qeGetSearchEngine().compileKeyLabTokenSets(qeGetSearchEngine().KEY_LAB_TOKEN_SETS);
     compiledKeyLabTokenSets = compiled;
     if (appState?.search) appState.search.compiledKeyLabTokenSets = compiled;
-}
-
-/**
- * Rozwiązuje konflikty nazw plików przed importem.
- */
-async function resolveImportConflicts({ files, conflicts } = {}) {
-    const list = Array.isArray(files) ? files : [];
-    const detected = Array.isArray(conflicts) ? conflicts : [];
-    if (detected.length === 0) return list;
-    return new Promise((resolve) => {
-        if (list.length === 1) {
-            showModal('Konflikt nazw', `Plik o nazwie <strong>${escapeHtml(list[0].name)}</strong> już istnieje. Czy chcesz go nadpisać?`, [
-                { label: `Nadpisz tylko ${list[0].name}`, class: 'modal-btn--primary', onClick: () => resolve(list) },
-                { label: 'Anuluj', onClick: () => resolve([]) }
-            ]);
-        } else {
-            showModal('Konflikty nazw', `Wykryto ${detected.length} plików, które już istnieją w bazie. Wybierz akcję dla importu zbiorczego.`, [
-                { label: 'Nadpisz wszystkie', class: 'modal-btn--danger', onClick: () => resolve(list) },
-                { label: 'Pomiń istniejące', class: 'modal-btn--primary', onClick: () => {
-                    const conflictNames = new Set(detected.map(c => c.name));
-                    resolve(list.filter(f => !conflictNames.has(f.name)));
-                }},
-                { label: 'Anuluj', onClick: () => resolve([]) }
-            ]);
-        }
-    });
 }
 
 /**
@@ -1873,7 +1957,7 @@ function ensurePreviewController() {
         tableHeader: previewTableHeader,
         tableBody: previewTableBody,
         formatFileName,
-        getRouteCategoriesFromFileName,
+        getRouteCategoriesFromFileName: getRouteCategoriesForFile,
         extractRouteCodeFromFileName,
         getDriverForRouteOnDate,
         getDriverForRouteOnIsoDate,
@@ -2009,14 +2093,6 @@ function prepareManualContinue() {
 }
 
 /**
- * Przełącza widoczność strefy upuszczania plików.
- */
-function setDropZoneVisible(visible) {
-    if (!dropZone) return; dropZone.classList.toggle('hidden', !visible);
-    dropZone.setAttribute('aria-hidden', visible ? 'false' : 'true');
-}
-
-/**
  * Włącza lub wyłącza wyszukiwarkę.
  */
 function setSearchEnabled(enabled) {
@@ -2083,33 +2159,92 @@ function finalizeLoad(loadStart, showProgress) {
 }
 
 let uploadStatusSwapTimer = null;
-function setUploadStatusText(nextText, { animate = true } = {}) {
-    if (!uploadStatus) return;
-    const next = String(nextText ?? '');
-    if (!animate) {
-        uploadStatus.textContent = next;
-        uploadStatus.classList.remove('qe-text-swap-out');
-        uploadStatus.classList.add('qe-text-swap-in');
-        return;
+
+/**
+ * Normalizuje dane statusu uploadu do postaci prefiks + treść.
+ * Pozwala utrzymać stały prefiks widoczny podczas animacji zmiennej części.
+ * @param {string|{prefix?: string, content?: string}} nextText
+ * @returns {{ prefix: string, content: string }}
+ */
+function normalizeUploadStatusPayload(nextText) {
+    if (typeof nextText === 'object' && nextText !== null) {
+        return {
+            prefix: String(nextText.prefix ?? ''),
+            content: String(nextText.content ?? '')
+        };
     }
-    if (uploadStatus.textContent === next) return;
-    if (uploadStatusSwapTimer) { window.clearTimeout(uploadStatusSwapTimer); uploadStatusSwapTimer = null; }
-    uploadStatus.classList.remove('qe-text-swap-in');
-    uploadStatus.classList.add('qe-text-swap-out');
-    uploadStatusSwapTimer = window.setTimeout(() => {
-        uploadStatus.textContent = next;
-        uploadStatus.classList.remove('qe-text-swap-out');
-        uploadStatus.classList.add('qe-text-swap-in');
-        uploadStatusSwapTimer = null;
-    }, 140);
+
+    return {
+        prefix: '',
+        content: String(nextText ?? '')
+    };
 }
 
 /**
- * Przełącza stan ładowania interfejsu importu.
+ * Zapewnia wewnętrzną strukturę statusu uploadu wymaganą do osobnej animacji treści.
+ * @returns {{ prefixNode: HTMLSpanElement, contentNode: HTMLSpanElement } | null}
  */
-function setImportLoadingState(loading, total = 0) {
-    if (loading) { uploadProgressContainer.classList.remove('hidden'); if (uploadProgress) uploadProgress.value = 0; setUploadStatusText(`Import: ${total} plik(ów)...`, { animate: false }); }
-    else window.setTimeout(() => uploadProgressContainer.classList.add('hidden'), 900);
+function ensureUploadStatusNodes() {
+    if (!uploadStatus) return null;
+
+    let prefixNode = uploadStatus.querySelector('.qe-upload-status-prefix');
+    let contentNode = uploadStatus.querySelector('.qe-upload-status-dynamic');
+
+    if (prefixNode instanceof HTMLSpanElement && contentNode instanceof HTMLSpanElement) {
+        return { prefixNode, contentNode };
+    }
+
+    uploadStatus.textContent = '';
+
+    prefixNode = document.createElement('span');
+    prefixNode.className = 'qe-upload-status-prefix';
+
+    contentNode = document.createElement('span');
+    contentNode.className = 'qe-upload-status-dynamic qe-text-swap-in';
+
+    uploadStatus.append(prefixNode, contentNode);
+    return { prefixNode, contentNode };
+}
+
+/**
+ * Ustawia treść statusu uploadu z animacją tylko dla zmiennej części komunikatu.
+ * @param {string|{prefix?: string, content?: string}} nextText
+ * @param {{ animate?: boolean }} [options]
+ */
+function setUploadStatusText(nextText, { animate = true } = {}) {
+    if (!uploadStatus) return;
+
+    const nodes = ensureUploadStatusNodes();
+    if (!nodes) return;
+
+    const { prefixNode, contentNode } = nodes;
+    const next = normalizeUploadStatusPayload(nextText);
+
+    if (prefixNode.textContent === next.prefix && contentNode.textContent === next.content) return;
+
+    if (uploadStatusSwapTimer) {
+        window.clearTimeout(uploadStatusSwapTimer);
+        uploadStatusSwapTimer = null;
+    }
+
+    if (!animate) {
+        prefixNode.textContent = next.prefix;
+        contentNode.textContent = next.content;
+        contentNode.classList.remove('qe-text-swap-out');
+        contentNode.classList.add('qe-text-swap-in');
+        return;
+    }
+
+    prefixNode.textContent = next.prefix;
+    contentNode.classList.remove('qe-text-swap-in');
+    contentNode.classList.add('qe-text-swap-out');
+
+    uploadStatusSwapTimer = window.setTimeout(() => {
+        contentNode.textContent = next.content;
+        contentNode.classList.remove('qe-text-swap-out');
+        contentNode.classList.add('qe-text-swap-in');
+        uploadStatusSwapTimer = null;
+    }, 140);
 }
 
 /**
@@ -2196,8 +2331,9 @@ function renderTileGrid(containerEl, items, { emptyText = 'Brak danych.', passiv
 }
 
 async function renderRoutesView() {
-    const spreadsheetFiles = await getRouteSpreadsheetFiles();
-    const files = Array.isArray(spreadsheetFiles) ? spreadsheetFiles : [];
+    const routeRecords = await getRouteFileRecords();
+    refreshRouteMetaIndex(routeRecords);
+    const files = Array.isArray(routeRecords) ? routeRecords : [];
 
     const standard = [];
     const evening = [];
@@ -2237,10 +2373,10 @@ async function renderRoutesView() {
         return 'STANDARD';
     };
 
-    for (const fileName of files) {
-        const name = String(fileName ?? '').trim();
+    for (const record of files) {
+        const name = String(record?.name ?? '').trim();
         if (!name) continue;
-        const cats = getRouteCategoriesFromFileName(name);
+        const cats = getRouteCategoriesForFile(name);
         const categories = Array.isArray(cats) ? cats.map(c => String(c || '').trim().toUpperCase()).filter(Boolean) : [];
         const label = buildRouteTileLabel(name);
         const model = { fileName: name, label, variant: resolveRouteTileVariant(categories, label) };
@@ -2457,8 +2593,9 @@ async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source 
         : (uniqueMonthKeys.length > 0 ? uniqueMonthKeys[uniqueMonthKeys.length - 1] : '');
     const targetYm = uniqueMonthKeys.includes(requestedYm) ? requestedYm : defaultYm;
 
-    const spreadsheetFiles = await getRouteSpreadsheetFiles();
-    dataStore.setRouteFileIndexByCode(buildRouteFileIndex(spreadsheetFiles));
+    const routeRecords = await getRouteFileRecords();
+    refreshRouteMetaIndex(routeRecords);
+    dataStore.setRouteFileIndexByCode(buildRouteFileIndex(routeRecords));
 
     const ctrl = ensureScheduleController();
     ctrl.setAvailableMonthsList(uniqueMonthKeys);

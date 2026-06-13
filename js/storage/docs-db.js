@@ -60,7 +60,14 @@ export async function docsListFiles() {
     const db = await openDocsDb();
     return await new Promise((resolve, reject) => {
         const tx = db.transaction(docsDbConfig.storeName, 'readonly'), req = tx.objectStore(docsDbConfig.storeName).getAll();
-        req.onsuccess = () => resolve((Array.isArray(req.result) ? req.result : []).map(r => ({ name: String(r?.name ?? ''), size: Number(r?.size ?? (r?.blob?.size ?? 0)), updatedAt: Number(r?.updatedAt ?? 0) })).filter(r => r.name));
+        req.onsuccess = () => resolve((Array.isArray(req.result) ? req.result : []).map(r => ({
+            name: String(r?.name ?? ''),
+            size: Number(r?.size ?? (r?.blob?.size ?? 0)),
+            updatedAt: Number(r?.updatedAt ?? 0),
+            driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null,
+            routeCategory: String(r?.routeCategory ?? '').trim(),
+            topLevelFolderName: String(r?.topLevelFolderName ?? '').trim()
+        })).filter(r => r.name));
         req.onerror = () => reject(req.error);
     });
 }
@@ -104,7 +111,9 @@ export async function docsGetFileRecord(fileName) {
                 name: String(r?.name ?? ''),
                 size: Number(r?.size ?? (r?.blob?.size ?? 0)),
                 updatedAt: Number(r?.updatedAt ?? 0),
-                driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null
+                driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null,
+                routeCategory: String(r?.routeCategory ?? '').trim(),
+                topLevelFolderName: String(r?.topLevelFolderName ?? '').trim()
             });
         };
         req.onerror = () => reject(req.error);
@@ -112,11 +121,17 @@ export async function docsGetFileRecord(fileName) {
 }
 
 /**
- * Zapisuje Blob pliku w bazie.
+ * Zapisuje Blob pliku w bazie wraz z metadanymi źródła.
+ *
+ * `routeCategory` i `topLevelFolderName` są używane wyłącznie dla tras pobranych
+ * z Google Drive. Dzięki temu aplikacja może po restarcie nadal odtworzyć kategorię
+ * pliku na podstawie folderu, bez ponownego odpytywania Drive API.
  */
-export async function docsPutBlob(fileName, blob, { driveModifiedAt } = {}) {
+export async function docsPutBlob(fileName, blob, { driveModifiedAt, routeCategory, topLevelFolderName } = {}) {
     const safe = String(fileName || '').trim(); if (!safe) throw new Error('Brak nazwy pliku');
     const normalizedDriveModifiedAt = (Number.isFinite(Number(driveModifiedAt)) && Number(driveModifiedAt) > 0) ? Number(driveModifiedAt) : null;
+    const normalizedRouteCategory = String(routeCategory ?? '').trim().toUpperCase();
+    const normalizedTopLevelFolderName = String(topLevelFolderName ?? '').trim();
     const db = await openDocsDb();
     await new Promise((resolve, reject) => {
         const req = db.transaction(docsDbConfig.storeName, 'readwrite').objectStore(docsDbConfig.storeName).put({
@@ -124,7 +139,9 @@ export async function docsPutBlob(fileName, blob, { driveModifiedAt } = {}) {
             blob,
             size: blob?.size ?? 0,
             updatedAt: Date.now(),
-            driveModifiedAt: normalizedDriveModifiedAt
+            driveModifiedAt: normalizedDriveModifiedAt,
+            routeCategory: normalizedRouteCategory,
+            topLevelFolderName: normalizedTopLevelFolderName
         });
         req.onsuccess = () => resolve(); req.onerror = () => reject(req.error);
     });
