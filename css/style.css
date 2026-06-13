@@ -2914,6 +2914,76 @@ footer {
     display: none;
 }
 
+.qe-secondary-modal-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(6, 12, 24, 0.56);
+    backdrop-filter: blur(6px);
+    z-index: 3;
+}
+
+.qe-secondary-modal-card {
+    width: min(80vw, 1200px);
+    height: min(80vh, 860px);
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    background: linear-gradient(180deg, rgba(24, 30, 45, 0.96) 0%, rgba(17, 22, 34, 0.98) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 20px;
+    box-shadow: 0 28px 70px rgba(0, 0, 0, 0.44);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    animation: modalAppear 0.22s ease-out;
+}
+
+.qe-secondary-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px 14px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.qe-secondary-modal-title {
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--text-color);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.qe-secondary-modal-close {
+    flex: 0 0 auto;
+    min-width: 112px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-color);
+    cursor: pointer;
+    font-weight: 700;
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.qe-secondary-modal-close:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.qe-secondary-modal-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 18px 20px 20px 20px;
+    overflow: auto;
+}
+
 .modal-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -3268,6 +3338,42 @@ footer {
     gap: 6px;
 }
 
+.qe-drive-change-actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+.qe-drive-diff-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(47, 140, 255, 0.30);
+    background: rgba(47, 140, 255, 0.14);
+    color: rgba(255, 255, 255, 0.95);
+    cursor: pointer;
+    font-weight: 700;
+    transition: transform 0.2s ease, filter 0.2s ease, background 0.2s ease;
+}
+
+.qe-drive-diff-btn:hover {
+    filter: saturate(1.08) brightness(1.06);
+    background: rgba(47, 140, 255, 0.20);
+}
+
+.qe-drive-diff-btn:active {
+    transform: translateY(1px);
+}
+
+.qe-drive-diff-btn-icon {
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
+    opacity: 0.92;
+}
+
 .qe-drive-change-panel {
     padding: 0 12px 12px 12px;
     overflow: hidden;
@@ -3299,419 +3405,23 @@ footer {
     background: rgba(255, 255, 255, 0.08);
 }
 
-.qe-drive-diff {
-    margin-top: 10px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(0, 0, 0, 0.14);
-    padding: 10px;
-}
-
-.qe-drive-diff-actions {
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.qe-drive-diff-status {
-    width: 28px;
-    height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin-left: auto;
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    color: rgba(150, 255, 190, 0.92);
-}
-
-.qe-drive-diff-status-spinner .qe-spinner {
-    width: 18px;
-    height: 18px;
-    border-width: 2px;
-    box-shadow: none;
-    animation-duration: 1.15s;
-}
-
-.qe-drive-diff[data-qe-diff-state="idle"] .qe-drive-diff-status-spinner {
-    opacity: 0.55;
-}
-
-.qe-drive-diff[data-qe-diff-state="loading"] .qe-drive-diff-status-spinner {
-    opacity: 1;
-}
-
-.qe-drive-diff-status-check svg {
-    width: 18px;
-    height: 18px;
-}
-
-.qe-drive-diff-status-x svg {
-    width: 18px;
-    height: 18px;
-}
-
-.qe-drive-diff[data-qe-diff-state="error"] .qe-drive-diff-status,
-.qe-drive-diff[data-qe-diff-state="blocked"] .qe-drive-diff-status {
-    color: rgba(255, 150, 150, 0.92);
-}
-
-.qe-drive-diff[data-qe-diff-state="idle"] .qe-drive-diff-status {
-    color: rgba(255, 255, 255, 0.40);
-}
-
-.qe-drive-diff-btn {
-    border-radius: 12px;
-    padding: 8px 12px;
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    background: rgba(255, 255, 255, 0.05);
-    color: rgba(255, 255, 255, 0.92);
-    cursor: pointer;
-    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), filter 0.25s cubic-bezier(0.4, 0, 0.2, 1), background 0.25s;
-}
-
-.qe-drive-diff-btn:disabled {
-    opacity: 0.62;
-    cursor: not-allowed;
-    filter: none;
-    transform: none;
-}
-
-.qe-drive-diff-btn:hover {
-    filter: saturate(1.08) brightness(1.07);
-    background: rgba(255, 255, 255, 0.07);
-}
-
-.qe-drive-diff-btn:active {
-    transform: none;
-}
-
-.qe-drive-diff-modes {
-    display: inline-flex;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    background: rgba(255, 255, 255, 0.04);
-    overflow: hidden;
-}
-
-.qe-drive-diff-mode {
-    border: none;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.88);
-    padding: 8px 10px;
-    cursor: pointer;
-    font-weight: 700;
-    font-size: 0.82rem;
-    transition: background 0.2s ease, color 0.2s ease;
-}
-
-.qe-drive-diff-mode.is-active {
-    background: rgba(47, 140, 255, 0.18);
-    color: rgba(255, 255, 255, 0.98);
-}
-
-.qe-drive-diff-body {
-    margin-top: 10px;
-}
-
-.qe-drive-diff-loading {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--secondary-text);
-    padding: 8px 0;
-}
-
-.qe-drive-diff-loading .qe-spinner {
-    width: 22px;
-    height: 22px;
-    border-width: 2px;
-}
-
-.qe-drive-diff-loading-text {
-    font-weight: 700;
-    font-size: 0.9rem;
-}
-
-.qe-drive-diff-error {
-    color: rgba(255, 120, 120, 0.92);
-    font-weight: 700;
-    padding: 8px 0;
-}
-
-.qe-drive-diff-note {
-    color: rgba(255, 255, 255, 0.78);
-    font-size: 0.82rem;
-    font-weight: 700;
-    margin-bottom: 8px;
-}
-
-.qe-drive-diff-pre {
-    margin: 0;
-    padding: 10px;
-    border-radius: 10px;
-    background: rgba(0, 0, 0, 0.26);
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    overflow: auto;
-    max-height: 280px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 0.82rem;
-    line-height: 1.45;
-    scrollbar-width: none;
-}
-
-.qe-drive-diff-pre::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-}
-
-.qe-drive-diff-line {
-    display: block;
-    white-space: pre;
-    font-variant-numeric: tabular-nums;
-}
-
-.qe-drive-diff-line.is-eq {
-    color: rgba(255, 255, 255, 0.72);
-}
-
-.qe-drive-diff-line.is-ins {
-    color: rgba(140, 255, 185, 0.95);
-}
-
-.qe-drive-diff-line.is-del {
-    color: rgba(255, 150, 150, 0.92);
-}
-
-.qe-drive-diff-unified {
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(0, 0, 0, 0.26);
-}
-
-.qe-drive-diff-unified-scroll {
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-unified-scroll::-webkit-scrollbar {
-    height: 10px;
-}
-
-.qe-drive-diff-unified-scroll::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-unified-scroll::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.20);
-    border-radius: 999px;
-    border: 2px solid rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-unified-scroll::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.28);
-}
-
-.qe-drive-diff-unified-body {
-    max-height: 280px;
-    overflow-y: auto;
-    overflow-x: visible;
-    width: max-content;
-    min-width: 100%;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.06);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 0.82rem;
-    line-height: 1.45;
-}
-
-.qe-drive-diff-unified-body::-webkit-scrollbar {
-    width: 10px;
-}
-
-.qe-drive-diff-unified-body::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-unified-body::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.20);
-    border-radius: 999px;
-    border: 2px solid rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-unified-body::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.28);
-}
-
-.qe-drive-diff-u-row {
-    display: grid;
-    grid-template-columns: 18px 1fr;
-    gap: 0;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-u-prefix {
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding: 6px 0;
-    color: rgba(255, 255, 255, 0.55);
-    user-select: none;
-}
-
-.qe-drive-diff-u-cells {
-    padding: 6px 10px;
-    white-space: pre;
-    color: rgba(255, 255, 255, 0.74);
-}
-
-.qe-drive-diff-u-row.is-ins .qe-drive-diff-u-cells {
-    color: rgba(140, 255, 185, 0.95);
-}
-
-.qe-drive-diff-u-row.is-del .qe-drive-diff-u-cells {
-    color: rgba(255, 150, 150, 0.92);
-}
-
-.qe-drive-diff-u-row.is-eq .qe-drive-diff-u-cells {
-    color: rgba(255, 255, 255, 0.70);
-}
-
-.qe-drive-diff-u-sep {
-    color: rgba(255, 255, 255, 0.30);
-}
-
-.qe-drive-diff-cell {
-    border-radius: 6px;
-    padding: 0 4px;
-}
-
-.qe-drive-diff-cell.is-cell-add {
-    background: rgba(34, 197, 94, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.22);
-}
-
-.qe-drive-diff-cell.is-cell-del {
-    background: rgba(239, 68, 68, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.22);
-}
-
-.qe-drive-diff-cell.is-cell-mod {
-    background: rgba(250, 204, 21, 0.12);
-    box-shadow: inset 0 0 0 1px rgba(250, 204, 21, 0.20);
-}
-
-.qe-drive-diff-cell-arrow {
-    opacity: 0.62;
-    padding: 0 4px;
-    display: inline-block;
-}
-
-.qe-drive-diff-cell-delta {
-    border-radius: 6px;
-    padding: 0 4px;
-    display: inline-block;
-}
-
-.qe-drive-diff-cell-delta.is-old {
-    background: rgba(239, 68, 68, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.22);
-}
-
-.qe-drive-diff-cell-delta.is-new {
-    background: rgba(34, 197, 94, 0.18);
-    box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.22);
-}
-
-.qe-drive-diff-u-gap {
-    padding: 8px 10px;
-    text-align: center;
-    opacity: 0.55;
-    letter-spacing: 1px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.qe-drive-diff-u-empty {
-    padding: 10px;
-    color: rgba(255, 255, 255, 0.72);
-    font-weight: 800;
-}
-
-.qe-drive-diff-sbs {
-    border-radius: 10px;
-    overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(0, 0, 0, 0.26);
-}
-
-.qe-drive-diff-sbs-head {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0;
-    background: rgba(255, 255, 255, 0.04);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.qe-drive-diff-sbs-col {
-    padding: 8px 10px;
-    font-weight: 800;
-    color: rgba(255, 255, 255, 0.86);
-    font-size: 0.82rem;
-}
-
-.qe-drive-diff-sbs-body {
-    max-height: 280px;
-    overflow: auto;
-    scrollbar-width: none;
-}
-
-.qe-drive-diff-sbs-body::-webkit-scrollbar {
-    width: 0;
-    height: 0;
-}
-
-.qe-drive-diff-sbs-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-}
-
-.qe-drive-diff-sbs-row.is-gap .qe-drive-diff-sbs-cell {
-    opacity: 0.55;
-    text-align: center;
-    letter-spacing: 1px;
-}
-
-.qe-drive-diff-sbs-cell {
-    padding: 6px 10px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-    font-size: 0.82rem;
-    line-height: 1.45;
-    white-space: pre;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    color: rgba(255, 255, 255, 0.74);
-}
-
-.qe-drive-diff-sbs-row.is-del .qe-drive-diff-sbs-cell:first-child {
-    color: rgba(255, 150, 150, 0.92);
-}
-
-.qe-drive-diff-sbs-row.is-ins .qe-drive-diff-sbs-cell:last-child {
-    color: rgba(140, 255, 185, 0.95);
-}
-
-.qe-drive-diff-sbs-cell.is-empty {
-    color: rgba(255, 255, 255, 0.28);
-}
-
 @media (max-width: 520px) {
+    .qe-secondary-modal-overlay {
+        padding: 12px;
+    }
+    .qe-secondary-modal-card {
+        width: calc(100vw - 24px);
+        height: calc(100vh - 24px);
+        max-width: calc(100vw - 24px);
+        max-height: calc(100vh - 24px);
+    }
+    .qe-secondary-modal-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+    .qe-secondary-modal-title {
+        white-space: normal;
+    }
     .qe-drive-summary-row {
         align-items: center;
     }
@@ -3721,23 +3431,6 @@ footer {
     .qe-drive-change-name {
         white-space: normal;
         line-height: 1.25;
-    }
-    .qe-drive-diff-actions {
-        flex-direction: column;
-        align-items: stretch;
-    }
-    .qe-drive-diff-modes {
-        width: 100%;
-    }
-    .qe-drive-diff-mode {
-        width: 50%;
-    }
-    .qe-drive-diff-sbs-head,
-    .qe-drive-diff-sbs-row {
-        grid-template-columns: 1fr;
-    }
-    .qe-drive-diff-sbs-col:last-child {
-        display: none;
     }
 }
 
@@ -3752,7 +3445,7 @@ footer {
     .qe-drive-expandall,
     .qe-drive-chevron,
     .qe-drive-diff-btn,
-    .qe-drive-diff-unified-scroll {
+    .qe-secondary-modal-close {
         transition: none !important;
     }
 }
@@ -3806,6 +3499,182 @@ footer {
     font-size: 0.86rem;
     color: var(--secondary-text);
     max-width: 420px;
+}
+
+.qe-xlsx-diff {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-height: 100%;
+}
+
+.qe-xlsx-diff-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    min-height: min(48vh, 420px);
+    text-align: center;
+}
+
+.qe-xlsx-diff-loading-text {
+    font-weight: 700;
+    color: var(--text-color);
+}
+
+.qe-xlsx-diff-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.qe-xlsx-diff-stat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.qe-xlsx-diff-stat span {
+    color: var(--secondary-text);
+    font-weight: 700;
+}
+
+.qe-xlsx-diff-stat strong {
+    font-size: 1rem;
+    color: var(--text-color);
+}
+
+.qe-xlsx-diff-stat--added {
+    border-color: rgba(92, 196, 125, 0.28);
+    background: rgba(92, 196, 125, 0.10);
+}
+
+.qe-xlsx-diff-stat--removed {
+    border-color: rgba(219, 95, 108, 0.30);
+    background: rgba(219, 95, 108, 0.10);
+}
+
+.qe-xlsx-diff-stat--modified {
+    border-color: rgba(255, 204, 92, 0.30);
+    background: rgba(255, 204, 92, 0.10);
+}
+
+.qe-xlsx-diff-message {
+    padding: 16px 18px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    line-height: 1.6;
+}
+
+.qe-xlsx-diff-message--info {
+    background: rgba(47, 140, 255, 0.10);
+    border-color: rgba(47, 140, 255, 0.24);
+}
+
+.qe-xlsx-diff-message--error {
+    background: rgba(184, 68, 82, 0.12);
+    border-color: rgba(224, 107, 122, 0.30);
+}
+
+.qe-xlsx-diff-table-wrap {
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.qe-xlsx-diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 720px;
+}
+
+.qe-xlsx-diff-table th,
+.qe-xlsx-diff-table td {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    text-align: left;
+    vertical-align: top;
+}
+
+.qe-xlsx-diff-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(16, 22, 34, 0.96);
+    color: var(--secondary-text);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.qe-xlsx-diff-row--added {
+    background: rgba(92, 196, 125, 0.06);
+}
+
+.qe-xlsx-diff-row--removed {
+    background: rgba(219, 95, 108, 0.06);
+}
+
+.qe-xlsx-diff-row--modified {
+    background: rgba(255, 204, 92, 0.06);
+}
+
+.qe-xlsx-diff-col--address {
+    width: 100px;
+    white-space: nowrap;
+    font-weight: 800;
+}
+
+.qe-xlsx-diff-col--type {
+    width: 128px;
+    white-space: nowrap;
+}
+
+.qe-xlsx-diff-cell {
+    display: inline-block;
+    max-width: 340px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: top;
+}
+
+.qe-xlsx-diff-cell--empty {
+    color: var(--secondary-text);
+    font-style: italic;
+}
+
+.qe-xlsx-diff-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 92px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.qe-xlsx-diff-badge--added {
+    background: rgba(92, 196, 125, 0.16);
+    color: #baf0c8;
+}
+
+.qe-xlsx-diff-badge--removed {
+    background: rgba(219, 95, 108, 0.16);
+    color: #ffd7dd;
+}
+
+.qe-xlsx-diff-badge--modified {
+    background: rgba(92, 158, 255, 0.16);
+    color: #d7e6ff;
 }
 
 .qe-spinner {

@@ -8,6 +8,7 @@ export function createModalController(cfg) {
     const setElementHtml = typeof cfg?.setElementHtml === 'function' ? cfg.setElementHtml : ((el, html) => { if (el) el.innerHTML = String(html ?? ''); });
     const clearElement = typeof cfg?.clearElement === 'function' ? cfg.clearElement : ((el) => { if (el) el.replaceChildren(); });
     const onBeforeHide = typeof cfg?.onBeforeHide === 'function' ? cfg.onBeforeHide : (() => { });
+    let secondaryModalState = null;
 
     function show(title, content, actions = []) {
         if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
@@ -27,13 +28,148 @@ export function createModalController(cfg) {
         modalOverlay.setAttribute('aria-hidden', 'false');
     }
 
+    /**
+     * Pokazuje drugi modal osadzony nad głównym hostem systemowego modala.
+     * Dzięki temu stan głównej zawartości pozostaje nienaruszony.
+     *
+     * @param {{
+     *   title?: string,
+     *   content?: string,
+     *   className?: string,
+     *   closeLabel?: string,
+     *   onClose?: (() => void) | null
+     * }} options
+     * @returns {void}
+     */
+    function showSecondary(options = {}) {
+        if (!modalOverlay) return;
+        const title = String(options?.title || '').trim();
+        const content = String(options?.content ?? '');
+        const className = String(options?.className || '').trim();
+        const closeLabel = String(options?.closeLabel || 'Zamknij');
+
+        if (!secondaryModalState) secondaryModalState = createSecondaryModalDom();
+        if (!secondaryModalState) return;
+
+        secondaryModalState.onClose = typeof options?.onClose === 'function' ? options.onClose : null;
+        secondaryModalState.titleEl.textContent = title;
+        setElementHtml(secondaryModalState.contentEl, content);
+        secondaryModalState.cardEl.className = `qe-secondary-modal-card${className ? ` ${className}` : ''}`;
+        secondaryModalState.closeBtn.setAttribute('aria-label', closeLabel);
+        secondaryModalState.overlayEl.hidden = false;
+        secondaryModalState.overlayEl.setAttribute('aria-hidden', 'false');
+        secondaryModalState.closeBtn.focus({ preventScroll: true });
+    }
+
+    /**
+     * Aktualizuje treść już otwartego drugiego modala.
+     *
+     * @param {{ title?: string, content?: string, className?: string }} options
+     * @returns {void}
+     */
+    function updateSecondary(options = {}) {
+        if (!secondaryModalState) {
+            showSecondary(options);
+            return;
+        }
+        if (options && Object.prototype.hasOwnProperty.call(options, 'title')) {
+            secondaryModalState.titleEl.textContent = String(options?.title || '').trim();
+        }
+        if (options && Object.prototype.hasOwnProperty.call(options, 'content')) {
+            setElementHtml(secondaryModalState.contentEl, String(options?.content ?? ''));
+        }
+        if (options && Object.prototype.hasOwnProperty.call(options, 'className')) {
+            const className = String(options?.className || '').trim();
+            secondaryModalState.cardEl.className = `qe-secondary-modal-card${className ? ` ${className}` : ''}`;
+        }
+    }
+
+    /**
+     * Zamyka drugi modal bez ukrywania głównego hosta.
+     *
+     * @returns {void}
+     */
+    function hideSecondary() {
+        if (!secondaryModalState) return;
+        const { overlayEl, onClose } = secondaryModalState;
+        secondaryModalState = null;
+        try { onClose?.(); } catch { }
+        try { overlayEl.remove(); } catch { }
+    }
+
     function hide() {
+        hideSecondary();
         onBeforeHide();
         if (!modalOverlay) return;
         modalOverlay.classList.add('hidden');
         modalOverlay.setAttribute('aria-hidden', 'true');
     }
 
-    return { show, hide };
-}
+    /**
+     * Tworzy DOM drugiego modala i podpina obsługę zamknięcia.
+     *
+     * @returns {{
+     *   overlayEl: HTMLDivElement,
+     *   cardEl: HTMLDivElement,
+     *   titleEl: HTMLDivElement,
+     *   contentEl: HTMLDivElement,
+     *   closeBtn: HTMLButtonElement,
+     *   onClose: (() => void) | null
+     * } | null}
+     */
+    function createSecondaryModalDom() {
+        if (!modalOverlay || !document?.createElement) return null;
 
+        const overlayEl = document.createElement('div');
+        overlayEl.className = 'qe-secondary-modal-overlay';
+        overlayEl.hidden = true;
+        overlayEl.setAttribute('aria-hidden', 'true');
+
+        const cardEl = document.createElement('div');
+        cardEl.className = 'qe-secondary-modal-card';
+        cardEl.setAttribute('role', 'dialog');
+        cardEl.setAttribute('aria-modal', 'true');
+
+        const headerEl = document.createElement('div');
+        headerEl.className = 'qe-secondary-modal-header';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'qe-secondary-modal-title';
+
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'qe-secondary-modal-close';
+        closeBtn.textContent = 'Zamknij';
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'qe-secondary-modal-content';
+
+        closeBtn.addEventListener('click', () => hideSecondary());
+        overlayEl.addEventListener('click', (event) => {
+            if (event.target === overlayEl) hideSecondary();
+        });
+        cardEl.addEventListener('click', (event) => event.stopPropagation());
+        overlayEl.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                hideSecondary();
+            }
+        });
+
+        headerEl.append(titleEl, closeBtn);
+        cardEl.append(headerEl, contentEl);
+        overlayEl.appendChild(cardEl);
+        modalOverlay.appendChild(overlayEl);
+
+        return {
+            overlayEl,
+            cardEl,
+            titleEl,
+            contentEl,
+            closeBtn,
+            onClose: null
+        };
+    }
+
+    return { show, hide, showSecondary, updateSecondary, hideSecondary };
+}

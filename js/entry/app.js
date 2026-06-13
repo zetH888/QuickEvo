@@ -12,6 +12,7 @@ import * as state from '../core/state.js';
 import * as excelProcessor from '../core/excel-processor.js';
 import { createDataStore } from '../core/data-store.js';
 import { getAppDomRefs } from '../core/dom-refs.js';
+import { buildSimpleXlsxDiff } from '../core/simple-xlsx-diff.js';
 import * as driveService from '../services/drive-service.js';
 import { docsClearFilesStore, docsDeleteFiles, docsGetBlob, docsGetFileRecord, docsListFiles, docsPutBlob, openDocsDb } from '../storage/docs-db.js';
 import { createSearchApplication } from '../app/search-application.js';
@@ -25,6 +26,7 @@ import { SEARCH_RESULTS_SORT_MODE_ALPHANUM, SEARCH_RESULTS_SORT_MODE_TIME, sortS
 import { createNavigationService } from '../services/navigation-service.js';
 import { createImportSummaryRenderer, createLogoRenderer, createModalController, createPreviewController, createResultsCategoryController, createResultsRenderer, createScheduleController, createWelcomeProgressRenderer, highlightLabsInPreviewTableDom, prepareResultsListDom, updateResultsCountInfoDom } from '../ui/ui-components.js';
 import { createDriveChangesModalController } from '../ui/drive/drive-changes-modal.js';
+import { createXlsxDiffModalController } from '../ui/drive/xlsx-diff-modal.js';
 import { createWelcomeLoadingOverlayController } from '../ui/loading/welcome-loading-overlay-controller.js';
 import { createPredictiveGhostController } from '../ui/search/predictive-ghost.js';
 import { buildQuickEvoLogoSvg, startLogoOrbitInContainer } from '../ui/logo/quickevo-logo.js';
@@ -1202,7 +1204,11 @@ function ensureDriveUnifiedSyncApplication() {
             window.setTimeout(() => uploadProgressContainer?.classList.add('hidden'), 900);
         },
         setButtonsBusy: (busy) => setGoogleDriveSyncButtonsBusy(Boolean(busy)),
-        initChangesModal: (files, token) => ensureDriveChangesModalController().init({ files, token, api: qeGetDriveService() }),
+        initChangesModal: (files, token) => ensureDriveChangesModalController().init({
+            files,
+            token,
+            onOpenDiff: (change, context) => openDriveXlsxDiffPreview(change, context)
+        }),
         formatFileName,
         isWelcomeVisible: () => ensureWelcomeLoadingOverlayController().isVisible(),
         prepareWelcomeProgressList: () => ensureWelcomeLoadingOverlayController().prepareWelcomeProgressList(),
@@ -1433,6 +1439,8 @@ function setGoogleDriveSyncButtonsBusy(loading) {
 }
 
 let driveChangesModalController = null;
+let xlsxDiffModalController = null;
+let driveXlsxDiffPreviewSeq = 0;
 
 function ensureDriveChangesModalController() {
     if (driveChangesModalController) return driveChangesModalController;
@@ -1444,6 +1452,88 @@ function ensureDriveChangesModalController() {
         formatFileName
     });
     return driveChangesModalController;
+}
+
+/**
+ * Zapewnia kontroler drugiego modala z podgladem roznic XLSX.
+ *
+ * @returns {{ openLoading: Function, showDiff: Function, showError: Function, close: Function }}
+ */
+function ensureXlsxDiffModalController() {
+    if (xlsxDiffModalController) return xlsxDiffModalController;
+    xlsxDiffModalController = createXlsxDiffModalController({
+        modalController: ensureModalController(),
+        formatFileName,
+        escapeHtml,
+        onClose: () => { driveXlsxDiffPreviewSeq += 1; }
+    });
+    return xlsxDiffModalController;
+}
+
+/**
+ * Otwiera drugi modal z lazy-generowanym diffem XLSX dla wskazanego pliku.
+ *
+ * @param {{ name?: string, xlsxDiff?: any, xlsxDiffPromise?: Promise<any> }} change
+ * @param {{ token?: string }} [opts]
+ * @returns {Promise<void>}
+ */
+async function openDriveXlsxDiffPreview(change, { token } = {}) {
+    const fileName = String(change?.name || '').trim();
+    if (!fileName) return;
+
+    const seq = ++driveXlsxDiffPreviewSeq;
+    ensureXlsxDiffModalController().openLoading(fileName);
+
+    try {
+        const diff = change?.xlsxDiff || await resolveDriveXlsxDiff(change, token);
+        if (seq !== driveXlsxDiffPreviewSeq) return;
+        ensureXlsxDiffModalController().showDiff(fileName, diff);
+    } catch (err) {
+        if (seq !== driveXlsxDiffPreviewSeq) return;
+        ensureXlsxDiffModalController().showError(fileName);
+        logAction('sync', {
+            phase: 'xlsx_diff_error',
+            fileName,
+            message: err?.message ? String(err.message) : 'Nie udało się wygenerować diffu XLSX'
+        }, 'WARN');
+    }
+}
+
+/**
+ * Generuje i cache'uje diff XLSX dla zmodyfikowanego pliku z Google Drive.
+ *
+ * @param {{ id?: string, name?: string, xlsxDiff?: any, xlsxDiffPromise?: Promise<any> }} change
+ * @param {string} token
+ * @returns {Promise<any>}
+ */
+async function resolveDriveXlsxDiff(change, token) {
+    if (change?.xlsxDiff) return change.xlsxDiff;
+    if (change?.xlsxDiffPromise) return await change.xlsxDiffPromise;
+
+    const fileName = String(change?.name || '').trim();
+    const fileId = String(change?.id || '').trim();
+    const safeToken = String(token || '').trim();
+    if (!fileName) throw new Error('Brak nazwy pliku dla diffu XLSX.');
+    if (!fileId) throw new Error(`Brak identyfikatora Google Drive dla pliku "${fileName}".`);
+    if (!safeToken) throw new Error('Brak tokenu Google Drive dla podgladu diffu.');
+
+    change.xlsxDiffPromise = (async () => {
+        const localBlob = await docsGetBlob(fileName);
+        if (!localBlob) throw new Error(`Brak lokalnej wersji pliku "${fileName}" w IndexedDB.`);
+
+        const remoteBuffer = await qeGetDriveService().downloadFileArrayBuffer(fileId, safeToken);
+        const diff = await buildSimpleXlsxDiff({
+            fileName,
+            oldSource: localBlob,
+            newSource: remoteBuffer
+        });
+        change.xlsxDiff = diff;
+        return diff;
+    })().finally(() => {
+        try { delete change.xlsxDiffPromise; } catch { change.xlsxDiffPromise = null; }
+    });
+
+    return await change.xlsxDiffPromise;
 }
 
 function buildDriveConnectingModalHtml(stageText) {

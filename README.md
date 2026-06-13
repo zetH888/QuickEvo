@@ -77,14 +77,10 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Kategorie tras są wyznaczane z folderu pierwszego poziomu pod `ROUTES_FOLDER_ID`: `Baltic Medica`, `Dostawy`, `Dzika`, `Wilanów`, `Wołomin` -> `STANDARD`; `Wieczorki` -> `WIECZOREK`; `Soboty` -> `SOBOTA`; `Niedziele` -> `NIEDZIELA`
 - Obsługa grafiku kierowców: plik o nazwie „MIASTO MIESIĄC ROK.(xlsx/xls/csv)” jest parsowany do przypisań trasa→kierowca (bez indeksowania w wyszukiwarce)
 - API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate`, dat ISO (YYYY-MM-DD) oraz dynamicznego katalogu tras zbudowanego z plików zsynchronizowanych z Google Drive
-- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i diff dla tras; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
+- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i powodami zmian; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
-- Widok różnic porównuje rekordy po stabilnym ID z pierwszej kolumny (Rxx), a nie po indeksie wiersza
-- Widok różnic prezentuje unified diff (styl Git/VSCode), pokazuje kontekst (3 rekordy przed/po), wyrównuje kolumny i obsługuje przewijanie poziome
-- Widok różnic wizualizuje zmiany per-komórka (cell-level) dla modyfikacji i move+modify, bez agresywnego kolorowania całych wierszy
-- Przycisk różnic działa jako przełącznik „Pokaż/Ukryj różnice”, a dla nowych plików status jest sygnalizowany czerwonym „X”
+- Lazy podgląd różnic XLSX dla zmodyfikowanych plików: przycisk `Pokaż różnicę` otwiera drugi modal 80vw/80vh nad głównym oknem synchronizacji, porównuje lokalny `Blob` z IndexedDB z nowym `ArrayBuffer` z Google Drive i pokazuje listę zmienionych komórek bez nadpisywania danych
 - Niestandardowy pasek przewijania w oknie zmian Google Drive (premium overlay, pełna funkcjonalność przewijania)
-- Diff jest automatycznie blokowany dla nowych plików (brak sensu porównania) oraz ograniczany dla bardzo dużych plików (ochrona wydajności)
 - Trwałe przechowywanie w IndexedDB (dane lokalne; bez wysyłania na serwer)
 
 ### Interfejs
@@ -135,6 +131,7 @@ QuickEvo/
 │   │   ├── dom-refs.js
 │   │   ├── utils.js
 │   │   ├── search-engine.js
+│   │   ├── simple-xlsx-diff.js
 │   │   ├── state.js
 │   │   └── excel-processor.js
 │   ├── features/        # Logika specyficzna dla funkcji
@@ -172,7 +169,8 @@ QuickEvo/
 │   │   │   ├── preview-controller.js
 │   │   │   └── preview-labs-highlight.js
 │   │   ├── drive/
-│   │   │   └── drive-changes-modal.js
+│   │   │   ├── drive-changes-modal.js
+│   │   │   └── xlsx-diff-modal.js
 │   │   ├── search/
 │   │   │   └── predictive-ghost.js
 │   │   └── theme/

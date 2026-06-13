@@ -17,6 +17,8 @@ const QuickEvoTests = {
         await this.testScheduleService(ctx);
         await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
+        await this.testSimpleXlsxDiff(ctx);
+        await this.testDriveChangesModalDiffButton(ctx);
         await this.testDriveUnifiedSyncQueuedManual(ctx);
         await this.testDriveUnifiedSyncDeletesMissingDriveFiles(ctx);
         this.testModuleIsolation(ctx);
@@ -34,7 +36,7 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
@@ -44,9 +46,11 @@ const QuickEvoTests = {
             import('../features/search/search-results-sort.js'),
             import('../core/formatters/route-name.js'),
             import('../ui/preview/preview-labs-highlight.js'),
-            import('../ui/results/results-renderer.js')
+            import('../ui/results/results-renderer.js'),
+            import('../core/simple-xlsx-diff.js'),
+            import('../ui/drive/drive-changes-modal.js')
         ]);
-        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer };
+        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
     },
 
     async testXlsxLoaded() {
@@ -469,6 +473,88 @@ const QuickEvoTests = {
         }
     },
 
+    async testSimpleXlsxDiff(ctx) {
+        console.log("\nTesting XLSX diff — prosty diff pierwszego arkusza:");
+        try {
+            const diffMod = ctx?.simpleXlsxDiff;
+            this.assert(typeof diffMod?.buildSimpleXlsxDiff === 'function', "simple-xlsx-diff jest dostępny przez import");
+            if (typeof diffMod?.buildSimpleXlsxDiff !== 'function') return;
+
+            const XLSX = await import('https://esm.sh/xlsx@0.18.5');
+            const buildWorkbookBuffer = (matrix) => {
+                const wb = XLSX.utils.book_new();
+                const ws = XLSX.utils.aoa_to_sheet(matrix);
+                XLSX.utils.book_append_sheet(wb, ws, 'Arkusz1');
+                return XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            };
+
+            const oldBuffer = buildWorkbookBuffer([
+                ['Status', 'Uwagi'],
+                ['Pending', ''],
+                ['', 'Do dodania']
+            ]);
+            const newBuffer = buildWorkbookBuffer([
+                ['Status', 'Uwagi'],
+                ['Completed', ''],
+                ['', ''],
+                ['Nowy', 'Wiersz']
+            ]);
+
+            const diff = await diffMod.buildSimpleXlsxDiff({
+                fileName: 'TEST.xlsx',
+                oldSource: new Blob([oldBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+                newSource: newBuffer
+            });
+
+            this.assert(Boolean(diff?.hasChanges), 'Diff wykrywa zmiany między lokalnym Blob a nowym ArrayBuffer');
+            this.assert(diff?.summary?.cellsModified === 1, 'Diff poprawnie liczy zmodyfikowane komórki');
+            this.assert(diff?.summary?.cellsRemoved === 1, 'Diff poprawnie liczy usunięte komórki');
+            this.assert(diff?.summary?.cellsAdded === 2, 'Diff poprawnie liczy dodane komórki');
+            this.assert(diff?.changes?.some(c => c.address === 'A2' && c.type === 'modified' && c.oldValue === 'Pending' && c.newValue === 'Completed'), 'Diff zwraca zmienioną komórkę z poprawnym adresem A1');
+            this.assert(diff?.changes?.some(c => c.address === 'B3' && c.type === 'removed'), 'Diff wykrywa przejście z wartości niepustej na pustą');
+            this.assert(diff?.changes?.some(c => c.address === 'A4' && c.type === 'added'), 'Diff wykrywa nowy wiersz jako dodane komórki');
+
+            const unchanged = await diffMod.buildSimpleXlsxDiff({
+                fileName: 'TEST.xlsx',
+                oldSource: new Blob([oldBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+                newSource: oldBuffer
+            });
+            this.assert(unchanged?.hasChanges === false, 'Diff nie zgłasza zmian, gdy zawartość arkusza jest identyczna');
+            this.assert(String(unchanged?.message || '').includes('Timestamp pliku zmienił się na Google Drive'), 'Diff zwraca komunikat o zmianie timestampu bez zmian w treści');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować prostego diffu XLSX");
+            console.error(e);
+        }
+    },
+
+    async testDriveChangesModalDiffButton(ctx) {
+        console.log("\nTesting Google Drive UI — przycisk diff tylko dla zmodyfikowanych plików:");
+        try {
+            const modalMod = ctx?.driveChangesModal;
+            this.assert(typeof modalMod?.createDriveChangesModalController === 'function', "drive-changes-modal jest dostępny przez import");
+            if (typeof modalMod?.createDriveChangesModalController !== 'function') return;
+
+            const ctrl = modalMod.createDriveChangesModalController({
+                modalOverlay: document.createElement('div'),
+                modalContent: document.createElement('div'),
+                prefersReducedMotion: () => true,
+                formatFileName: (name) => String(name || '')
+            });
+
+            const html = ctrl.buildChangesModalHtml([
+                { name: 'TRASA 1.xlsx', changeReason: 'Nowsza wersja na Google Drive', isNewInDb: false },
+                { name: 'TRASA 2.xlsx', changeReason: 'Nowy plik', isNewInDb: true },
+                { name: 'TRASA 3.xlsx', changeReason: 'Plik usunięty z Google Drive', qeAction: 'delete_local', isDeletedOnDrive: true }
+            ]);
+
+            this.assert((html.match(/Pokaż różnicę/g) || []).length === 1, 'Przycisk diff renderuje się tylko dla istniejącego zmodyfikowanego pliku');
+            this.assert(html.includes('data-qe-change-index="0"'), 'Przycisk diff dostaje identyfikator pozycji do późniejszego otwarcia podglądu');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować przycisku diff w modalu zmian");
+            console.error(e);
+        }
+    },
+
     async testDriveUnifiedSyncDeletesMissingDriveFiles(ctx) {
         console.log("\nTesting Google Drive — drive-unified-sync: lokalne usuwanie plików skasowanych z Drive:");
         try {
@@ -522,7 +608,7 @@ const QuickEvoTests = {
                 buildConnectingModalHtml: (stage) => String(stage ?? ''),
                 buildNoChangesModalHtml: () => 'NO_CHANGES',
                 buildDeletionConfirmationModalHtml: (files) => `DELETE_CONFIRM:${files.map(f => String(f?.name || '')).join(',')}`,
-                buildChangesModalHtml: (changed) => changed.map(f => `${String(f?.name || '')}|${String(f?.changeReason || '')}|${String(f?.diffDisabledLabel || '')}`).join('\n'),
+                buildChangesModalHtml: (changed) => changed.map(f => `${String(f?.name || '')}|${String(f?.changeReason || '')}`).join('\n'),
                 showModal: (title, content, actions) => { modals.push({ title, content, actions }); },
                 hideModal: () => { },
                 setLoadingStatusText: () => { },
@@ -783,104 +869,6 @@ const QuickEvoTests = {
             const ok = res && Number.isFinite(res.pushMs) && Number.isFinite(res.openMs) && res.count === 1200;
             this.assert(ok, "benchmark zwraca wynik i nie zawiesza renderowania");
         }
-    },
-
-    testDriveDiff() {
-        console.log("\nTesting Drive Diff (Myers):");
-        this.assert(typeof window.qeComputeLineDiff === 'function', "qeComputeLineDiff jest dostępne globalnie");
-        if (typeof window.qeComputeLineDiff !== 'function') return;
-        const ops = window.qeComputeLineDiff(['a', 'b', 'c'], ['a', 'c', 'd']);
-        const del = ops.filter(o => o && o.t === 'del').length;
-        const ins = ops.filter(o => o && o.t === 'ins').length;
-        const eq = ops.filter(o => o && o.t === 'eq').length;
-        this.assert(del === 1, "Wykrywa usunięcie 1 linii");
-        this.assert(ins === 1, "Wykrywa dodanie 1 linii");
-        this.assert(eq === 2, "Zachowuje 2 linie wspólne");
-        this.assert(typeof window.qeComputeDiffContextSegments === 'function', "qeComputeDiffContextSegments jest dostępne globalnie");
-        if (typeof window.qeComputeDiffContextSegments === 'function') {
-            const segs = window.qeComputeDiffContextSegments([
-                { t: 'eq', a: '0' },
-                { t: 'eq', a: '1' },
-                { t: 'del', a: '2' },
-                { t: 'ins', b: '2x' },
-                { t: 'eq', a: '3' },
-                { t: 'eq', a: '4' },
-                { t: 'eq', a: '5' }
-            ], { contextLines: 2 });
-            const ok = Array.isArray(segs) && segs.length === 1 && segs[0].start === 0 && segs[0].end === 5;
-            this.assert(ok, "Kontekst 2 linie przed/po obejmuje poprawny zakres");
-        }
-    },
-
-    testDriveRecordDiffAcceptance() {
-        console.log("\nTesting Drive Diff (rekordy po ID) — testy akceptacyjne:");
-        this.assert(typeof window.qeComputeRecordDiff === 'function', "qeComputeRecordDiff jest dostępne globalnie");
-        this.assert(typeof window.qeRenderUnifiedRecordDiffHtml === 'function', "qeRenderUnifiedRecordDiffHtml jest dostępne globalnie");
-        if (typeof window.qeComputeRecordDiff !== 'function') return;
-
-        const makeRec = (id, dataCells) => ({ id, dataCells: Array.isArray(dataCells) ? dataCells : [] });
-
-        {
-            const oldRecs = [makeRec('R21', ['A']), makeRec('R22', ['B'])];
-            const newRecs = [makeRec('R21', ['A']), makeRec('R99', ['X']), makeRec('R22', ['B'])];
-            const ops = window.qeComputeRecordDiff(oldRecs, newRecs).ops;
-            const ins = ops.filter(o => o && o.t === 'ins');
-            const del = ops.filter(o => o && o.t === 'del');
-            this.assert(ins.length === 1, "Dodanie rekordu między R21 a R22 generuje dokładnie 1 insert");
-            this.assert(del.length === 0, "Dodanie rekordu nie generuje delete");
-            this.assert(ins[0]?.id === 'R99', "Insert dotyczy poprawnego ID");
-        }
-
-        {
-            const oldRecs = [makeRec('R21', ['A']), makeRec('R22', ['B']), makeRec('R23', ['C'])];
-            const newRecs = [makeRec('R21', ['A']), makeRec('R23', ['C'])];
-            const ops = window.qeComputeRecordDiff(oldRecs, newRecs).ops;
-            const del = ops.filter(o => o && o.t === 'del' && (o.id === 'R22' || o.rec?.id === 'R22'));
-            const r23Eq = ops.some(o => o && o.t === 'eq' && (o.id === 'R23' || o.rec?.id === 'R23'));
-            this.assert(del.length === 1, "Usunięcie rekordu generuje dokładnie 1 delete dla usuwanego ID");
-            this.assert(r23Eq, "Usunięcie rekordu nie oznacza następnych jako zmienione");
-        }
-
-        {
-            const oldRecs = [makeRec('R21', ['A', 'B'])];
-            const newRecs = [makeRec('R21', ['A', 'C'])];
-            const ops = window.qeComputeRecordDiff(oldRecs, newRecs).ops;
-            const del = ops.find(o => o && o.t === 'del' && (o.id === 'R21' || o.rec?.id === 'R21'));
-            const ins = ops.find(o => o && o.t === 'ins' && (o.id === 'R21' || o.rec?.id === 'R21'));
-            const changed = Array.isArray(del?.changedIdxs) ? del.changedIdxs : [];
-            this.assert(Boolean(del) && Boolean(ins), "Modyfikacja rekordu generuje parę delete + insert");
-            this.assert(changed.length === 1 && changed[0] === 1, "Modyfikacja pojedynczej komórki oznacza tylko zmienione pole");
-
-            if (typeof window.qeRenderUnifiedRecordDiffHtml === 'function') {
-                const html = window.qeRenderUnifiedRecordDiffHtml({ ops }, { contextLines: 999 });
-                const hits = String(html || '').split('is-changed').length - 1;
-                this.assert(hits === 2, "Highlightowanie obejmuje tylko zmodyfikowaną komórkę (po jednej na linię -/+)");
-            }
-        }
-    },
-
-    testDriveDiffUi() {
-        console.log("\nTesting Drive Diff UI (unified) — układ i wyrównanie kolumn:");
-        this.assert(typeof window.qeRenderUnifiedRecordDiffHtml === 'function', "qeRenderUnifiedRecordDiffHtml jest dostępne globalnie");
-
-        if (typeof window.buildDriveChangesModalHtml === 'function') {
-            const html = window.buildDriveChangesModalHtml([{ name: 'test.xlsx', id: '1', isNewInDb: false, driveModifiedAt: Date.now(), previousDriveModifiedAt: Date.now() - 1000 }]);
-            this.assert(!String(html).includes('Kontekst'), "Nie renderuje przycisku/tekstu „Kontekst” w oknie różnic");
-            this.assert(!String(html).includes('qe-drive-diff-ctx-btn'), "Nie renderuje przycisku kontekstu (brak klasy qe-drive-diff-ctx-btn)");
-            this.assert(!String(html).includes('data-qe-diff-ctx'), "Nie renderuje atrybutu data-qe-diff-ctx");
-        }
-
-        if (typeof window.qeRenderUnifiedRecordDiffHtml !== 'function') return;
-        const makeRec = (id, dataCells) => ({ id, dataCells: Array.isArray(dataCells) ? dataCells : [] });
-        const ops = [
-            { t: 'eq', rec: makeRec('R21', ['A', 'BBBB']) },
-            { t: 'eq', rec: makeRec('R22', ['CC', 'D']) }
-        ];
-        const html = window.qeRenderUnifiedRecordDiffHtml({ ops }, { contextLines: 999 });
-        this.assert(String(html).includes('qe-drive-diff-unified-scroll'), "Zawiera kontener przewijania poziomego");
-        this.assert(String(html).includes('min-width:2ch'), "Dopasowuje szerokość kolumny do najdłuższej wartości (kolumna 1)");
-        this.assert(String(html).includes('min-width:4ch'), "Dopasowuje szerokość kolumny do najdłuższej wartości (kolumna 2)");
-        this.assert(!String(html).includes('R21'), "Nie renderuje jawnie ID/indeksu w pierwszej kolumnie diff");
     },
 
     testPreviewIndexColumnHidden() {

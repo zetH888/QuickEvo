@@ -242,9 +242,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 isNewInDb: false,
                 changeReason: 'Plik usunięty z Google Drive',
                 previousDriveModifiedAt: Number(record?.driveModifiedAt ?? 0) || null,
-                driveModifiedAt: null,
-                diffDisabledLabel: 'Wymaga usunięcia lokalnie',
-                diffDisabledStatus: 'blocked'
+                driveModifiedAt: null
             });
         }
 
@@ -266,9 +264,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
                     changeReason: reason,
                     previousDriveModifiedAt: hasPrev ? prev : null,
                     isNewInDb: false,
-                    qeKind: 'schedule',
-                    diffDisabledLabel: reason,
-                    diffDisabledStatus: 'check'
+                    qeKind: 'schedule'
                 });
             }
         } else {

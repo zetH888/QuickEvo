@@ -291,18 +291,15 @@ Zadania:
 
 ---
 
-### Faza 4 — Czysty silnik diff (core/drive-diff.js) — Medium risk
+### Faza 4 — Uproszczenie modalu zmian Google Drive — Medium risk
 
 Exploracja:
-- Cały plik `ui/drive/drive-changes-modal.js` — szczególnie funkcje od linii ~367 w dół (computeDriveFileDiff, LCS, computeRecordDiff, computeChangedCellIndices itd.).
+- Cały plik `ui/drive/drive-changes-modal.js` — obecnie tylko renderer listy zmian, rozwijanie kafelkow i pasek przewijania.
 
 Zadania:
-1. Utwórz `js/core/drive-diff.js` z czystymi funkcjami (bez DOM, bez side effects).
-2. Wyeksportuj: `computeRecordDiff`, `computeDiffContextSegments`, helpers do ID, LCS, cell changes.
-3. W `drive-changes-modal.js`:
-   - Zaimportuj silnik.
-   - Zostaw tylko budowanie HTML, stany UI (rozwijanie, loading, error), lazy wywołanie diff.
-   - Usuń/duplikuj logikę obliczeniową.
+1. Trzymaj `drive-changes-modal.js` jako lekki modul UI bez porownywania rekordow.
+2. Rozszerzaj modal tylko o liste plikow, powody zmian i metadane synchronizacji.
+3. Pilnuj, aby logika pobierania i kwalifikowania zmian pozostawala w warstwie aplikacyjnej, a nie w UI.
 4. Dodaj JSDoc po polsku w nowym module.
 
 **Success:** Plik modalu wyraźnie mniejszy, diff jest testowalny w izolacji.
@@ -492,9 +489,9 @@ Podobny szablon dla core/ (patrz utils.js i search-engine.js).
 - `countNonEmpty` (2565), `isEmptyCell` (2572)
 - Wrappery schedule processing: `processScheduleFile` (1069), `parseScheduleSpreadsheet` (1065), `loadScheduleFiles` (1077), `invalidateScheduleFile` (1073)
 
-**Do core/drive-diff.js:**
+**Do UI Google Drive:**
 - `buildDriveConnectingModalHtml` (1321), `buildDriveNoChangesModalHtml` (1326) — częściowo
-- Cała logika z drive-changes-modal: `computeDriveFileDiff`, `computeLcsIds`, `diffIdsUsingLcs`, `computeChangedCellIndices`, `computeRecordDiff`, `computeDiffContextSegments`, `hashStringDjb2`, `tryNormalizeRecordId`, `extractRecordIdFromRowCells`, `selectRecordDataCells`, `tableModelToRecordList`
+- Lekki renderer `drive-changes-modal.js` odpowiedzialny za HTML, rozwijanie kafelkow i pasek przewijania
 
 **Do app/routes-application.js:**
 - `renderRoutesView` (2137)
