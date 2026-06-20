@@ -23,6 +23,7 @@
  * - getAccessToken
  * - crawlFolder
  * - listFolderFilesShallow
+ * - getFileMetadata
  * - downloadFileArrayBuffer
  * - validateExcelFileName
  */
@@ -246,6 +247,56 @@ export async function downloadFileArrayBuffer(fileId, token, { signal } = {}) {
     const ab = await res.arrayBuffer();
     downloadCache.set(safeId, ab);
     return ab;
+}
+
+/**
+ * Pobiera metadane pojedynczego pliku Google Drive na podstawie jego `fileId`.
+ *
+ * Funkcja jest używana dla źródeł specjalnych, które nie są listowane po folderze,
+ * np. pojedynczego pliku kontaktów kierowców wskazanego stałym identyfikatorem.
+ *
+ * @param {string} fileId
+ * @param {string} token
+ * @param {{ signal?: AbortSignal }} [opts]
+ * @returns {Promise<{ id: string, name: string, mimeType: string, driveModifiedAt: (number|null) }>}
+ */
+export async function getFileMetadata(fileId, token, { signal } = {}) {
+    const safeFileId = String(fileId || '').trim();
+    const safeToken = String(token || '').trim();
+    if (!safeFileId) throw new Error('Brak fileId');
+    if (!safeToken) throw new Error('Brak access token');
+
+    const params = new URLSearchParams();
+    params.set('fields', 'id,name,mimeType,modifiedTime');
+
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(safeFileId)}?${params.toString()}`;
+    const res = await fetch(url, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${safeToken}` },
+        cache: 'no-store',
+        signal
+    });
+
+    if (!res.ok) {
+        let details = '';
+        try { details = await res.text(); } catch { }
+        const err = new Error(`Google Drive: błąd pobierania metadanych (${res.status})`);
+        err.status = res.status;
+        err.details = details;
+        throw err;
+    }
+
+    const file = await res.json().catch(() => ({}));
+    const id = String(file?.id || '').trim();
+    const name = String(file?.name || '').trim();
+    if (!id || !name) throw new Error('Google Drive: nieprawidłowe metadane pliku.');
+
+    return {
+        id,
+        name,
+        mimeType: String(file?.mimeType || ''),
+        driveModifiedAt: parseDriveModifiedAt(file?.modifiedTime)
+    };
 }
 
 /**

@@ -10,7 +10,7 @@ import * as utils from '../core/utils.js';
 import * as searchEngine from '../core/search-engine.js';
 import * as state from '../core/state.js';
 import * as excelProcessor from '../core/excel-processor.js';
-import { createDataStore } from '../core/data-store.js';
+import { buildRouteFileIndex, createDataStore, extractRouteCodeFromFileName, normalizeRouteCodeForLookup } from '../core/data-store.js';
 import { getAppDomRefs } from '../core/dom-refs.js';
 import { buildSimpleXlsxDiff } from '../core/simple-xlsx-diff.js';
 import * as driveService from '../services/drive-service.js';
@@ -20,6 +20,7 @@ import { createPreviewApplication } from '../app/preview-application.js';
 import { createDriveUnifiedSyncApplication } from '../app/drive-unified-sync-application.js';
 import { createNavigationApplication } from '../app/navigation-application.js';
 import { createLoadingApplication } from '../app/loading-application.js';
+import { createDriverContactsService } from '../services/driver-contacts-service.js';
 import { createScheduleService } from '../services/schedule-service.js';
 import { createSearchOrchestrator } from '../features/search/search-orchestrator.js';
 import { SEARCH_RESULTS_SORT_MODE_ALPHANUM, SEARCH_RESULTS_SORT_MODE_TIME, sortSearchResultGroups } from '../features/search/search-results-sort.js';
@@ -166,6 +167,23 @@ let googleDriveSyncBusyLocks = 0;
  */
 const DRIVE_SCHEDULE_FOLDER_ID = '10m4VzgbWqLy3U5V4lP_e-TN-vZVCyhGj';
 
+/**
+ * Stały identyfikator pliku Google Drive z kontaktami kierowców.
+ */
+const DRIVE_DRIVER_CONTACTS_FILE_ID = '1Er4pGFK3_5_nsAPKO5xgyWfgO1UUoYws';
+
+/**
+ * Typ źródła pliku kontaktów kierowców zapisywany w IndexedDB.
+ */
+const DRIVER_CONTACTS_SOURCE_KIND = 'driver_contacts';
+
+/**
+ * Testowe numery rejestracyjne wykorzystywane tymczasowo w UI kierowców.
+ *
+ * Docelowo pole zostanie podmienione na dane z osobnego pliku źródłowego.
+ */
+const DRIVER_TEST_REGISTRATIONS = Object.freeze(['WG T3ST', 'WND T3ST', 'WW T3ST', 'WB T3ST', 'WU T3ST']);
+
 
 //////////////////////////////////////////////////
 // CACHE ELEMENTÓW DOM
@@ -228,8 +246,7 @@ const {
     ghostOverlay,
     ghostPrefix,
     ghostSuffix,
-    suggestOverlay,
-    suggestList,
+    ghostHint,
     previewFileName,
     previewTableHeader,
     previewTableBody,
@@ -273,7 +290,7 @@ let logoRenderer = null;
 const dataStore = createDataStore();
 
 /** @type {Array<Object>} */
-let allData = dataStore.getAllData();
+const allData = dataStore.getAllData();
 
 /**
  * Aktualnie wyświetlana strona wyników wyszukiwania.
@@ -314,9 +331,6 @@ let pendingResultsScrollRestore = null;
  */
 let pendingResultsScrollRestoreRunner = null;
 
-/** @type {string} Ostatnie zapytanie użyte do wyszukiwania. */
-let lastQuery = ''; 
-
 /**
  * Tryb sortowania wyników wyszukiwania (domyślnie alfanumerycznie).
  * Wartość jest przechowywana w localStorage i odczytywana podczas startu aplikacji.
@@ -330,9 +344,6 @@ let searchResultsSortMode = SEARCH_RESULTS_SORT_MODE_ALPHANUM;
  */
 const SEARCH_RESULTS_SORT_MODE_STORAGE_KEY = 'qeSearchResultsSortMode';
 
-/** @type {number} Rewizja danych (allData) używana do detekcji zmian wymagających ponownego renderu wyników. */
-let allDataRevision = dataStore.getRevision();
-
 /** @type {{ query: string, dataRevision: number }} Ostatnio wyrenderowane wyniki (zapytanie + rewizja danych). */
 const lastRenderedSearch = dataStore.getLastRenderedSearch();
 
@@ -342,6 +353,8 @@ const loadedFiles = dataStore.getLoadedFiles();
 /** @type {Object<string, Object>} Mapowanie nazwy pliku na pełny model danych tabeli. */
 const fullFileData = dataStore.getFullFileData(); 
 let scheduleService = null;
+let driverContactsService = null;
+const driverGridInteractionControllers = new WeakMap();
 
 /**
  * Indeks tras zaimportowanych do bazy (kod trasy -> nazwa pliku).
@@ -482,10 +495,9 @@ function ensurePredictiveGhostController() {
         ghostOverlay,
         ghostPrefix,
         ghostSuffix,
-        suggestOverlay,
-        suggestList,
+        ghostHint,
         minChars: 2,
-        maxDropdownItems: 5,
+        maxNavigableItems: 5,
         isSearchEnabled: () => isSearchEnabled,
         fuzzyNormalizeText,
         getPredictiveSuggestions: (norm, opts) => ensureSearchApplication().getPredictiveSuggestions(norm, opts),
@@ -674,11 +686,10 @@ function setupSearchResultsSortToggle() {
         applyToggleState();
 
         const hasResults = Array.isArray(currentResults) && currentResults.length > 0;
-        const activeQuery = String(lastQuery || '').trim();
+        const activeQuery = String(dataStore.getLastQuery() || '').trim();
         if (hasResults && activeQuery.length >= 3) {
             const sorted = sortSearchResultGroups(currentResults, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
-            currentResults.length = 0;
-            currentResults.push(...sorted);
+            dataStore.setCurrentResults(sorted);
             void renderResults(activeQuery, { append: false, startIndex: 0 }).catch((err) => console.error(err));
         }
 
@@ -942,10 +953,10 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
         const routeRecords = await getRouteFileRecords();
         refreshRouteMetaIndex(routeRecords);
         const spreadsheetFiles = routeRecords.map(r => String(r?.name ?? '')).filter(Boolean);
-        dataStore.setRouteFileIndexByCode(buildRouteFileIndex(routeRecords));
+        dataStore.rebuildRouteFileIndex(routeRecords);
         fileCountSpan.textContent = String(routeRecords.length);
         if (fullReload) resetAppData();
-        const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter(f => !loadedFiles.has(f));
+        const filesToLoad = fullReload ? spreadsheetFiles : spreadsheetFiles.filter((fileName) => !dataStore.hasLoadedFile(fileName));
         if (showProgress) updateLoadingProgressStart(filesToLoad.length);
 
         if (filesToLoad.length > 0) {
@@ -956,8 +967,9 @@ async function loadAllFiles({ fullReload, showProgress } = { fullReload: false, 
         }
 
         schedulePredictiveIndexRebuild({ reason: 'load_all_files_done' });
-        if (isSearchEnabled && lastQuery && lastQuery.trim().length >= 3) {
-            performSearch(lastQuery.trim());
+        const activeQuery = String(dataStore.getLastQuery() || '').trim();
+        if (isSearchEnabled && activeQuery.length >= 3) {
+            performSearch(activeQuery);
         }
     } catch (error) {
         handleLoadError(error, showProgress);
@@ -995,7 +1007,7 @@ async function processFilesWithConcurrency(filesToLoad, showProgress) {
             if (showProgress) setLoadingStatusText(`Wczytuję: ${displayName}`);
             try {
                 await processFile(file);
-                loadedFiles.add(file);
+                dataStore.addLoadedFile(file);
             } catch (err) {
                 loadErrors.push({ fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' });
                 logAction('load_file', { fileName: String(file), message: err?.message ? String(err.message) : 'Błąd pliku' }, 'WARN');
@@ -1023,7 +1035,7 @@ async function processFile(fileName) {
 async function parseSpreadsheet(source, fileName) {
     try {
         const tableModel = await qeGetExcelProcessor().parseTableModelFromSource(source, fileName);
-        fullFileData[fileName] = tableModel;
+        dataStore.setFullFileData(fileName, tableModel);
         addTableRows(tableModel, fileName);
         try {
             const payload = qeBuildPredictiveSourcePayloadFromTableModel(tableModel, fileName);
@@ -1051,6 +1063,18 @@ function ensureScheduleService() {
         logAction
     });
     return scheduleService;
+}
+
+function ensureDriverContactsService() {
+    if (driverContactsService) return driverContactsService;
+    driverContactsService = createDriverContactsService({
+        listFiles: docsListFiles,
+        getBlob: docsGetBlob,
+        readWorkbook,
+        sheetToMatrix: (worksheet) => qeGetExcelProcessor().sheetToMatrix(worksheet),
+        logAction
+    });
+    return driverContactsService;
 }
 
 function parseScheduleFileNameYearMonth(fileName) {
@@ -1082,6 +1106,28 @@ async function loadScheduleFiles({ fullReload, showProgress } = { fullReload: fa
     });
 }
 
+async function processDriverContactsFile(fileName) {
+    return await ensureDriverContactsService().processDriverContactsFile(fileName);
+}
+
+function invalidateDriverContactsFile(fileName) {
+    ensureDriverContactsService().invalidateDriverContactsFile(fileName);
+}
+
+async function loadDriverContactsFiles({ fullReload } = { fullReload: false }) {
+    return await ensureDriverContactsService().loadDriverContactsFiles({
+        fullReload: Boolean(fullReload)
+    });
+}
+
+function getDriverContactForName(driverName) {
+    return ensureDriverContactsService().getContactForDriverName(driverName);
+}
+
+function getDriverContactsByRole(roleCategory) {
+    return ensureDriverContactsService().getContactsByRole(roleCategory);
+}
+
 function getDriverForRouteOnDate(routeCode, date) {
     return ensureScheduleService().getDriverNamesForRouteOnDate(routeCode, date);
 }
@@ -1101,6 +1147,159 @@ function getDriverForRouteOnIsoDate(routeCode, isoDate) {
 function normalizeDriverDisplayName(value) {
     const raw = value === null || value === undefined ? '' : String(value);
     return raw.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Zwraca nazwisko kierowcy na podstawie danych z grafiku.
+ *
+ * Zgodnie z założeniem widoku pierwszy człon w grafiku jest źródłem prawdy
+ * dla nazwiska i to po nim sortujemy oraz grupujemy kafelki.
+ *
+ * @param {string} driverName
+ * @returns {string}
+ */
+function getDriverSurnameFromScheduleName(driverName) {
+    const normalized = normalizeDriverDisplayName(driverName);
+    if (!normalized) return '';
+    const [surname = ''] = normalized.split(' ');
+    return surname.trim();
+}
+
+/**
+ * Buduje klucz sortowania kierowcy po nazwisku, a następnie po pełnej nazwie.
+ *
+ * @param {string} driverName
+ * @returns {string}
+ */
+function buildDriverSurnameSortKey(driverName) {
+    const normalized = normalizeDriverDisplayName(driverName);
+    const surname = getDriverSurnameFromScheduleName(normalized);
+    const surnameKey = fuzzyNormalizeText(surname);
+    const fullKey = fuzzyNormalizeText(normalized);
+    return `${surnameKey}||${fullKey}`;
+}
+
+/**
+ * Wyznacza literę sekcji alfabetycznej na podstawie nazwiska kierowcy.
+ *
+ * @param {string} driverName
+ * @returns {string}
+ */
+function buildDriverSectionLetter(driverName) {
+    const surname = getDriverSurnameFromScheduleName(driverName);
+    const normalized = fuzzyNormalizeText(surname);
+    const letter = String(normalized.charAt(0) || '').toUpperCase();
+    return /^[A-Z]$/.test(letter) ? letter : '#';
+}
+
+const DRIVER_ROLE_SECTION_CONFIG = Object.freeze([
+    { key: 'szef', singular: 'Szef', plural: 'Szefowie' },
+    { key: 'kierownik', singular: 'Kierownik', plural: 'Kierownicy' },
+    { key: 'koordynator', singular: 'Koordynator', plural: 'Koordynatorzy' },
+    { key: 'dyspozytor', singular: 'Dyspozytor', plural: 'Dyspozytorzy' }
+]);
+
+function getDriverRoleSectionTitle(roleKey, count) {
+    const config = DRIVER_ROLE_SECTION_CONFIG.find((item) => item.key === String(roleKey ?? '').trim());
+    if (!config) return '';
+    return Number(count) === 1 ? config.singular : config.plural;
+}
+
+function ensureDriverRoleSectionsContainer() {
+    if (!driversView) return null;
+    let container = driversView.querySelector('.qe-role-sections');
+    if (container) return container;
+
+    container = document.createElement('div');
+    container.className = 'qe-role-sections';
+    const header = driversView.querySelector('.qe-view-header');
+    if (header?.parentNode === driversView) {
+        driversView.insertBefore(container, header);
+    } else {
+        driversView.prepend(container);
+    }
+    return container;
+}
+
+function cleanupDriverGridInteractions(rootEl) {
+    if (!(rootEl instanceof HTMLElement)) return;
+    const containers = [rootEl, ...rootEl.querySelectorAll('.qe-driver-sections, .qe-driver-role-grid')];
+    for (const container of containers) {
+        if (!(container instanceof HTMLElement)) continue;
+        const controller = driverGridInteractionControllers.get(container);
+        if (!controller) continue;
+        try { controller.abort(); } catch { }
+        driverGridInteractionControllers.delete(container);
+    }
+}
+
+function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '') {
+    return {
+        label: String(label ?? '').trim(),
+        phones: Array.isArray(phones)
+            ? phones.map((phone) => ({
+                phoneDisplay: String(phone?.phoneDisplay ?? '').trim(),
+                phoneHref: String(phone?.phoneHref ?? '').trim()
+            })).filter((phone) => phone.phoneDisplay)
+            : [],
+        registration: String(registration ?? '').trim(),
+        hasContact: Array.isArray(phones) && phones.length > 0,
+        roleCategory: String(roleCategory ?? '').trim(),
+        roleNote: String(roleNote ?? '').trim()
+    };
+}
+
+/**
+ * Rozdziela nazwę kierowcy na dwa wiersze:
+ * - pierwszy wiersz: nazwisko,
+ * - drugi wiersz: pozostałe człony (najczęściej imię).
+ *
+ * @param {string} driverName
+ * @returns {{ surname: string, givenNames: string }}
+ */
+function splitDriverNameForTile(driverName) {
+    const normalized = normalizeDriverDisplayName(driverName);
+    if (!normalized) return { surname: '', givenNames: '' };
+    const [surname = '', ...rest] = normalized.split(' ');
+    return {
+        surname: surname.trim(),
+        givenNames: rest.join(' ').trim()
+    };
+}
+
+/**
+ * Wyznacza docelową szerokość kafelka dla całej sekcji na podstawie
+ * najdłuższego wiersza nazwy kierowcy w tej sekcji.
+ *
+ * @param {Array<{ label?: string }>} items
+ * @returns {string}
+ */
+function estimateDriverSectionTileWidth(items) {
+    const list = Array.isArray(items) ? items : [];
+    let longestLineChars = 14;
+
+    for (const item of list) {
+        const { surname, givenNames } = splitDriverNameForTile(String(item?.label ?? ''));
+        longestLineChars = Math.max(
+            longestLineChars,
+            String(surname || '').length,
+            String(givenNames || surname || '').length
+        );
+    }
+
+    const clampedChars = Math.max(14, Math.min(longestLineChars + 4, 34));
+    return `calc(${clampedChars}ch + 2.5rem)`;
+}
+
+/**
+ * Zwraca krótką etykietę roli do badge w panelu szczegółów.
+ *
+ * @param {string} roleCategory
+ * @returns {string}
+ */
+function getDriverRoleBadgeLabel(roleCategory) {
+    const title = getDriverRoleSectionTitle(roleCategory, 1);
+    return String(title ?? '').trim();
 }
 
 function buildDriverBadgesHtml(driverNames) {
@@ -1134,7 +1333,7 @@ async function finalizeImportedFiles(summary, before) {
     try { fileCountSpan.textContent = String((await getRouteFileRecords()).length); } catch { }
     try { setSearchEnabled(after > 0); } catch { }
 
-    const q = String(lastQuery || '').trim();
+    const q = String(dataStore.getLastQuery() || '').trim();
     if (q.length >= 3 && Boolean(isSearchEnabled)) {
         try { performSearch(q); } catch { }
     }
@@ -1155,6 +1354,7 @@ function ensureDriveUnifiedSyncApplication() {
         getApi: () => qeGetDriveService(),
         getFolderIdRoutes: () => ROUTES_FOLDER_ID,
         getFolderIdSchedule: () => DRIVE_SCHEDULE_FOLDER_ID,
+        getDriverContactsFileId: () => DRIVE_DRIVER_CONTACTS_FILE_ID,
         parseScheduleMetaStrictXlsx: (name) => ensureScheduleService().parseScheduleFileNameYearMonthStrictXlsx(name),
         toTitleCase,
         maxImportBytes: MAX_IMPORT_BYTES,
@@ -1163,6 +1363,7 @@ function ensureDriveUnifiedSyncApplication() {
         deleteDbFiles: (names) => docsDeleteFiles(names),
         putDbBlob: (name, blob, meta) => docsPutBlob(name, blob, {
             driveModifiedAt: meta?.driveModifiedAt ?? null,
+            sourceKind: String(meta?.sourceKind ?? '').trim() || 'route',
             topLevelFolderName: meta?.topLevelFolderName ?? '',
             routeCategory: mapTopLevelRouteFolderToCategory(meta?.topLevelFolderName)
         }),
@@ -1170,6 +1371,8 @@ function ensureDriveUnifiedSyncApplication() {
         isScheduleFileName,
         invalidateScheduleFile,
         processScheduleFile,
+        invalidateDriverContactsFile,
+        processDriverContactsFile,
         processFile,
         loadedFiles,
         getAllDataLength: () => allData.length,
@@ -1221,36 +1424,6 @@ function ensureDriveUnifiedSyncApplication() {
     });
 
     return driveUnifiedSyncApplication;
-}
-function extractRouteCodeFromFileName(fileName) {
-    const raw = String(fileName || '');
-    const match = raw.match(/\btrasa\b\s*([A-Za-zĄĆĘŁŃÓŚŹŻ0-9]+(?:\s*[-–]\s*\d+)?)\b/i);
-    if (!match) return '';
-    const codeRaw = match[1] || '';
-    const normalized = String(codeRaw)
-        .replace(/[–—]/g, '-')
-        .replace(/\s*-\s*/g, '-')
-        .replace(/[^A-Za-zĄĆĘŁŃÓŚŹŻ0-9-]/g, '')
-        .toUpperCase();
-    return normalized;
-}
-
-/**
- * Normalizuje kod trasy do postaci porównywalnej między:
- * - nazwą pliku trasy (extractRouteCodeFromFileName),
- * - grafikiem (schedule-service).
- *
- * @param {unknown} value
- * @returns {string}
- */
-function normalizeRouteCodeForLookup(value) {
-    const raw = String(value ?? '').trim();
-    if (!raw) return '';
-    return raw
-        .replace(/[–—]/g, '-')
-        .replace(/\s*-\s*/g, '-')
-        .replace(/\s+/g, '')
-        .toUpperCase();
 }
 
 /**
@@ -1352,25 +1525,6 @@ function getRouteCategoriesForFile(fileName) {
 }
 
 /**
- * Buduje indeks kodów tras dostępnych w bazie (IndexedDB) na podstawie listy plików arkuszy.
- *
- * @param {Array<{ name?: string, routeCategory?: string, topLevelFolderName?: string }>} routeRecords
- * @returns {Map<string, string>}
- */
-function buildRouteFileIndex(routeRecords) {
-    const list = Array.isArray(routeRecords) ? routeRecords : [];
-    const map = new Map();
-    for (const record of list) {
-        const name = String(record?.name ?? '').trim();
-        if (!name) continue;
-        const code = normalizeRouteCodeForLookup(extractRouteCodeFromFileName(name));
-        if (!code) continue;
-        if (!map.has(code)) map.set(code, name);
-    }
-    return map;
-}
-
-/**
  * Pobiera rekordy plików tras z bazy, razem z metadanymi kategorii pochodzącymi z Google Drive.
  *
  * @returns {Promise<Array<{ name: string, size: number, updatedAt: number, driveModifiedAt: (number|null), routeCategory?: string, topLevelFolderName?: string }>>}
@@ -1383,7 +1537,9 @@ async function getRouteFileRecords() {
             const name = String(f?.name ?? '').trim();
             const lower = name.toLowerCase();
             const isSpreadsheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
-            return Boolean(name) && isSpreadsheet && !isScheduleFileName(name);
+            const sourceKind = String(f?.sourceKind ?? '').trim();
+            const isDriverContacts = sourceKind === DRIVER_CONTACTS_SOURCE_KIND;
+            return Boolean(name) && isSpreadsheet && !isScheduleFileName(name) && !isDriverContacts;
         })
         : [];
     routeRecords.sort((a, b) => String(a?.name ?? '').localeCompare(String(b?.name ?? ''), 'pl', { sensitivity: 'base' }));
@@ -1594,7 +1750,6 @@ function addTableRows(tableModel, fileName) {
         if (normalizedRow) normalizedRows.push(normalizedRow);
     }
     dataStore.addRows(normalizedRows);
-    allDataRevision = dataStore.getRevision();
     return normalizedRows.length;
 }
 
@@ -1638,8 +1793,8 @@ async function performSearch(query) {
     const trimmed = String(query || '').trim();
     if (trimmed.length >= 3) {
         const renderedMatchesQuery = String(lastRenderedSearch?.query || '').trim() === trimmed;
-        const renderedMatchesData = Number(lastRenderedSearch?.dataRevision) === allDataRevision;
-        const lastMatchesQuery = String(lastQuery || '').trim() === trimmed;
+        const renderedMatchesData = Number(lastRenderedSearch?.dataRevision) === dataStore.getRevision();
+        const lastMatchesQuery = String(dataStore.getLastQuery() || '').trim() === trimmed;
         const hasRenderedDom = Boolean(resultsList && resultsList.childElementCount > 0);
         if (renderedMatchesQuery && renderedMatchesData && lastMatchesQuery && currentResults.length > 0 && hasRenderedDom) {
             if (statusIndicator) statusIndicator.textContent = 'Dane gotowe.';
@@ -1674,17 +1829,12 @@ function ensureSearchApplication() {
             if (!statusIndicator) return;
             statusIndicator.classList.toggle('status--hint', Boolean(isHint));
         },
-        setLastQuery: (q) => { lastQuery = String(q || ''); },
-        setMatchedResults: (results) => {
-            matchedResults.length = 0;
-            const list = Array.isArray(results) ? results : [];
-            matchedResults.push(...list);
-        },
+        setLastQuery: (q) => { dataStore.setLastQuery(q); },
+        setMatchedResults: (results) => { dataStore.setMatchedResults(results); },
         setCurrentResults: (results) => {
             const list = Array.isArray(results) ? results : [];
             const sorted = sortSearchResultGroups(list, { mode: searchResultsSortMode, now: new Date(), formatRouteNameForResults });
-            currentResults.length = 0;
-            currentResults.push(...sorted);
+            dataStore.setCurrentResults(sorted);
         },
         renderResults: async (q) => { await renderResults(String(q || ''), { append: false, startIndex: 0 }); },
         handleShortQuery: handleSearchShortQuery,
@@ -1721,10 +1871,7 @@ function compileKeyLabTokenSets() {
 function removeFileData(fileName) {
     const safe = String(fileName || '');
     if (!safe) return;
-    const beforeLen = allData.length;
-    dataStore.setAllData(allData.filter(d => d?.fileName !== safe));
-    if (allData.length !== beforeLen) allDataRevision = dataStore.getRevision();
-    delete fullFileData[safe];
+    dataStore.removeDataForFile(safe);
     loadErrors = loadErrors.filter(e => e?.fileName !== safe);
     try { ensureSearchApplication().removePredictiveSource(safe); } catch { }
 }
@@ -1733,13 +1880,9 @@ function removeFileData(fileName) {
  * Resetuje kluczowe dane aplikacji.
  */
 function resetAppData() {
-    dataStore.reset(); lastQuery = '';
-    dataStore.clearLoadedFiles(); dataStore.clearFullFileData(); loadErrors = [];
-    routeFileIndexByCode.clear();
-    allDataRevision = dataStore.getRevision();
-    dataStore.clearCurrentResults();
-    dataStore.clearMatchedResults();
-    dataStore.resetLastRenderedSearch();
+    dataStore.resetDataRuntimeState();
+    loadErrors = [];
+    try { ensureDriverContactsService().clearCache(); } catch { }
     try { schedulePredictiveIndexRebuild({ reason: 'full_reload_force' }); } catch { }
 }
 
@@ -1792,8 +1935,7 @@ async function renderResults(query, { append = false, startIndex = 0 } = {}) {
     ensureResultsCategoryController().updateCounts(sections, currentResults);
     ensureResultsCategoryController().syncHeights(sections);
     if (!append && startIndex === 0) {
-        lastRenderedSearch.query = String(query || '');
-        lastRenderedSearch.dataRevision = allDataRevision;
+        dataStore.setLastRenderedSearch(query, dataStore.getRevision());
     }
     window.requestAnimationFrame(() => {
         try { syncRouteCategorySectionHeights(sections); } catch { }
@@ -1834,7 +1976,7 @@ function applyResultsScrollRestoreOnce() {
     if (!pendingResultsScrollRestore || !resultsList) return true;
 
     const expectedQuery = String(pendingResultsScrollRestore.query || '').trim();
-    const currentQuery = String(lastQuery || '').trim();
+    const currentQuery = String(dataStore.getLastQuery() || '').trim();
     if (expectedQuery && currentQuery && expectedQuery !== currentQuery) {
         pendingResultsScrollRestore = null;
         return true;
@@ -1933,7 +2075,7 @@ function capturePendingResultsScrollRestore(anchorEl, { fileName, rowIndex } = {
     } catch { }
 
     pendingResultsScrollRestore = {
-        query: String(lastQuery || '').trim(),
+        query: String(dataStore.getLastQuery() || '').trim(),
         fileName: safeName,
         rowIndex: idx,
         scrollTop,
@@ -2194,7 +2336,7 @@ function setSearchEnabled(enabled) {
  * Czyści wyniki wyszukiwania.
  */
 function clearResults() {
-    lastQuery = '';
+    dataStore.clearLastQuery();
     dataStore.clearMatchedResults();
     dataStore.clearCurrentResults();
     dataStore.resetLastRenderedSearch();
@@ -2420,6 +2562,415 @@ function renderTileGrid(containerEl, items, { emptyText = 'Brak danych.', passiv
     }
 }
 
+/**
+ * Kopiuje tekst do schowka, korzystając z nowoczesnego API lub fallbacku
+ * opartego o tymczasowe pole tekstowe.
+ *
+ * @param {string} text
+ * @returns {Promise<boolean>}
+ */
+async function copyTextToClipboard(text) {
+    const safeText = String(text ?? '');
+    if (!safeText) return false;
+
+    try {
+        if (navigator?.clipboard?.writeText) {
+            await navigator.clipboard.writeText(safeText);
+            return true;
+        }
+    } catch { }
+
+    try {
+        const textarea = document.createElement('textarea');
+        textarea.value = safeText;
+        textarea.setAttribute('readonly', 'true');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        textarea.style.pointerEvents = 'none';
+        document.body.appendChild(textarea);
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        const success = Boolean(document.execCommand?.('copy'));
+        textarea.remove();
+        return success;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Czyści numer telefonu do postaci przeznaczonej do schowka.
+ *
+ * Zachowuje wyłącznie cyfry oraz ewentualny wiodący znak `+`.
+ *
+ * @param {string} phoneDisplay
+ * @returns {string}
+ */
+function normalizePhoneForClipboard(phoneDisplay) {
+    const raw = String(phoneDisplay ?? '').trim();
+    if (!raw) return '';
+    const hasLeadingPlus = raw.startsWith('+');
+    const digitsOnly = raw.replace(/\D+/g, '');
+    if (!digitsOnly) return hasLeadingPlus ? '+' : '';
+    return hasLeadingPlus ? `+${digitsOnly}` : digitsOnly;
+}
+
+/**
+ * Wyznacza deterministyczną testową rejestrację dla kierowcy.
+ *
+ * Dzięki temu UI pozostaje stabilny między kolejnymi renderami, zanim
+ * podłączymy docelowe źródło numerów rejestracyjnych.
+ *
+ * @param {string} driverName
+ * @returns {string}
+ */
+function getDriverTestRegistration(driverName) {
+    const key = String(driverName ?? '').trim().toLowerCase();
+    if (!key) return DRIVER_TEST_REGISTRATIONS[0];
+
+    let hash = 0;
+    for (let i = 0; i < key.length; i += 1) {
+        hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
+    }
+    return DRIVER_TEST_REGISTRATIONS[hash % DRIVER_TEST_REGISTRATIONS.length];
+}
+
+/**
+ * Renderuje kafelki kierowców z rozwijanym panelem kontaktowym.
+ *
+ * Panel jest przygotowany pod dwa pola:
+ * - numer telefonu,
+ * - numer rejestracyjny.
+ *
+ * Dzięki temu w kolejnym etapie można łatwo podmienić testową rejestrację
+ * na dane z osobnego pliku źródłowego bez przebudowy UI.
+ *
+ * @param {HTMLElement | null} containerEl
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, hasContact?: boolean }>} items
+ * @param {{ emptyText?: string, groupByLetter?: boolean }} [opts]
+ * @returns {void}
+ */
+function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', groupByLetter = true } = {}) {
+    if (!containerEl) return;
+    const previousController = driverGridInteractionControllers.get(containerEl);
+    if (previousController) {
+        try { previousController.abort(); } catch { }
+        driverGridInteractionControllers.delete(containerEl);
+    }
+    containerEl.classList.add('qe-driver-sections');
+    containerEl.classList.toggle('qe-driver-sections--inline', !groupByLetter);
+    clearElement(containerEl);
+
+    const list = Array.isArray(items) ? items : [];
+    if (list.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'status status--hint';
+        empty.textContent = String(emptyText || 'Brak danych.');
+        containerEl.appendChild(empty);
+        return;
+    }
+
+    const interactionAbortController = new AbortController();
+    driverGridInteractionControllers.set(containerEl, interactionAbortController);
+    const { signal } = interactionAbortController;
+
+    /** @type {HTMLElement | null} */
+    let openedTile = null;
+
+    const setPanelInteractivity = (panelEl, enabled) => {
+        if (!(panelEl instanceof HTMLElement)) return;
+        try {
+            if ('inert' in panelEl) panelEl.inert = !enabled;
+        } catch { }
+        const focusables = panelEl.querySelectorAll('button, a[href], [tabindex]');
+        for (const el of focusables) {
+            if (!(el instanceof HTMLElement)) continue;
+            if (!enabled) {
+                if (!el.dataset.qePrevTabindex) el.dataset.qePrevTabindex = String(el.getAttribute('tabindex') ?? '');
+                el.setAttribute('tabindex', '-1');
+            } else {
+                const prev = el.dataset.qePrevTabindex;
+                if (prev === '') el.removeAttribute('tabindex');
+                else if (prev) el.setAttribute('tabindex', prev);
+                else el.removeAttribute('tabindex');
+                delete el.dataset.qePrevTabindex;
+            }
+        }
+    };
+
+    const setTileOpenState = (tileEl, isOpen) => {
+        if (!(tileEl instanceof HTMLElement)) return;
+        const trigger = tileEl.querySelector('.qe-driver-tile__trigger');
+        const panel = tileEl.querySelector('.qe-driver-tile__panel');
+        if (trigger instanceof HTMLElement) {
+            trigger.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        }
+        setPanelInteractivity(panel, isOpen);
+        tileEl.classList.toggle('is-open', isOpen);
+        if (!isOpen && openedTile === tileEl) openedTile = null;
+        if (isOpen) openedTile = tileEl;
+    };
+
+    const setTileManualCloseState = (tileEl, isClosedByUser) => {
+        if (!(tileEl instanceof HTMLElement)) return;
+        tileEl.classList.toggle('is-manually-closed', Boolean(isClosedByUser));
+    };
+
+    const closeOpenedTile = () => {
+        if (!openedTile) return;
+        setTileOpenState(openedTile, false);
+    };
+
+    const sortedItems = list.slice().sort((a, b) => {
+        const bySurname = buildDriverSurnameSortKey(String(a?.label ?? '')).localeCompare(buildDriverSurnameSortKey(String(b?.label ?? '')), 'pl', { sensitivity: 'base' });
+        if (bySurname !== 0) return bySurname;
+        return String(a?.label ?? '').localeCompare(String(b?.label ?? ''), 'pl', { sensitivity: 'base' });
+    });
+
+    let tileCounter = 0;
+    const appendTilesToGrid = (gridEl, sectionItems) => {
+        if (!(gridEl instanceof HTMLElement) || !Array.isArray(sectionItems) || sectionItems.length === 0) return null;
+        gridEl.className = 'qe-tile-grid qe-driver-section__grid';
+        gridEl.setAttribute('role', 'list');
+        gridEl.style.setProperty('--qe-driver-section-tile-width', estimateDriverSectionTileWidth(sectionItems));
+
+        for (const item of sectionItems) {
+            const label = String(item?.label ?? '').trim();
+            const phones = Array.isArray(item?.phones)
+                ? item.phones.map((phone) => ({
+                    phoneDisplay: String(phone?.phoneDisplay ?? '').trim(),
+                    phoneHref: String(phone?.phoneHref ?? '').trim()
+                })).filter((phone) => phone.phoneDisplay)
+                : [];
+            const registration = String(item?.registration ?? '').trim();
+            const hasContact = Boolean(item?.hasContact) && phones.length > 0;
+
+            const tile = document.createElement('div');
+            tile.className = 'qe-driver-tile';
+            tile.setAttribute('role', 'listitem');
+
+            const trigger = document.createElement('button');
+            trigger.type = 'button';
+            trigger.className = 'qe-tile qe-driver-tile__trigger';
+            trigger.setAttribute('aria-expanded', 'false');
+            trigger.setAttribute('aria-haspopup', 'dialog');
+            trigger.setAttribute('aria-label', hasContact
+                ? `${label} — pokaż numery telefonu i rejestrację`
+                : `${label} — pokaż szczegóły kierowcy`);
+
+            const title = document.createElement('span');
+            title.className = 'qe-driver-tile__title';
+            const { surname, givenNames } = splitDriverNameForTile(label);
+            const surnameLine = document.createElement('span');
+            surnameLine.className = 'qe-driver-tile__line qe-driver-tile__line--surname';
+            surnameLine.textContent = surname || label;
+            title.appendChild(surnameLine);
+            if (givenNames) {
+                const givenNamesLine = document.createElement('span');
+                givenNamesLine.className = 'qe-driver-tile__line qe-driver-tile__line--given';
+                givenNamesLine.textContent = givenNames;
+                title.appendChild(givenNamesLine);
+            }
+            trigger.appendChild(title);
+
+            const panel = document.createElement('div');
+            panel.className = 'qe-driver-tile__panel';
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-label', `Szczegóły kierowcy ${label}`);
+            panel.id = `driver-contact-panel-${tileCounter}`;
+            trigger.setAttribute('aria-controls', panel.id);
+            setPanelInteractivity(panel, false);
+
+            const roleNote = String(item?.roleNote ?? '').trim();
+            const roleCategory = String(item?.roleCategory ?? '').trim();
+            if (roleCategory && roleNote) {
+                const roleBadge = document.createElement('div');
+                roleBadge.className = 'qe-driver-tile__role-wrap';
+                const roleBadgeLabel = document.createElement('span');
+                roleBadgeLabel.className = 'qe-driver-tile__role-badge';
+                roleBadgeLabel.textContent = getDriverRoleBadgeLabel(roleCategory) || roleNote.split(/\s+/)[0] || roleNote;
+                roleBadge.appendChild(roleBadgeLabel);
+                panel.appendChild(roleBadge);
+            }
+
+            const phoneRow = document.createElement('div');
+            phoneRow.className = 'qe-driver-tile__row';
+            const phoneLabel = document.createElement('span');
+            phoneLabel.className = 'qe-driver-tile__row-label';
+            phoneLabel.textContent = phones.length > 1 ? 'Telefony' : 'Telefon';
+            phoneRow.appendChild(phoneLabel);
+
+            const phoneList = document.createElement('div');
+            phoneList.className = 'qe-driver-tile__phone-list';
+            if (hasContact) {
+                for (const phone of phones) {
+                    const phoneEntry = document.createElement('div');
+                    phoneEntry.className = 'qe-driver-tile__phone-entry';
+
+                    const phoneValue = document.createElement('span');
+                    phoneValue.className = 'qe-driver-tile__row-value';
+                    phoneValue.textContent = phone.phoneDisplay;
+                    phoneEntry.appendChild(phoneValue);
+
+                    const phoneActions = document.createElement('div');
+                    phoneActions.className = 'qe-driver-tile__actions qe-driver-tile__actions--inline';
+
+                    const callAction = document.createElement('a');
+                    callAction.className = 'qe-driver-tile__action qe-driver-tile__action--primary qe-driver-tile__action--icon';
+                    callAction.href = phone.phoneHref || '#';
+                    callAction.textContent = '☎';
+                    callAction.setAttribute('aria-label', `Zadzwoń do kierowcy ${label}: ${phone.phoneDisplay}`);
+                    callAction.title = 'Zadzwoń';
+
+                    const copyAction = document.createElement('button');
+                    copyAction.type = 'button';
+                    copyAction.className = 'qe-driver-tile__action qe-driver-tile__action--icon';
+                    copyAction.textContent = '⧉';
+                    copyAction.setAttribute('aria-label', `Kopiuj numer telefonu kierowcy ${label}: ${phone.phoneDisplay}`);
+                    copyAction.title = 'Kopiuj';
+                    copyAction.addEventListener('click', async (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const copiedPhone = normalizePhoneForClipboard(phone.phoneDisplay);
+                        const copied = await copyTextToClipboard(copiedPhone);
+                        const previousLabel = copyAction.textContent;
+                        const previousTitle = copyAction.title;
+                        copyAction.textContent = copied ? '✓' : '!';
+                        copyAction.title = copied ? 'Skopiowano' : 'Błąd kopiowania';
+                        window.setTimeout(() => {
+                            copyAction.textContent = previousLabel;
+                            copyAction.title = previousTitle;
+                        }, 1400);
+                    }, { signal });
+
+                    phoneActions.appendChild(callAction);
+                    phoneActions.appendChild(copyAction);
+                    phoneEntry.appendChild(phoneActions);
+                    phoneList.appendChild(phoneEntry);
+                }
+            } else {
+                const emptyPhone = document.createElement('span');
+                emptyPhone.className = 'qe-driver-tile__row-value is-muted';
+                emptyPhone.textContent = 'Brak kontaktu';
+                phoneList.appendChild(emptyPhone);
+            }
+            phoneRow.appendChild(phoneList);
+
+            const registrationRow = document.createElement('div');
+            registrationRow.className = 'qe-driver-tile__row';
+            const registrationLabel = document.createElement('span');
+            registrationLabel.className = 'qe-driver-tile__row-label';
+            registrationLabel.textContent = 'Pojazd';
+            const registrationValue = document.createElement('span');
+            registrationValue.className = 'qe-driver-tile__row-value qe-driver-tile__plate';
+            registrationValue.textContent = registration || '-';
+            registrationRow.appendChild(registrationLabel);
+            registrationRow.appendChild(registrationValue);
+
+            panel.appendChild(phoneRow);
+            panel.appendChild(registrationRow);
+
+            trigger.addEventListener('click', (event) => {
+                event.preventDefault();
+                const nextOpenState = !tile.classList.contains('is-open');
+                if (openedTile && openedTile !== tile) closeOpenedTile();
+                setTileManualCloseState(tile, !nextOpenState);
+                setTileOpenState(tile, nextOpenState);
+                if (!nextOpenState && document.activeElement === trigger) trigger.blur();
+            }, { signal });
+
+            trigger.addEventListener('mouseenter', () => {
+                if (openedTile && openedTile !== tile) closeOpenedTile();
+                if (!tile.classList.contains('is-manually-closed')) setPanelInteractivity(panel, true);
+            }, { signal });
+
+            tile.addEventListener('mouseleave', () => {
+                setTileManualCloseState(tile, false);
+                if (!tile.classList.contains('is-open')) setPanelInteractivity(panel, false);
+            }, { signal });
+
+            tile.addEventListener('focusin', () => {
+                if (!tile.classList.contains('is-manually-closed')) setPanelInteractivity(panel, true);
+            }, { signal });
+
+            tile.addEventListener('focusout', () => {
+                window.setTimeout(() => {
+                    if (tile.matches(':focus-within') || tile.classList.contains('is-open')) return;
+                    setTileManualCloseState(tile, false);
+                    setPanelInteractivity(panel, false);
+                }, 0);
+            }, { signal });
+
+            tile.addEventListener('keydown', (event) => {
+                if (event.key !== 'Escape') return;
+                setTileManualCloseState(tile, true);
+                closeOpenedTile();
+                setPanelInteractivity(panel, false);
+                trigger.focus();
+            }, { signal });
+
+            tile.appendChild(trigger);
+            tile.appendChild(panel);
+            gridEl.appendChild(tile);
+            tileCounter += 1;
+        }
+        return gridEl;
+    };
+
+    if (!groupByLetter) {
+        const flatGrid = appendTilesToGrid(document.createElement('div'), sortedItems);
+        if (flatGrid) containerEl.appendChild(flatGrid);
+    } else {
+        const sections = new Map();
+        for (const item of sortedItems) {
+            const letter = buildDriverSectionLetter(String(item?.label ?? ''));
+            if (!sections.has(letter)) sections.set(letter, []);
+            sections.get(letter).push(item);
+        }
+
+        const orderedSectionLetters = Array.from(sections.keys()).sort((a, b) => {
+            if (a === '#') return 1;
+            if (b === '#') return -1;
+            return a.localeCompare(b, 'pl', { sensitivity: 'base' });
+        });
+
+        for (const sectionLetter of orderedSectionLetters) {
+            const sectionItems = sections.get(sectionLetter);
+            if (!Array.isArray(sectionItems) || sectionItems.length === 0) continue;
+
+            const section = document.createElement('section');
+            section.className = 'qe-driver-section';
+            section.setAttribute('aria-label', `Sekcja kierowców ${sectionLetter}`);
+
+            const sectionHeader = document.createElement('div');
+            sectionHeader.className = 'qe-driver-section__header';
+            const sectionBadge = document.createElement('span');
+            sectionBadge.className = 'qe-driver-section__letter';
+            sectionBadge.textContent = sectionLetter;
+            sectionHeader.appendChild(sectionBadge);
+
+            const sectionGrid = appendTilesToGrid(document.createElement('div'), sectionItems);
+            if (!sectionGrid) continue;
+            sectionGrid.className = 'qe-tile-grid qe-driver-section__grid';
+
+            section.appendChild(sectionHeader);
+            section.appendChild(sectionGrid);
+            containerEl.appendChild(section);
+        }
+    }
+
+    document.addEventListener('pointerdown', (event) => {
+        if (!openedTile) return;
+        if (openedTile.contains(event.target)) return;
+        closeOpenedTile();
+    }, { signal });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        closeOpenedTile();
+    }, { signal });
+}
+
 async function renderRoutesView() {
     const routeRecords = await getRouteFileRecords();
     refreshRouteMetaIndex(routeRecords);
@@ -2574,6 +3125,12 @@ async function renderRoutesView() {
 
 async function renderDriversView() {
     await loadScheduleFiles({ fullReload: false, showProgress: false });
+    await loadDriverContactsFiles({ fullReload: false });
+    const roleSectionsContainer = ensureDriverRoleSectionsContainer();
+    if (roleSectionsContainer) {
+        cleanupDriverGridInteractions(roleSectionsContainer);
+        clearElement(roleSectionsContainer);
+    }
     const scheduleFiles = await docsListFiles();
     const list = Array.isArray(scheduleFiles) ? scheduleFiles : [];
 
@@ -2591,9 +3148,63 @@ async function renderDriversView() {
         }
     }
 
-    const drivers = Array.from(names).sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-    const tiles = drivers.map(d => ({ label: d }));
-    renderTileGrid(driversGrid, tiles, { emptyText: 'Brak kierowców w zaimportowanych plikach grafiku.', passive: true });
+    const drivers = Array.from(names).sort((a, b) => {
+        const bySurname = buildDriverSurnameSortKey(String(a)).localeCompare(buildDriverSurnameSortKey(String(b)), 'pl', { sensitivity: 'base' });
+        if (bySurname !== 0) return bySurname;
+        return String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' });
+    });
+    const excludedDriverKeys = new Set();
+
+    if (roleSectionsContainer) {
+        for (const roleConfig of DRIVER_ROLE_SECTION_CONFIG) {
+            const roleContacts = getDriverContactsByRole(roleConfig.key);
+            if (!Array.isArray(roleContacts) || roleContacts.length === 0) continue;
+
+            for (const contact of roleContacts) {
+                const keys = Array.isArray(contact?.lookupKeys) ? contact.lookupKeys : [];
+                for (const key of keys) excludedDriverKeys.add(String(key ?? '').trim());
+            }
+
+            const roleSection = document.createElement('section');
+            roleSection.className = 'qe-role-segment';
+            roleSection.setAttribute('aria-label', `Sekcja ${getDriverRoleSectionTitle(roleConfig.key, roleContacts.length)}`);
+
+            const roleTitle = document.createElement('h3');
+            roleTitle.className = 'qe-view-subtitle qe-role-segment__title';
+            roleTitle.textContent = getDriverRoleSectionTitle(roleConfig.key, roleContacts.length);
+
+            const roleGrid = document.createElement('div');
+            roleGrid.className = 'qe-driver-role-grid';
+            roleGrid.setAttribute('role', 'list');
+            roleGrid.setAttribute('aria-label', getDriverRoleSectionTitle(roleConfig.key, roleContacts.length));
+
+            roleSection.appendChild(roleTitle);
+            roleSection.appendChild(roleGrid);
+            roleSectionsContainer.appendChild(roleSection);
+
+            const roleTiles = roleContacts.map((contact) => buildDriverTileModel(
+                contact?.driverName,
+                contact?.phones,
+                getDriverTestRegistration(String(contact?.driverName ?? '')),
+                contact?.roleCategory,
+                contact?.roleNote
+            ));
+
+            renderDriverTileGrid(roleGrid, roleTiles, { emptyText: '', groupByLetter: false });
+        }
+    }
+
+    const tiles = drivers
+        .filter((driverName) => {
+            const contact = getDriverContactForName(driverName);
+            const keys = Array.isArray(contact?.lookupKeys) ? contact.lookupKeys : [];
+            return !keys.some((key) => excludedDriverKeys.has(String(key ?? '').trim()));
+        })
+        .map((driverName) => {
+        const contact = getDriverContactForName(driverName);
+        return buildDriverTileModel(driverName, contact?.phones, getDriverTestRegistration(driverName), contact?.roleCategory, contact?.roleNote);
+    });
+    renderDriverTileGrid(driversGrid, tiles, { emptyText: 'Brak kierowców w zaimportowanych plikach grafiku.' });
 }
 
 function showRoutesShell() {
@@ -2685,7 +3296,7 @@ async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source 
 
     const routeRecords = await getRouteFileRecords();
     refreshRouteMetaIndex(routeRecords);
-    dataStore.setRouteFileIndexByCode(buildRouteFileIndex(routeRecords));
+    dataStore.rebuildRouteFileIndex(routeRecords);
 
     const ctrl = ensureScheduleController();
     ctrl.setAvailableMonthsList(uniqueMonthKeys);
@@ -2943,7 +3554,7 @@ async function qeDevClearRandomFiles({ fraction = 0.2 } = {}) {
         if (isScheduleFileName(name)) {
             invalidateScheduleFile(name);
         } else {
-            loadedFiles.delete(name);
+            dataStore.removeLoadedFile(name);
         }
     }
     clearResults();

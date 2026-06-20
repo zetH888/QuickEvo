@@ -15,6 +15,7 @@ const QuickEvoTests = {
         await this.testTableModelCoreColumns();
         await this.testSearchResultsSorting(ctx);
         await this.testScheduleService(ctx);
+        await this.testDriverContactsService(ctx);
         await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
         await this.testSimpleXlsxDiff(ctx);
@@ -36,10 +37,11 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driverContactsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
+            import('../services/driver-contacts-service.js'),
             import('../services/drive-service.js'),
             import('../ui/preview/preview-controller.js'),
             import('../app/drive-unified-sync-application.js'),
@@ -50,7 +52,7 @@ const QuickEvoTests = {
             import('../core/simple-xlsx-diff.js'),
             import('../ui/drive/drive-changes-modal.js')
         ]);
-        return { utils, searchEngine, scheduleService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
+        return { utils, searchEngine, scheduleService, driverContactsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
     },
 
     async testXlsxLoaded() {
@@ -281,6 +283,64 @@ const QuickEvoTests = {
         }
     },
 
+    async testDriverContactsService(ctx) {
+        console.log("\nTesting Kontakty Kierowców — driver-contacts-service:");
+        try {
+            const createDriverContactsService = ctx?.driverContactsService?.createDriverContactsService;
+            this.assert(typeof createDriverContactsService === 'function', "driver-contacts-service jest dostępny przez import");
+            if (typeof createDriverContactsService !== 'function') return;
+
+            const matrix = [
+                ['', 'PRACOWNIK', 'NR TELEFONU'],
+                ['', 'Marek Klimczak', '668-166-321', 'kierownik transportu'],
+                ['', 'Karolak Cezary', '516-539-711', 'koordynator'],
+                ['', 'Cezary Karolak', '600-111-222', 'koordynator floty'],
+                ['', '  Grzegorz   Robert ', '668-026-300', 'dyspozytor'],
+                ['', 'Łukasz Żółć', 601684984, 'pryw'],
+                ['', '', ''],
+                ['', 'PRACOWNIK', 'NR TELEFONU']
+            ];
+
+            const service = createDriverContactsService({
+                readWorkbook: async () => ({ SheetNames: ['S1'], Sheets: { S1: { __matrix: matrix } } }),
+                sheetToMatrix: (worksheet) => worksheet.__matrix,
+                getBlob: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }),
+                listFiles: async () => [{ name: 'kontakty.xlsx', sourceKind: 'driver_contacts' }],
+                logAction: () => { }
+            });
+
+            await service.loadDriverContactsFiles({ fullReload: true });
+
+            const c1 = service.getContactForDriverName('marek klimczak');
+            this.assert(Array.isArray(c1?.phones) && String(c1?.phones?.[0]?.phoneDisplay || '') === '668-166-321', 'Dopasowuje kontakt kierowcy po znormalizowanej nazwie');
+            this.assert(String(c1?.roleCategory || '') === 'kierownik', 'Rozpoznaje rolę kierownika z trzeciej kolumny');
+
+            const c2 = service.getContactForDriverName('Grzegorz Robert');
+            this.assert(Array.isArray(c2?.phones) && String(c2?.phones?.[0]?.phoneDisplay || '') === '668-026-300', 'Ignoruje nadmiarowe spacje podczas dopasowania kontaktu');
+
+            const c3 = service.getContactForDriverName('Lukasz Zolc');
+            this.assert(Array.isArray(c3?.phones) && String(c3?.phones?.[0]?.phoneHref || '') === 'tel:601684984', 'Buduje poprawny link tel: dla numeru z pliku kontaktów');
+
+            const c4 = service.getContactForDriverName('Cezary Karolak');
+            this.assert(Array.isArray(c4?.phones) && c4.phones.length === 2, 'Zwraca wiele numerów dla jednego kierowcy');
+            this.assert(Array.isArray(c4?.matchedKeys) && c4.matchedKeys.length >= 1, 'Zwraca informacje o dopasowanych wariantach klucza');
+
+            const c5 = service.getContactForDriverName('Karolak Cezary');
+            this.assert(Array.isArray(c5?.phones) && c5.phones.length === 2, 'Dopasowuje kierowcę również po odwróconej kolejności imienia i nazwiska');
+
+            const roleContacts = service.getContactsByRole('koordynator');
+            this.assert(Array.isArray(roleContacts) && roleContacts.length === 1, 'Grupuje kontakty specjalne po kategorii roli');
+            this.assert(String(roleContacts?.[0]?.driverName || '') === 'Karolak Cezary', 'Zwraca nazwę kontaktu specjalnego dla roli koordynatora');
+
+            service.invalidateDriverContactsFile('kontakty.xlsx');
+            const c6 = service.getContactForDriverName('Marek Klimczak');
+            this.assert(c6 === null, 'Unieważnienie cache czyści indeks kontaktów kierowców');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować driver-contacts-service");
+            console.error(e);
+        }
+    },
+
     async testDriveService(ctx) {
         console.log("\nTesting Google Drive — drive-service:");
         const driveService = ctx?.driveService;
@@ -291,6 +351,7 @@ const QuickEvoTests = {
         this.assert(driveService.validateExcelFileName('test.xls') === true, 'Walidacja rozszerzenia .xls');
         this.assert(driveService.validateExcelFileName('test.csv') === false, 'Odrzuca rozszerzenie .csv');
         this.assert(typeof driveService?.listFolderFilesShallow === 'function', "listFolderFilesShallow jest dostępne w drive-service");
+        this.assert(typeof driveService?.getFileMetadata === 'function', "getFileMetadata jest dostępne w drive-service");
 
         const originalFetch = globalThis.fetch;
         let downloadCalls = 0;
@@ -306,6 +367,20 @@ const QuickEvoTests = {
                         ok: true,
                         status: 200,
                         arrayBuffer: async () => new TextEncoder().encode('ok').buffer,
+                        text: async () => ''
+                    };
+                }
+
+                if (raw.startsWith('https://www.googleapis.com/drive/v3/files/contacts-file?')) {
+                    return {
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            id: 'contacts-file',
+                            name: 'kontakty.xlsx',
+                            mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                            modifiedTime: '2026-05-17T12:34:56Z'
+                        }),
                         text: async () => ''
                     };
                 }
@@ -369,6 +444,10 @@ const QuickEvoTests = {
             const ab2 = await driveService.downloadFileArrayBuffer('file-1', token);
             this.assert(ab1 instanceof ArrayBuffer && ab2 instanceof ArrayBuffer, 'downloadFileArrayBuffer zwraca ArrayBuffer');
             this.assert(downloadCalls === 1, 'downloadFileArrayBuffer używa cache dla tego samego fileId');
+
+            const meta = await driveService.getFileMetadata('contacts-file', token);
+            this.assert(String(meta?.name || '') === 'kontakty.xlsx', 'getFileMetadata zwraca nazwę wskazanego pliku');
+            this.assert(Number(meta?.driveModifiedAt) > 0, 'getFileMetadata mapuje modifiedTime na driveModifiedAt');
 
             const list = await driveService.crawlFolder('root', token);
             const names = Array.isArray(list) ? list.map(x => String(x?.name || '')).sort() : [];

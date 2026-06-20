@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.31.0-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.32.0-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -39,12 +39,19 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 
 - Plan: `DEKOMPOZYCJA_JS_PLAN.md`
 - Stan startowy: `js/entry/app.js` — **2331 linii**
-- Aktualny stan: `js/entry/app.js` — **2679 linii**
+- Aktualny stan: `js/entry/app.js` — **2799 linii**
 - Cel: `js/entry/app.js` ≤ **400 linii** (docelowo ~300–350)
 - Postęp:
   - Faza 1: centralizacja referencji DOM w `js/core/dom-refs.js`
-  - Faza 2.1: dodany szkielet magazynu danych `js/core/data-store.js` (bez przepinania logiki)
-  - Faza 2.2 (w toku): `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` stopniowo przepinane na `dataStore` (bez zmiany zachowania)
+  - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
+  - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
+  - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.32.0
+
+- Zaktualizowano `DEKOMPOZYCJA_JS_PLAN.md` do rzeczywistego stanu repozytorium i uproszczono dalszy plan z dawnych faz 3-9 do 3 większych wdrożeń.
+- Domknięto końcówkę Fazy 2 przez przeniesienie do `js/core/data-store.js` mutacji dla stanu danych, wyników wyszukiwania, załadowanych plików i indeksu tras.
+- Wyniesiono do `js/core/data-store.js` helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup` i `buildRouteFileIndex`, dzięki czemu `js/entry/app.js` nie jest już właścicielem tej logiki.
 
 ***
 
@@ -53,7 +60,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 ### Wyszukiwanie
 
 - Wyszukiwanie rozmyte (fuzzy matching) z wykorzystaniem odległości Levenshteina
-- Predykcyjne podpowiedzi inline (ghost) + lista sugestii (top 5) podczas pisania z nawigacją klawiaturą (Tab/Enter/→/Esc/strzałki); podpowiedzi ignorują nazwy tras
+- Predykcyjne podpowiedzi inline (ghost only) podczas pisania z nawigacją klawiaturą (Tab/Enter/→/Esc/strzałki); gdy istnieje więcej niż jedna sugestia, obok ghosta pojawia się dyskretny i klikalny hint `↑↓`, przydatny także na mobile; hint i ghost pozostają widoczne po utracie fokusu, a przewijanie myszą nie przesuwa poziomo pola wyszukiwania; podpowiedzi ignorują nazwy tras
 - Ważony indeks danych (adresy → obiekty → trasy)
 - Buforowanie wyników z LRU cache
 - Szybszy system predykcji oparty o Trie (drzewo prefiksowe) z aktualizacjami inkrementalnymi per plik (add/remove) oraz pełnym rebuildu w tle (Web Worker, bez zrywania działania starego indeksu)
@@ -76,6 +83,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Rozwiązywanie konfliktów przy synchronizacji
 - Kategorie tras są wyznaczane z folderu pierwszego poziomu pod `ROUTES_FOLDER_ID`: `Baltic Medica`, `Dostawy`, `Dzika`, `Wilanów`, `Wołomin` -> `STANDARD`; `Wieczorki` -> `WIECZOREK`; `Soboty` -> `SOBOTA`; `Niedziele` -> `NIEDZIELA`
 - Obsługa grafiku kierowców: plik o nazwie „MIASTO MIESIĄC ROK.(xlsx/xls/csv)” jest parsowany do przypisań trasa→kierowca (bez indeksowania w wyszukiwarce)
+- Obsługa osobnego pliku kontaktów kierowców z Google Drive: parser wykorzystuje kolumny `B=PRACOWNIK`, `C=NR TELEFONU` oraz opcjonalnie `D=dopisek roli`, normalizuje nazwy, sprawdza bezpieczne warianty kolejności członów (`Imię Nazwisko` / `Nazwisko Imię`), potrafi zwrócić wiele numerów dla jednego kierowcy i klasyfikuje role specjalne (`szef`, `kierownik`, `koordynator`, `dyspozytor`)
 - API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate`, dat ISO (YYYY-MM-DD) oraz dynamicznego katalogu tras zbudowanego z plików zsynchronizowanych z Google Drive
 - Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i powodami zmian; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
@@ -91,6 +99,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Obsługa reduced motion (wyłączenie animacji dla użytkowników z wrażliwością na ruch)
 - Responsywny design z obsługą urządzeń mobilnych
 - Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
+- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel `hover/click` lub `focus/click` pokazuje jeden lub wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
 - Ekran „Grafik” do swobodnego przeglądania harmonogramu w formie tabeli zbliżonej do arkusza: kierowcy w kolejności z pliku, kolumny dni z akcentem weekendów, zaznaczanie całej kolumny dnia oraz klikalne kody tras otwierające podgląd w kontekście wybranej daty
 - Ekran powitalny z efektem glassmorphism
 - Ciemny motyw (domyślny)

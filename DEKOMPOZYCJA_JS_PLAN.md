@@ -2,7 +2,7 @@
 
 **WERSJA PLANU:** 2.0 (ulepszona maksymalnie pod kątem trae.ai IDE)
 **Data:** bieżąca
-**Aktualny rozmiar monolitu:** `js/entry/app.js` — **2331 linii** (~101 KB)
+**Aktualny rozmiar monolitu:** `js/entry/app.js` — **2799 linii** (stan po domknięciu końcówki Fazy 2)
 
 ---
 
@@ -71,34 +71,45 @@ Ten dokument jest **specyfikacją wykonania** dla agenta trae.ai. Musisz traktow
 
 ## 1. Aktualny stan (snapshot)
 
-### Największe pliki JS (stan na teraz)
+### Największe pliki JS (stan na 2026-06-20)
 
 | Plik                                           | Linie | KB   | Status                  | Priorytet dekomp. |
 |------------------------------------------------|-------|------|-------------------------|-------------------|
-| `js/entry/app.js`                              | 2331  | 101  | **Główny monolit**      | ★★★★★            |
-| `js/tests/tests.js`                            | 835   | 51   | Testy manualne          | Niski             |
-| `js/ui/drive/drive-changes-modal.js`           | 823   | 43   | Duży + logika diff      | ★★★★              |
-| `js/services/schedule-service.js`              | 592   | 28   | Dobrze wydzielony       | Średni            |
-| `js/devtools/qe-debugger.js`                   | 570   | 29   | Devtool (Shadow DOM)    | Niski             |
-| `js/ui/schedule-controller.js`                 | 450   | 19   | Leży płasko w ui/       | ★★                |
-| `js/app/drive-unified-sync-application.js`     | 365   | 20   | OK                      | Niski             |
-| `js/ui/loading/welcome-loading-overlay-controller.js` | ~380 | 19 | OK                      | Niski             |
+| `js/entry/app.js`                              | 2799  | ~118 | **Główny monolit**      | ★★★★★            |
+| `js/tests/tests.js`                            | ~835  | ~51  | Testy manualne          | Niski             |
+| `js/ui/drive/drive-changes-modal.js`           | ~823  | ~43  | Duży UI + interakcje diff | ★★★★           |
+| `js/services/schedule-service.js`              | ~592  | ~28  | Dobrze wydzielony       | Średni            |
+| `js/devtools/qe-debugger.js`                   | ~570  | ~29  | Devtool (Shadow DOM)    | Niski             |
+| `js/ui/schedule-controller.js`                 | ~450  | ~19  | Nadal płasko w `ui/`    | ★★                |
+| `js/app/drive-unified-sync-application.js`     | ~365  | ~20  | Istnieje i jest używany | Niski             |
+| `js/core/data-store.js`                        | ~170  | ~7   | Istnieje, ale nadal etapowy | ★★★         |
 
-**Całkowita liczba plików .js:** ~45
+**Całkowita liczba plików .js:** ~35
 
 **Główne problemy:**
-- Ogromny stan w closure `entry/app.js` (`allData`, `fullFileData`, `routeFileIndexByCode`, pending scroll restore, busy locks itp.).
-- Logika przetwarzania danych wymieszana z UI wiring i inicjalizacją.
-- Renderowanie widoków (routes, drivers, schedule, results) w entry.
-- Logika diff w pliku UI.
-- Niespójna struktura `ui/`.
-- Martwy kod: `drive-sync-application.js` + nieużywana zmienna.
+- `entry/app.js` nadal jest centralnym miejscem dla zbyt wielu odpowiedzialności: ładowanie plików, stan danych, render wyników, widoki tras/kierowców/grafiku, część helperów i glue code.
+- `data-store.js` istnieje, ale nie przejął jeszcze całej odpowiedzialności za mutację i udostępnianie stanu.
+- Logika przetwarzania danych nadal jest wymieszana z entry (`processFile`, `parseSpreadsheet`, `addTableRows`, `createNormalizedRow`).
+- Widoki `routes`, `drivers`, `schedule` nadal są renderowane bezpośrednio w `entry/app.js`.
+- `drive-changes-modal.js` jest nadal duży i nadal żyje obok starego `simple-xlsx-diff.js`, zamiast czystego modułu `drive-diff.js`.
+- Niespójna struktura `ui/` nadal występuje (`schedule-controller.js` leży płasko w `ui/`).
+- Martwy kod nadal istnieje: `js/app/drive-sync-application.js` i zmienna `driveSyncApplication`.
 
 **Mocne strony istniejącej architektury (zachowaj!):**
 - Czysty `core/` (brak DOM).
 - Wzorzec `createXxx(cfg)` + dependency injection.
 - Barrel `ui-components.js`.
 - Dobre JSDoc w nowszych modułach.
+
+### Rzeczywiście wykonane do tej pory
+
+- **Faza 0:** częściowo wykonana operacyjnie, ale plan nie był aktualizowany na bieżąco; README istnieje i opisuje dekompozycję, wersja projektu została już wcześniej podniesiona.
+- **Faza 1:** wykonana. Istnieje `js/core/dom-refs.js`, a `entry/app.js` korzysta już z `getAppDomRefs()`.
+- **Faza 2.1:** wykonana. Istnieje `js/core/data-store.js`.
+- **Faza 2.2:** wykonana. `entry/app.js` korzysta z `dataStore`, a reset/usuwanie danych nie jest już właścicielskie po stronie entry.
+- **Faza 2.3:** wykonana na obecnym etapie. `search-application` i główne ścieżki ładowania/usuwania używają mutacji z `dataStore`, choć część referencji do odczytu nadal pozostaje w entry dla kompatybilności.
+- **Faza 2.4:** wykonana. Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione do `js/core/data-store.js`.
+- **Fazy 3-9:** niewykonane jako osobne etapy; część UI i aplikacji została wcześniej rozbita niezależnie od tego planu, ale monolit `entry/app.js` nadal nie został sprowadzony do cienkiego koordynatora.
 
 ---
 
@@ -140,7 +151,7 @@ js/
 
 ---
 
-## 3. Szczegółowy plan wykonania — Fazy (bardzo drobnoziarniste)
+## 3. Zaktualizowany plan wykonania — stan obecny + 3 większe wdrożenia
 
 ### Faza 0 — Przygotowanie i baseline (Low risk)
 
@@ -261,137 +272,87 @@ Exploracja obowiązkowa:
 - Usunięcie pliku.
 
 **Success criteria Fazy 2:**
-- `allData` i pokrewne zmienne zniknęły z closure app.js (lub są tylko przez dataStore).
-- app.js zmniejszony o ~150-250 linii.
-- Zero regresji w restore scroll i cache.
+- `data-store.js` staje się właścicielem mutacji dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`.
+- Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` są poza `entry/app.js`.
+- `entry/app.js` może nadal tymczasowo trzymać niektóre referencje/aliasy tylko do odczytu, ale nie powinien już być właścicielem mutacji tego stanu.
+- Zero regresji w restore scroll, cache i szybkim odświeżaniu wyników po imporcie/usunięciu.
 
 ---
 
-### Faza 3 — Wydzielenie procesora plików (file-processor.js) — Medium risk
+### Wdrożenie A — Dane, ingestia i synchronizacja
 
-Exploracja:
-- Przeczytaj funkcje: `processFile`, `parseSpreadsheet`, `addTableRows`, `createNormalizedRow`, `getRowDisplayText`, `readWorkbook`, `loadAllFiles`, `processFilesWithConcurrency` itd.
-- Przeczytaj `core/excel-processor.js` i `core/formatters/*` (jako zależności).
+To wdrożenie zastępuje dawne Fazy 3, 4 i część 6.
 
-Zadania:
-1. Utwórz `js/core/file-processor.js`.
-2. Przenieś:
+Zakres:
+1. Utwórz `js/core/file-processor.js` i przenieś do niego:
+   - `processFile`
+   - `parseSpreadsheet`
+   - `addTableRows`
    - `createNormalizedRow`
    - `getRowDisplayText`
-   - `addTableRows`
-   - Logikę `processFile` / `parseSpreadsheet`
    - `readWorkbook`
-3. Stwórz czyste API, np.:
-   - `normalizeAndStoreRows(tableModel, fileName, { dataStore, getRouteCategoriesFromFileName, ... })`
-   - `processFileContent(...)`
-4. Zaktualizuj `import-application.js`, drive apps i entry (loadAllFiles itp.).
-5. Przenieś też helpery typu `countNonEmpty`, `isEmptyCell` jeśli pasują.
+   - małe helpery typu `countNonEmpty`, `isEmptyCell` (jeśli pasują semantycznie)
+2. Dopnij przepływ „plik -> parser -> store -> indeks wyszukiwania”, tak aby `entry/app.js` nie przetwarzał już bezpośrednio danych arkuszy.
+3. Uprość `ui/drive/drive-changes-modal.js` do lekkiego modułu UI i wynieś logikę diff do dedykowanego modułu (`core/drive-diff.js` albo zachowaj `simple-xlsx-diff.js` jako warstwę przejściową, ale bez dokładania logiki do UI).
+4. Usuń martwy kod i duplikaty wokół synchronizacji Drive (`drive-sync-application.js`, zbędne wrappery, nieużywane zmienne).
+5. Jeżeli w trakcie wyjdzie potrzeba, przenieś małe czyste helpery do `core/utils.js`, ale tylko te bezpieczne i rzeczywiście współdzielone.
 
-**Success:** Logika "plik → znormalizowane wiersze w store" jest całkowicie poza entry/app.js.
-
----
-
-### Faza 4 — Uproszczenie modalu zmian Google Drive — Medium risk
-
-Exploracja:
-- Cały plik `ui/drive/drive-changes-modal.js` — obecnie tylko renderer listy zmian, rozwijanie kafelkow i pasek przewijania.
-
-Zadania:
-1. Trzymaj `drive-changes-modal.js` jako lekki modul UI bez porownywania rekordow.
-2. Rozszerzaj modal tylko o liste plikow, powody zmian i metadane synchronizacji.
-3. Pilnuj, aby logika pobierania i kwalifikowania zmian pozostawala w warstwie aplikacyjnej, a nie w UI.
-4. Dodaj JSDoc po polsku w nowym module.
-
-**Success:** Plik modalu wyraźnie mniejszy, diff jest testowalny w izolacji.
+Success criteria:
+- `entry/app.js` nie zawiera już głównej logiki parsowania arkuszy.
+- `drive-changes-modal.js` jest lżejszy i nie staje się miejscem dla logiki domenowej.
+- Stary mechanizm `drive-sync-application.js` znika z aktywnej architektury.
 
 ---
 
-### Faza 5 — Aplikacje widoków (routes, drivers, schedule) — Medium risk
+### Wdrożenie B — Widoki, nawigacja i porządek strukturalny
 
-**Rozbij na trzy osobne podfazy.**
+To wdrożenie zastępuje dawne Fazy 5, 7 i dużą część 8.
 
-**5.1 routes-application.js**
-- Przenieś: `renderRoutesView`, `renderTileGrid`, `showRoutesShell`, `openRoutesView`, `setPrimaryNavActive` (części), logikę kafelków tras.
+Zakres:
+1. Wydziel aplikacje widoków:
+   - `js/app/routes-application.js`
+   - `js/app/drivers-application.js`
+   - `js/app/schedule-application.js`
+2. Przenieś do nich logikę `render*View`, `show*Shell`, `open*View`, `openRouteFromSchedule`, `handleBackFromSchedule` i powiązane fragmenty nawigacji.
+3. Przenieś `js/ui/schedule-controller.js` do `js/ui/schedule/schedule-controller.js` i zaktualizuj barrel `ui-components.js`.
+4. Oczyść `entry/app.js` z helperów renderujących i z glue, które da się bezpiecznie wynieść do modułów `app/`, `ui/` i `core/`.
 
-**5.2 drivers-application.js**
-- Analogicznie dla kierowców.
-
-**5.3 schedule-application.js**
-- Przenieś logikę otwierania widoku grafiku: `openScheduleView`, `handleBackFromSchedule`, `showScheduleShell`, `openRouteFromSchedule`.
-- Wiring `ensureScheduleController` można zostawić cienki w entry lub przenieść więcej do schedule-application.
-
-W każdej podfazie:
-- Najpierw przeczytaj istniejące `preview-application.js` i `search-application.js` jako wzorzec cfg.
-- Przekazuj `dataStore` (lub jego metody) + `dom` + potrzebne formatters.
-- Zaktualizuj `navigation-application.js` i listenery w entry.
-
-**Success:** Funkcje `render*View`, `open*View` (poza search i preview) zniknęły z entry/app.js.
+Success criteria:
+- `entry/app.js` nie renderuje już bezpośrednio widoków tras, kierowców i grafiku.
+- Struktura `ui/` jest spójniejsza i odzwierciedla podział odpowiedzialności.
+- `entry/app.js` zaczyna pełnić realnie rolę koordynatora.
 
 ---
 
-### Faza 6 — Przeniesienie helperów i czyszczenie (core/utils + entry)
+### Wdrożenie C — Finalne odchudzenie entrypointu i pełna regresja
 
-- Przenieś do `core/utils.js` (jeśli jeszcze nie ma):
-  - `runWithConcurrency`
-  - `pickRandomSample`
-  - `clearElement`, `setElementHtml`, `setElementSvg`
-  - `focusBodySafely`
-  - `queuePreviewReadyEvent`
-  - Inne małe czyste funkcje.
-- Usuń delegaty/wrappery z app.js (`normalizeText`, `fuzzyNormalizeText`, `escapeHtml`, `debounce` itd.) — używaj bezpośrednio importu z utils.
-- Usuń martwy kod: `drive-sync-application.js` + zmienna `driveSyncApplication`.
-- Wyczyść sekcje "FUNKCJE FORMATOWANIA..." i "UTILITY / FALLBACK".
+To wdrożenie zastępuje końcówkę dawnej Fazy 8 i całą Fazę 9.
 
-**Protocol usuwania martwego kodu:**
-- Najpierw grep całego projektu.
-- Potem PRE-CHECK z "Usuwanie martwego kodu".
-- Potem usunięcie.
+Zakres:
+1. Ostatecznie odchudź `entry/app.js` do koordynatora:
+   - importy,
+   - tworzenie aplikacji,
+   - cienkie `ensure*`,
+   - `setupEventListeners`,
+   - `init`, `performInitialDataLoad`, `qeBootstrap`,
+   - niezbędny glue code.
+2. Dokończ przenoszenie drobnych helperów do `core/utils.js` lub innych właściwych modułów.
+3. Wykonaj pełną regresję ręczną przez `http.server 8000`:
+   - wyszukiwanie,
+   - predictive,
+   - preview + restore scroll,
+   - Drive sync + diff + kolejka,
+   - grafik,
+   - nawigacja,
+   - czyszczenie DB / usuwanie plików,
+   - reduced motion,
+   - `?test=1`
+4. Zaktualizuj `README.md`, wersję i opis architektury po zakończeniu całości.
 
----
-
-### Faza 7 — Uporządkowanie struktury ui/ i config
-
-- Przenieś `js/ui/schedule-controller.js` → `js/ui/schedule/schedule-controller.js`
-- Zaktualizuj wszystkie importy + barrel `ui-components.js`.
-- (Opcjonalnie, niżej priorytet) Zmodernizuj `config/route-codes.js` na ESM + dependency injection (zamiast window global).
-
----
-
-### Faza 8 — Finalne czyszczenie entry/app.js do koordynatora
-
-Cel: app.js powinien zawierać głównie:
-- Importy
-- `const dom = ...; const dataStore = ...;`
-- Tworzenie wszystkich aplikacji (ensure* — cienkie)
-- `setupEventListeners()` (delegujące do app.*)
-- `init()`, `performInitialDataLoad()` (cienkie orkiestratory)
-- `qeBootstrap()`
-- Kilka glue functions (continueToApp, resetToInitialState — delegujące)
-
-Usuń wszystko co zostało przeniesione. Zaktualizuj JSDoc na górze pliku.
-
-**Target:** ≤ 400 linii.
-
----
-
-### Faza 9 — Pełna weryfikacja + dokumentacja
-
-1. Pełny regression test przez http.server 8000:
-   - Import lokalny + nadpisanie
-   - Google Drive sync (jeśli możliwe) + diff + kolejka
-   - Wyszukiwanie + sortowanie + predictive
-   - Preview + powrót (scroll restore w różnych warunkach)
-   - Grafik (miesiące, klikanie tras, kierowcy)
-   - Nawigacja TRASY / KIEROWCY / GRAFIK
-   - Usuwanie plików, czyszczenie DB
-   - Reduced motion
-   - ?test=1
-2. Sprawdź rozmiar `entry/app.js`.
-3. **Obowiązkowa** aktualizacja `README.md`:
-   - Nowa struktura projektu
-   - Opis zmian architektonicznych (po polsku)
-   - Bump wersji (prawdopodobnie Minor — 2.27.x)
-4. Opcjonalnie: dodaj proste testy jednostkowe dla nowych core modułów (data-store, file-processor, drive-diff).
+Success criteria:
+- `entry/app.js` jest cienkim entrypointem/koordynatorem.
+- Kluczowe scenariusze regresyjne przechodzą.
+- Dokumentacja repo odpowiada rzeczywistemu stanowi kodu.
 
 ---
 

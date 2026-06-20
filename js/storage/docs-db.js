@@ -65,6 +65,7 @@ export async function docsListFiles() {
             size: Number(r?.size ?? (r?.blob?.size ?? 0)),
             updatedAt: Number(r?.updatedAt ?? 0),
             driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null,
+            sourceKind: String(r?.sourceKind ?? '').trim(),
             routeCategory: String(r?.routeCategory ?? '').trim(),
             topLevelFolderName: String(r?.topLevelFolderName ?? '').trim()
         })).filter(r => r.name));
@@ -112,6 +113,7 @@ export async function docsGetFileRecord(fileName) {
                 size: Number(r?.size ?? (r?.blob?.size ?? 0)),
                 updatedAt: Number(r?.updatedAt ?? 0),
                 driveModifiedAt: Number(r?.driveModifiedAt ?? 0) || null,
+                sourceKind: String(r?.sourceKind ?? '').trim(),
                 routeCategory: String(r?.routeCategory ?? '').trim(),
                 topLevelFolderName: String(r?.topLevelFolderName ?? '').trim()
             });
@@ -123,13 +125,16 @@ export async function docsGetFileRecord(fileName) {
 /**
  * Zapisuje Blob pliku w bazie wraz z metadanymi źródła.
  *
- * `routeCategory` i `topLevelFolderName` są używane wyłącznie dla tras pobranych
- * z Google Drive. Dzięki temu aplikacja może po restarcie nadal odtworzyć kategorię
- * pliku na podstawie folderu, bez ponownego odpytywania Drive API.
+ * `sourceKind` pozwala rozróżnić typ źródła po restarcie aplikacji
+ * (np. trasa, grafik, kontakty kierowców), natomiast `routeCategory`
+ * i `topLevelFolderName` są używane wyłącznie dla tras pobranych z Google Drive.
+ * Dzięki temu aplikacja może po restarcie nadal odtworzyć kategorię pliku
+ * na podstawie folderu, bez ponownego odpytywania Drive API.
  */
-export async function docsPutBlob(fileName, blob, { driveModifiedAt, routeCategory, topLevelFolderName } = {}) {
+export async function docsPutBlob(fileName, blob, { driveModifiedAt, sourceKind, routeCategory, topLevelFolderName } = {}) {
     const safe = String(fileName || '').trim(); if (!safe) throw new Error('Brak nazwy pliku');
     const normalizedDriveModifiedAt = (Number.isFinite(Number(driveModifiedAt)) && Number(driveModifiedAt) > 0) ? Number(driveModifiedAt) : null;
+    const normalizedSourceKind = String(sourceKind ?? '').trim().toLowerCase();
     const normalizedRouteCategory = String(routeCategory ?? '').trim().toUpperCase();
     const normalizedTopLevelFolderName = String(topLevelFolderName ?? '').trim();
     const db = await openDocsDb();
@@ -140,6 +145,7 @@ export async function docsPutBlob(fileName, blob, { driveModifiedAt, routeCatego
             size: blob?.size ?? 0,
             updatedAt: Date.now(),
             driveModifiedAt: normalizedDriveModifiedAt,
+            sourceKind: normalizedSourceKind,
             routeCategory: normalizedRouteCategory,
             topLevelFolderName: normalizedTopLevelFolderName
         });

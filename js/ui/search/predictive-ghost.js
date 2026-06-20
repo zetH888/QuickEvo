@@ -1,10 +1,16 @@
+/**
+ * Kontroler predykcyjnych podpowiedzi inline.
+ * Utrzymuje wyłącznie ghost text w polu wyszukiwania bez rozwijanej listy.
+ *
+ * @param {object} cfg
+ * @returns {{ update: Function, onKeydown: Function, onScroll: Function, onBlur: Function, onCompositionStart: Function, onCompositionEnd: Function, hide: Function }}
+ */
 export function createPredictiveGhostController(cfg) {
     const searchInput = cfg?.searchInput || null;
     const ghostOverlay = cfg?.ghostOverlay || null;
     const ghostPrefix = cfg?.ghostPrefix || null;
     const ghostSuffix = cfg?.ghostSuffix || null;
-    const suggestOverlay = cfg?.suggestOverlay || null;
-    const suggestList = cfg?.suggestList || null;
+    const ghostHint = cfg?.ghostHint || null;
 
     const isSearchEnabled = typeof cfg?.isSearchEnabled === 'function' ? cfg.isSearchEnabled : (() => false);
     const fuzzyNormalizeText = typeof cfg?.fuzzyNormalizeText === 'function' ? cfg.fuzzyNormalizeText : ((x) => String(x ?? '').trim().toLowerCase());
@@ -12,25 +18,34 @@ export function createPredictiveGhostController(cfg) {
     const onAcceptSuggestion = typeof cfg?.onAcceptSuggestion === 'function' ? cfg.onAcceptSuggestion : (() => { });
 
     const minChars = Number.isFinite(Number(cfg?.minChars)) ? Math.max(1, Number(cfg.minChars)) : 2;
-    const maxDropdownItems = Number.isFinite(Number(cfg?.maxDropdownItems)) ? Math.max(1, Number(cfg.maxDropdownItems)) : 5;
+    const maxNavigableItems = Number.isFinite(Number(cfg?.maxNavigableItems)) ? Math.max(1, Number(cfg.maxNavigableItems)) : 5;
 
     let isComposing = false;
     let state = { raw: '', norm: '', options: [], index: 0, hidden: false };
-    let lastSuggestSig = '';
+
+    function setHintVisible(visible) {
+        if (!ghostHint) return;
+        ghostHint.classList.toggle('is-visible', visible);
+        ghostHint.tabIndex = visible ? 0 : -1;
+        ghostHint.disabled = !visible;
+    }
+
+    function resetMouseDrivenScroll() {
+        if (!searchInput) return;
+        if ((Number(searchInput.scrollLeft) || 0) === 0) return;
+        try { searchInput.scrollLeft = 0; } catch { }
+        try { syncScroll(); } catch { }
+    }
 
     function hide() {
         if (!ghostOverlay || !ghostPrefix || !ghostSuffix) return;
         ghostPrefix.textContent = '';
         ghostSuffix.textContent = '';
+        if (ghostHint) {
+            setHintVisible(false);
+        }
         ghostOverlay.classList.remove('qe-ghost-loading');
         ghostOverlay.classList.add('is-hidden');
-    }
-
-    function hideSuggest() {
-        if (!suggestOverlay || !suggestList) return;
-        suggestOverlay.classList.add('is-hidden');
-        suggestList.textContent = '';
-        lastSuggestSig = '';
     }
 
     function syncScroll() {
@@ -68,42 +83,12 @@ export function createPredictiveGhostController(cfg) {
         ghostOverlay.classList.remove('qe-ghost-loading');
         ghostPrefix.textContent = query;
         ghostSuffix.textContent = String(suggestion).slice(query.length);
+        if (ghostHint) {
+            const showCyclingHint = state.options.length > 1;
+            setHintVisible(showCyclingHint);
+        }
         ghostOverlay.classList.toggle('is-hidden', ghostSuffix.textContent.length === 0);
         syncScroll();
-    }
-
-    function renderSuggestList() {
-        if (!suggestOverlay || !suggestList || !searchInput) return;
-        if (state.hidden) { hideSuggest(); return; }
-
-        const query = String(state.norm || '').trim();
-        const hasOptions = Array.isArray(state.options) && state.options.length > 0;
-        if (!query || !hasOptions || query.length < minChars) { hideSuggest(); return; }
-
-        const items = state.options.slice(0, maxDropdownItems).map(v => String(v || '').trim()).filter(Boolean);
-        if (items.length === 0) { hideSuggest(); return; }
-
-        const sig = `${query}::${state.index}::${items.join('\u0001')}`;
-        if (sig === lastSuggestSig) return;
-        lastSuggestSig = sig;
-
-        const frag = document.createDocumentFragment();
-        for (let i = 0; i < items.length; i++) {
-            const value = items[i];
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'qe-suggest-item' + (i === state.index ? ' is-active' : '');
-            btn.setAttribute('role', 'option');
-            btn.setAttribute('aria-selected', i === state.index ? 'true' : 'false');
-            btn.setAttribute('tabindex', '-1');
-            btn.dataset.index = String(i);
-            btn.textContent = value;
-            frag.appendChild(btn);
-        }
-
-        suggestList.textContent = '';
-        suggestList.appendChild(frag);
-        suggestOverlay.classList.toggle('is-hidden', false);
     }
 
     function update(query, { source } = {}) {
@@ -128,7 +113,6 @@ export function createPredictiveGhostController(cfg) {
         if (!isSearchEnabled() || norm.length < minChars || raw !== norm) {
             state.hidden = true;
             hide();
-            hideSuggest();
             return;
         }
 
@@ -136,16 +120,20 @@ export function createPredictiveGhostController(cfg) {
         if (!res?.hasIndex) {
             state.hidden = true;
             hide();
-            hideSuggest();
             return;
         }
 
         ghostOverlay.classList.remove('qe-ghost-loading');
-        state.options = Array.isArray(res?.options) ? res.options : [];
-        if (state.index >= Math.min(state.options.length, maxDropdownItems)) state.index = 0;
+        state.options = Array.isArray(res?.options)
+            ? res.options
+                // Ograniczamy liczbę pozycji do sensownego zakresu nawigacji klawiaturą.
+                .slice(0, maxNavigableItems)
+                .map((value) => String(value || '').trim())
+                .filter(Boolean)
+            : [];
+        if (state.index >= state.options.length) state.index = 0;
         if (source === 'input') state.index = 0;
         render();
-        renderSuggestList();
     }
 
     function acceptSuggestion() {
@@ -160,7 +148,15 @@ export function createPredictiveGhostController(cfg) {
         state = { raw: suggestion, norm: suggestion, options: [], index: 0, hidden: false };
         try { onAcceptSuggestion(query, suggestion); } catch { }
         searchInput.dispatchEvent(new Event('input', { bubbles: true }));
-        hideSuggest();
+        return true;
+    }
+
+    function cycleSuggestion(delta = 1) {
+        if (!Array.isArray(state.options) || state.options.length <= 1) return false;
+        state.hidden = false;
+        const n = state.options.length;
+        state.index = (state.index + delta + n) % n;
+        render();
         return true;
     }
 
@@ -178,14 +174,10 @@ export function createPredictiveGhostController(cfg) {
         const hasOptions = Array.isArray(state.options) && state.options.length > 0;
         if (!hasOptions) return;
 
-        if (key === 'ArrowDown' || key === 'ArrowUp') {
+        if ((key === 'ArrowDown' || key === 'ArrowUp') && state.options.length > 1) {
             e.preventDefault();
-            state.hidden = false;
             const delta = key === 'ArrowDown' ? 1 : -1;
-            const n = Math.min(state.options.length, maxDropdownItems);
-            state.index = (state.index + delta + n) % n;
-            render();
-            renderSuggestList();
+            cycleSuggestion(delta);
             return;
         }
 
@@ -205,38 +197,56 @@ export function createPredictiveGhostController(cfg) {
                 e.preventDefault();
                 state.hidden = true;
                 hide();
-                hideSuggest();
             }
         }
     }
 
     function onScroll() { syncScroll(); }
-    function onBlur() { hide(); hideSuggest(); }
+    function onBlur() { syncScroll(); }
     function onCompositionStart() { isComposing = true; hide(); }
     function onCompositionEnd(value) { isComposing = false; update(value, { source: 'compositionend' }); }
 
-    function onSuggestMouseDown(e) {
+    function onHintMouseDown(e) {
         if (!e) return;
         try { e.preventDefault(); } catch { }
     }
 
-    function onSuggestClick(e) {
+    function onHintClick(e) {
         if (!e) return;
-        const t = e?.target;
-        const idx = Number(t?.dataset?.index);
-        if (!Number.isFinite(idx) || idx < 0) return;
-        if (!Array.isArray(state.options) || state.options.length === 0) return;
-        state.index = Math.min(Math.min(state.options.length, maxDropdownItems) - 1, idx);
-        const ok = acceptSuggestion();
-        if (ok) {
-            try { e.preventDefault(); } catch { }
+        try { e.preventDefault(); } catch { }
+        const changed = cycleSuggestion(1);
+        if (changed) {
+            try { searchInput?.focus({ preventScroll: true }); } catch { try { searchInput?.focus(); } catch { } }
         }
     }
 
-    if (suggestList) {
-        try { suggestList.addEventListener('mousedown', onSuggestMouseDown); } catch { }
-        try { suggestList.addEventListener('click', onSuggestClick); } catch { }
+    function onViewportResize() {
+        if (!ghostOverlay || ghostOverlay.classList.contains('is-hidden')) return;
+        render();
     }
 
-    return { update, onKeydown, onScroll, onBlur, onCompositionStart, onCompositionEnd, hide, hideSuggest };
+    function onInputWheel(e) {
+        if (!e || !searchInput) return;
+        const attemptsHorizontalScroll = Math.abs(Number(e.deltaX) || 0) > 0 || Boolean(e.shiftKey) || (Number(searchInput.scrollLeft) || 0) > 0;
+        if (!attemptsHorizontalScroll) return;
+        try { e.preventDefault(); } catch { }
+        resetMouseDrivenScroll();
+    }
+
+    function onInputPointerUp() {
+        resetMouseDrivenScroll();
+    }
+
+    if (ghostHint) {
+        try { ghostHint.addEventListener('mousedown', onHintMouseDown); } catch { }
+        try { ghostHint.addEventListener('click', onHintClick); } catch { }
+    }
+    if (searchInput) {
+        try { searchInput.addEventListener('wheel', onInputWheel, { passive: false }); } catch { }
+        try { searchInput.addEventListener('pointerup', onInputPointerUp, { passive: true }); } catch { }
+        try { searchInput.addEventListener('mouseup', onInputPointerUp, { passive: true }); } catch { }
+    }
+    try { window.addEventListener('resize', onViewportResize, { passive: true }); } catch { }
+
+    return { update, onKeydown, onScroll, onBlur, onCompositionStart, onCompositionEnd, hide };
 }
