@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.32.0-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.32.20-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,11 +47,11 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
 
-### Zmiany w wersji 2.32.0
+### Zmiany w wersji 2.32.20
 
-- Zaktualizowano `DEKOMPOZYCJA_JS_PLAN.md` do rzeczywistego stanu repozytorium i uproszczono dalszy plan z dawnych faz 3-9 do 3 większych wdrożeń.
-- Domknięto końcówkę Fazy 2 przez przeniesienie do `js/core/data-store.js` mutacji dla stanu danych, wyników wyszukiwania, załadowanych plików i indeksu tras.
-- Wyniesiono do `js/core/data-store.js` helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup` i `buildRouteFileIndex`, dzięki czemu `js/entry/app.js` nie jest już właścicielem tej logiki.
+- Logotyp QuickEvo został dopracowany jeszcze bliżej referencji `assets/Logo_02.png` i `assets/Logo_04.png`: sygnet na początku pełni teraz wizualnie funkcję litery `Q`, więc wordmark nie renderuje już osobnej litery `Q`; dodatkowo doprecyzowano kerning `uick` / `Ev` oraz pozycję i skalę zębatki pełniącej rolę `o`.
+- W jasnym motywie akcent loga został przełączony z niebieskiego na ciepły, przygaszony brąz zgodny z resztą interfejsu (`--primary-color` i pokrewne odcienie), dzięki czemu logo lepiej integruje się z przełącznikami, nagłówkami i akcentami UI.
+- Animacje dekoracyjnych linii na ekranie powitalnym zostały przebudowane pod płynne, bezszwowe zapętlenie z liniowym przepływem `stroke-dashoffset`; dodatkowo zagęszczono część ozdobnych ścieżek i punktów, aby pełniejszy wariant welcome był bliższy kompozycji z PNG.
 
 ***
 
@@ -99,9 +99,11 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Obsługa reduced motion (wyłączenie animacji dla użytkowników z wrażliwością na ruch)
 - Responsywny design z obsługą urządzeń mobilnych
 - Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
-- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel `hover/click` lub `focus/click` pokazuje jeden lub wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
+- Główna nawigacja `TRASY` / `KIEROWCY` / `GRAFIK` działa jak toggle sekcji: pierwsze kliknięcie otwiera widok, a ponowne kliknięcie aktywnego przycisku zamyka sekcję i wraca do ekranu wyszukiwania z paskiem inputu
+- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
 - Ekran „Grafik” do swobodnego przeglądania harmonogramu w formie tabeli zbliżonej do arkusza: kierowcy w kolejności z pliku, kolumny dni z akcentem weekendów, zaznaczanie całej kolumny dnia oraz klikalne kody tras otwierające podgląd w kontekście wybranej daty
 - Ekran powitalny z efektem glassmorphism
+- Dwa warianty logotypu QuickEvo: lekki w headerze i rozbudowany, dekoracyjny w ekranie powitalnym
 - Ciemny motyw (domyślny)
 - Przełączanie motywów z zachowaniem stanu
 

@@ -355,6 +355,8 @@ const fullFileData = dataStore.getFullFileData();
 let scheduleService = null;
 let driverContactsService = null;
 const driverGridInteractionControllers = new WeakMap();
+let activeDriverDetailsTile = null;
+let activeDriverDetailsClose = null;
 
 /**
  * Indeks tras zaimportowanych do bazy (kod trasy -> nazwa pliku).
@@ -419,6 +421,16 @@ let loadingStartedAt = 0;
 let lastPreviewState = { fileName: null, rowIndex: null, contextIsoDate: null };
 
 /**
+ * Monotoniczny identyfikator aktywnej operacji głównej nawigacji.
+ *
+ * Pozwala odrzucić spóźnione zakończenia asynchronicznych renderów,
+ * gdy użytkownik zdążył już zamknąć sekcję albo przełączyć się na inny ekran.
+ *
+ * @type {number}
+ */
+let primaryNavTransitionToken = 0;
+
+/**
  * Obserwatory listy wyników utrzymujące poprawny layout (np. wysokości sekcji kategorii)
  * oraz umożliwiające odtworzenie scrolla po powrocie z podglądu.
  *
@@ -432,6 +444,59 @@ let bootWatchdogTimer = null;
 
 function prefersReducedMotion() {
     return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+/**
+ * Sprawdza, czy dany kontener widoku jest aktualnie widoczny.
+ *
+ * @param {Element | null | undefined} el
+ * @returns {boolean}
+ */
+function isViewCurrentlyVisible(el) {
+    return Boolean(el && !el.classList.contains('view-hidden'));
+}
+
+/**
+ * Zwraca klucz bieżącego widoku aplikacji.
+ *
+ * @returns {'search' | 'preview' | 'routes' | 'drivers' | 'schedule'}
+ */
+function getCurrentViewKey() {
+    if (isViewCurrentlyVisible(filePreviewView)) return 'preview';
+    if (isViewCurrentlyVisible(scheduleView)) return 'schedule';
+    if (isViewCurrentlyVisible(routesView)) return 'routes';
+    if (isViewCurrentlyVisible(driversView)) return 'drivers';
+    return 'search';
+}
+
+/**
+ * Obsługuje kliknięcie głównego przycisku nawigacji.
+ *
+ * Ponowne kliknięcie aktywnego przycisku nie wraca już do poprzedniej sekcji,
+ * tylko zamyka bieżący ekran i pokazuje widok wyszukiwania z paskiem inputu.
+ *
+ * @param {'routes' | 'drivers' | 'schedule'} navKey
+ * @param {(opts?: { source?: string }) => Promise<void>} openView
+ * @returns {Promise<void>}
+ */
+async function handlePrimaryNavButtonClick(navKey, openView) {
+    const safeNavKey = String(navKey || '').trim();
+    if (!safeNavKey || typeof openView !== 'function') return;
+
+    if (getCurrentViewKey() === safeNavKey) {
+        primaryNavTransitionToken += 1;
+        const currentQuery = String(searchInput?.value || '').trim();
+        goHome();
+        ensureNavigationService().replaceHome({
+            search: currentQuery.length >= 3,
+            query: currentQuery
+        });
+        return;
+    }
+
+    const transitionToken = primaryNavTransitionToken + 1;
+    primaryNavTransitionToken = transitionToken;
+    await openView({ source: 'nav', transitionToken });
 }
 
 
@@ -757,17 +822,17 @@ function setupNavigationListeners() {
     }
     if (navRoutesButton) {
         navRoutesButton.addEventListener('click', async () => {
-            try { await openRoutesView({ source: 'nav' }); } catch { }
+            try { await handlePrimaryNavButtonClick('routes', openRoutesView); } catch { }
         });
     }
     if (navDriversButton) {
         navDriversButton.addEventListener('click', async () => {
-            try { await openDriversView({ source: 'nav' }); } catch { }
+            try { await handlePrimaryNavButtonClick('drivers', openDriversView); } catch { }
         });
     }
     if (navScheduleButton) {
         navScheduleButton.addEventListener('click', async () => {
-            try { await openScheduleView({ source: 'nav' }); } catch { }
+            try { await handlePrimaryNavButtonClick('schedule', openScheduleView); } catch { }
         });
     }
     if (backToSearchFromScheduleBtn) {
@@ -1223,6 +1288,10 @@ function ensureDriverRoleSectionsContainer() {
 
 function cleanupDriverGridInteractions(rootEl) {
     if (!(rootEl instanceof HTMLElement)) return;
+    if (activeDriverDetailsTile instanceof HTMLElement && rootEl.contains(activeDriverDetailsTile)) {
+        activeDriverDetailsTile = null;
+        activeDriverDetailsClose = null;
+    }
     const containers = [rootEl, ...rootEl.querySelectorAll('.qe-driver-sections, .qe-driver-role-grid')];
     for (const container of containers) {
         if (!(container instanceof HTMLElement)) continue;
@@ -2709,6 +2778,14 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
         tileEl.classList.toggle('is-open', isOpen);
         if (!isOpen && openedTile === tileEl) openedTile = null;
         if (isOpen) openedTile = tileEl;
+        if (!isOpen && activeDriverDetailsTile === tileEl) {
+            activeDriverDetailsTile = null;
+            activeDriverDetailsClose = null;
+        }
+        if (isOpen) {
+            activeDriverDetailsTile = tileEl;
+            activeDriverDetailsClose = () => setTileOpenState(tileEl, false);
+        }
     };
 
     const setTileManualCloseState = (tileEl, isClosedByUser) => {
@@ -2873,37 +2950,35 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             trigger.addEventListener('click', (event) => {
                 event.preventDefault();
                 const nextOpenState = !tile.classList.contains('is-open');
-                if (openedTile && openedTile !== tile) closeOpenedTile();
-                setTileManualCloseState(tile, !nextOpenState);
+                if (nextOpenState && activeDriverDetailsTile && activeDriverDetailsTile !== tile) {
+                    try { activeDriverDetailsClose?.(); } catch { }
+                }
+                if (nextOpenState) {
+                    const openTiles = document.querySelectorAll('.qe-driver-tile.is-open');
+                    for (const openTile of openTiles) {
+                        if (!(openTile instanceof HTMLElement) || openTile === tile) continue;
+                        const openTrigger = openTile.querySelector('.qe-driver-tile__trigger');
+                        const openPanel = openTile.querySelector('.qe-driver-tile__panel');
+                        if (openTrigger instanceof HTMLElement) {
+                            openTrigger.setAttribute('aria-expanded', 'false');
+                        }
+                        setPanelInteractivity(openPanel, false);
+                        openTile.classList.remove('is-open');
+                        if (openedTile === openTile) openedTile = null;
+                        if (activeDriverDetailsTile === openTile) {
+                            activeDriverDetailsTile = null;
+                            activeDriverDetailsClose = null;
+                        }
+                    }
+                } else if (openedTile && openedTile !== tile) {
+                    closeOpenedTile();
+                }
                 setTileOpenState(tile, nextOpenState);
-                if (!nextOpenState && document.activeElement === trigger) trigger.blur();
-            }, { signal });
-
-            trigger.addEventListener('mouseenter', () => {
-                if (openedTile && openedTile !== tile) closeOpenedTile();
-                if (!tile.classList.contains('is-manually-closed')) setPanelInteractivity(panel, true);
-            }, { signal });
-
-            tile.addEventListener('mouseleave', () => {
                 setTileManualCloseState(tile, false);
-                if (!tile.classList.contains('is-open')) setPanelInteractivity(panel, false);
-            }, { signal });
-
-            tile.addEventListener('focusin', () => {
-                if (!tile.classList.contains('is-manually-closed')) setPanelInteractivity(panel, true);
-            }, { signal });
-
-            tile.addEventListener('focusout', () => {
-                window.setTimeout(() => {
-                    if (tile.matches(':focus-within') || tile.classList.contains('is-open')) return;
-                    setTileManualCloseState(tile, false);
-                    setPanelInteractivity(panel, false);
-                }, 0);
             }, { signal });
 
             tile.addEventListener('keydown', (event) => {
                 if (event.key !== 'Escape') return;
-                setTileManualCloseState(tile, true);
                 closeOpenedTile();
                 setPanelInteractivity(panel, false);
                 trigger.focus();
@@ -3225,16 +3300,18 @@ function showDriversShell() {
     setPrimaryNavActive('drivers');
 }
 
-async function openRoutesView({ skipPush = false, source = '' } = {}) {
+async function openRoutesView({ skipPush = false, source = '', transitionToken = 0 } = {}) {
     showRoutesShell();
     await renderRoutesView();
+    if (transitionToken && transitionToken !== primaryNavTransitionToken) return;
     if (!skipPush) ensureNavigationService().pushRoutes();
     logClientEvent('navigate', { to: 'routes', source: String(source || '') });
 }
 
-async function openDriversView({ skipPush = false, source = '' } = {}) {
+async function openDriversView({ skipPush = false, source = '', transitionToken = 0 } = {}) {
     showDriversShell();
     await renderDriversView();
+    if (transitionToken && transitionToken !== primaryNavTransitionToken) return;
     if (!skipPush) ensureNavigationService().pushDrivers();
     logClientEvent('navigate', { to: 'drivers', source: String(source || '') });
 }
@@ -3269,7 +3346,7 @@ function showScheduleShell() {
  *
  * @param {{ ym?: string, selectedIsoDate?: (string|null), skipPush?: boolean, source?: string }} opts
  */
-async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source = '' } = {}) {
+async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source = '', transitionToken = 0 } = {}) {
     showScheduleShell();
     if (scheduleSubtitle) scheduleSubtitle.textContent = 'Ładowanie grafiku...';
 
@@ -3304,6 +3381,8 @@ async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source 
 
     const iso = typeof selectedIsoDate === 'string' ? selectedIsoDate.trim() : '';
     if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) ctrl.setSelectedDay(iso);
+
+    if (transitionToken && transitionToken !== primaryNavTransitionToken) return;
 
     if (!skipPush && targetYm) {
         ensureNavigationService().pushSchedule({ ym: targetYm, selectedIsoDate: iso || null });

@@ -245,6 +245,11 @@ header {
     height: clamp(48px, 14vw, 144px);
     width: auto;
     display: block;
+    overflow: visible;
+}
+
+body.light-theme .app-header-logo svg {
+    filter: drop-shadow(0 8px 18px rgba(153, 166, 182, 0.18));
 }
 
 header p {
@@ -1920,8 +1925,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
     backdrop-filter: blur(10px);
 }
 
-.qe-driver-tile.is-open .qe-driver-tile__panel,
-.qe-driver-tile:not(.is-manually-closed):is(:hover, :focus-within) .qe-driver-tile__panel {
+.qe-driver-tile.is-open .qe-driver-tile__panel {
     opacity: 1;
     transform: translateY(0) scale(1);
     pointer-events: auto;
@@ -2079,25 +2083,13 @@ tbody tr:nth-child(even) td:nth-child(even) {
         transition: max-height 0.22s ease, padding 0.22s ease, border-width 0.22s ease, opacity 0.18s ease;
     }
 
-    .qe-driver-tile:is(:focus-within, .is-open) .qe-driver-tile__panel {
+    .qe-driver-tile.is-open .qe-driver-tile__panel {
         pointer-events: auto;
         max-height: 520px;
         padding-top: 12px;
         padding-bottom: 12px;
         border-width: 1px;
         box-shadow: var(--shadow);
-    }
-}
-
-@media (hover: none) {
-    .qe-driver-tile:hover .qe-driver-tile__panel {
-        opacity: 0;
-        transform: translateY(-10px) scale(0.97);
-        pointer-events: none;
-        max-height: 0;
-        padding-top: 0;
-        padding-bottom: 0;
-        border-width: 0;
     }
 }
 
@@ -2706,8 +2698,8 @@ footer {
 }
 
 .welcome-graphic {
-    width: min(520px, 80%);
-    height: clamp(84px, 14vh, 140px);
+    width: min(760px, 96%);
+    height: clamp(148px, 24vh, 248px);
     display: grid;
     place-items: center;
     /* Animacja wejścia loga na ekranie powitalnym (płynne, lekkie i wydajne). */
@@ -2733,6 +2725,7 @@ footer {
     width: 100%;
     height: 100%;
     display: block;
+    overflow: visible;
 }
 
 .welcome-graphic.welcome-graphic--ready[data-loaded="1"] svg {
@@ -2767,9 +2760,77 @@ footer {
     filter: drop-shadow(0 2px 6px rgba(0, 102, 204, 0.25));
 }
 
+.welcome-graphic .qe-circuit-node,
+.app-header-logo .qe-circuit-node {
+    transform-box: fill-box;
+    transform-origin: center;
+    will-change: opacity, transform;
+}
+
+.welcome-graphic .qe-circuit-line {
+    will-change: stroke-dashoffset, opacity;
+}
+
+.welcome-graphic .qe-circuit-line--accent {
+    stroke-dasharray: 12 18;
+    stroke-dashoffset: 0;
+    animation: qeCircuitAccentFlow 1.9s linear infinite;
+}
+
+.welcome-graphic .qe-circuit-line--ghost {
+    stroke-dasharray: 10 22;
+    stroke-dashoffset: 0;
+    animation: qeCircuitGhostFlow 2.35s linear infinite;
+}
+
+.welcome-graphic .qe-deco-card {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: qeCardFloat 7.2s ease-in-out infinite;
+}
+
+.welcome-graphic .qe-map-pin {
+    transform-box: fill-box;
+    transform-origin: center bottom;
+    animation: qeMapPinFloat 5.6s ease-in-out infinite;
+}
+
+.welcome-graphic .qe-circuit-node:nth-of-type(2n) {
+    animation: qeNodeGlow 2.8s ease-in-out infinite;
+}
+
+.welcome-graphic .qe-circuit-node:nth-of-type(2n + 1) {
+    animation: qeNodeGlow 3.6s ease-in-out infinite;
+}
+
 @keyframes qePulse {
     0%, 100% { transform: scale(1); opacity: 0.78; }
     50% { transform: scale(1.06); opacity: 1; }
+}
+
+@keyframes qeNodeGlow {
+    0%, 100% { opacity: 0.72; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes qeCardFloat {
+    0%, 100% { transform: translateY(0); opacity: 0.9; }
+    50% { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes qeCircuitAccentFlow {
+    0% { opacity: 0.88; stroke-dashoffset: 0; }
+    100% { opacity: 0.88; stroke-dashoffset: -30; }
+}
+
+@keyframes qeCircuitGhostFlow {
+    0% { opacity: 0.34; stroke-dashoffset: 0; }
+    100% { opacity: 0.34; stroke-dashoffset: -32; }
+}
+
+@keyframes qeMapPinFloat {
+    0%, 100% { transform: translateY(0) scale(1); opacity: 0.92; }
+    50% { transform: translateY(-5px) scale(1.015); opacity: 1; }
 }
 
 .docs-import-actions {
