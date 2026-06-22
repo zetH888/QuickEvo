@@ -25,7 +25,7 @@ let logoInstanceCounter = 0;
 function prefersReducedMotion() {
     return Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 }
- 
+
 /**
  * Buduje kod SVG logo QuickEvo.
  *

@@ -40,6 +40,23 @@ html::-webkit-scrollbar {
     --state-error: #ff6b6b;
     --state-success: #51cf66;
     --state-warning: #fcc419;
+    --qe-diff-surface: color-mix(in srgb, var(--card-bg) 90%, transparent);
+    --qe-diff-surface-strong: color-mix(in srgb, var(--card-bg) 96%, var(--bg-color));
+    --qe-diff-surface-muted: color-mix(in srgb, var(--card-bg) 82%, transparent);
+    --qe-diff-border: color-mix(in srgb, var(--border-color) 76%, transparent);
+    --qe-diff-header-bg: color-mix(in srgb, var(--card-bg) 92%, var(--bg-color));
+    --qe-diff-switch-bg: color-mix(in srgb, var(--accent-color) 44%, transparent);
+    --qe-diff-switch-active-bg: color-mix(in srgb, var(--primary-color) 18%, transparent);
+    --qe-diff-switch-active-border: color-mix(in srgb, var(--primary-color) 52%, var(--border-color));
+    --qe-diff-added-bg: color-mix(in srgb, var(--state-success) 14%, transparent);
+    --qe-diff-added-border: color-mix(in srgb, var(--state-success) 34%, var(--border-color));
+    --qe-diff-added-text: color-mix(in srgb, var(--text-color) 80%, var(--state-success));
+    --qe-diff-removed-bg: color-mix(in srgb, var(--state-error) 14%, transparent);
+    --qe-diff-removed-border: color-mix(in srgb, var(--state-error) 34%, var(--border-color));
+    --qe-diff-removed-text: color-mix(in srgb, var(--text-color) 82%, var(--state-error));
+    --qe-diff-modified-bg: color-mix(in srgb, var(--primary-color) 14%, transparent);
+    --qe-diff-modified-border: color-mix(in srgb, var(--primary-color) 34%, var(--border-color));
+    --qe-diff-modified-text: color-mix(in srgb, var(--text-color) 80%, var(--primary-color));
 
     /* Loader progress */
     --progress-track: rgba(77, 166, 255, 0.15);
@@ -110,6 +127,23 @@ body.light-theme {
     --state-error: #C05555;
     --state-success: #7A916B;
     --state-warning: #B59A5A;
+    --qe-diff-surface: color-mix(in srgb, var(--card-bg) 96%, white);
+    --qe-diff-surface-strong: color-mix(in srgb, var(--card-bg) 98%, white);
+    --qe-diff-surface-muted: color-mix(in srgb, var(--card-bg) 88%, var(--bg-color));
+    --qe-diff-border: color-mix(in srgb, var(--border-color) 88%, white);
+    --qe-diff-header-bg: color-mix(in srgb, var(--card-bg) 98%, var(--bg-color));
+    --qe-diff-switch-bg: color-mix(in srgb, var(--accent-color) 18%, white);
+    --qe-diff-switch-active-bg: color-mix(in srgb, var(--primary-color) 16%, white);
+    --qe-diff-switch-active-border: color-mix(in srgb, var(--primary-color) 44%, var(--border-color));
+    --qe-diff-added-bg: color-mix(in srgb, var(--state-success) 14%, white);
+    --qe-diff-added-border: color-mix(in srgb, var(--state-success) 34%, var(--border-color));
+    --qe-diff-added-text: color-mix(in srgb, var(--text-color) 84%, var(--state-success));
+    --qe-diff-removed-bg: color-mix(in srgb, var(--state-error) 12%, white);
+    --qe-diff-removed-border: color-mix(in srgb, var(--state-error) 32%, var(--border-color));
+    --qe-diff-removed-text: color-mix(in srgb, var(--text-color) 84%, var(--state-error));
+    --qe-diff-modified-bg: color-mix(in srgb, var(--primary-color) 14%, white);
+    --qe-diff-modified-border: color-mix(in srgb, var(--primary-color) 32%, var(--border-color));
+    --qe-diff-modified-text: color-mix(in srgb, var(--text-color) 84%, var(--primary-color));
 
     /* Loader progress */
     --progress-track: #E8E2D9;
@@ -3918,11 +3952,60 @@ footer {
     max-width: 420px;
 }
 
+.qe-secondary-modal-card.qe-xlsx-diff-modal {
+    background: var(--qe-diff-surface-strong);
+    border-color: var(--qe-diff-border);
+    box-shadow: var(--shadow);
+}
+
+.qe-secondary-modal-card.qe-xlsx-diff-modal .qe-secondary-modal-header {
+    border-bottom-color: var(--qe-diff-border);
+    background: var(--qe-diff-header-bg);
+}
+
+.qe-secondary-modal-card.qe-xlsx-diff-modal .qe-secondary-modal-close {
+    border-color: var(--qe-diff-border);
+    background: var(--qe-diff-surface);
+}
+
+.qe-secondary-modal-card.qe-xlsx-diff-modal .qe-secondary-modal-close:hover {
+    background: var(--qe-diff-switch-active-bg);
+}
+
+.qe-secondary-modal-card.qe-xlsx-diff-modal .qe-secondary-modal-content {
+    background: transparent;
+}
+
 .qe-xlsx-diff {
     display: flex;
     flex-direction: column;
     gap: 16px;
     min-height: 100%;
+}
+
+.qe-xlsx-diff-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+}
+
+.qe-xlsx-diff-topbar-meta {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--secondary-text);
+    font-size: 0.82rem;
+}
+
+.qe-xlsx-diff-topbar-label {
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.qe-xlsx-diff-topbar-hint {
+    font-weight: 600;
 }
 
 .qe-xlsx-diff-loading {
@@ -3953,8 +4036,8 @@ footer {
     gap: 12px;
     padding: 12px 14px;
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--qe-diff-border);
+    background: var(--qe-diff-surface);
 }
 
 .qe-xlsx-diff-stat span {
@@ -3965,102 +4048,316 @@ footer {
 .qe-xlsx-diff-stat strong {
     font-size: 1rem;
     color: var(--text-color);
+    font-variant-numeric: tabular-nums;
 }
 
 .qe-xlsx-diff-stat--added {
-    border-color: rgba(92, 196, 125, 0.28);
-    background: rgba(92, 196, 125, 0.10);
+    border-color: var(--qe-diff-added-border);
+    background: var(--qe-diff-added-bg);
 }
 
 .qe-xlsx-diff-stat--removed {
-    border-color: rgba(219, 95, 108, 0.30);
-    background: rgba(219, 95, 108, 0.10);
+    border-color: var(--qe-diff-removed-border);
+    background: var(--qe-diff-removed-bg);
 }
 
 .qe-xlsx-diff-stat--modified {
-    border-color: rgba(255, 204, 92, 0.30);
-    background: rgba(255, 204, 92, 0.10);
+    border-color: var(--qe-diff-modified-border);
+    background: var(--qe-diff-modified-bg);
 }
 
 .qe-xlsx-diff-message {
     padding: 16px 18px;
     border-radius: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--qe-diff-border);
+    background: var(--qe-diff-surface);
     line-height: 1.6;
 }
 
 .qe-xlsx-diff-message--info {
-    background: rgba(47, 140, 255, 0.10);
-    border-color: rgba(47, 140, 255, 0.24);
+    background: var(--qe-diff-modified-bg);
+    border-color: var(--qe-diff-modified-border);
 }
 
 .qe-xlsx-diff-message--error {
-    background: rgba(184, 68, 82, 0.12);
-    border-color: rgba(224, 107, 122, 0.30);
+    background: var(--qe-diff-removed-bg);
+    border-color: var(--qe-diff-removed-border);
+}
+
+.qe-xlsx-diff-switch {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-height: 0;
+}
+
+.qe-xlsx-diff-switch-input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.qe-xlsx-diff-switch-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    align-self: flex-start;
+    padding: 6px;
+    border-radius: 14px;
+    border: 1px solid var(--qe-diff-border);
+    background: var(--qe-diff-switch-bg);
+}
+
+.qe-xlsx-diff-switch-option {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 36px;
+    padding: 0 14px;
+    border-radius: 10px;
+    color: var(--secondary-text);
+    font-size: 0.84rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease;
+}
+
+.qe-xlsx-diff-switch-option:hover {
+    color: var(--text-color);
+}
+
+.qe-xlsx-diff-switch > input:nth-of-type(1):checked ~ .qe-xlsx-diff-switch-bar label:nth-of-type(1),
+.qe-xlsx-diff-switch > input:nth-of-type(2):checked ~ .qe-xlsx-diff-switch-bar label:nth-of-type(2) {
+    background: var(--qe-diff-switch-active-bg);
+    border-color: var(--qe-diff-switch-active-border);
+    color: var(--text-color);
+    box-shadow: inset 0 0 0 1px var(--qe-diff-switch-active-border);
+}
+
+.qe-xlsx-diff-views {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+.qe-xlsx-diff-view {
+    display: none;
+}
+
+.qe-xlsx-diff-switch > input:nth-of-type(1):checked ~ .qe-xlsx-diff-views .qe-xlsx-diff-view--list,
+.qe-xlsx-diff-switch > input:nth-of-type(2):checked ~ .qe-xlsx-diff-views .qe-xlsx-diff-view--side {
+    display: block;
+}
+
+.qe-xlsx-diff-group {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 18px;
+    border: 1px solid var(--qe-diff-border);
+    background: var(--qe-diff-surface);
+}
+
+.qe-xlsx-diff-view--side {
+    gap: 14px;
+}
+
+.qe-xlsx-diff-group-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.qe-xlsx-diff-group-kicker {
+    color: var(--secondary-text);
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.qe-xlsx-diff-group-title {
+    margin: 4px 0 0 0;
+    font-size: 1rem;
+    font-weight: 900;
+    color: var(--text-color);
+}
+
+.qe-xlsx-diff-group-meta {
+    color: var(--secondary-text);
+    font-size: 0.82rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.qe-xlsx-diff-side-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.qe-xlsx-diff-entry-address {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 900;
+    letter-spacing: 0.02em;
+    color: var(--text-color);
+}
+
+.qe-xlsx-diff-view--side .qe-xlsx-diff-group {
+    gap: 14px;
+}
+
+.qe-xlsx-diff-side-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--qe-diff-border);
+    background: var(--qe-diff-surface);
+}
+
+.qe-xlsx-diff-side-cell--muted {
+    opacity: 0.72;
+    background: var(--qe-diff-surface-muted);
+}
+
+.qe-xlsx-diff-side-head,
+.qe-xlsx-diff-side-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+}
+
+.qe-xlsx-diff-side-head {
+    color: var(--secondary-text);
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0 2px;
+}
+
+.qe-xlsx-diff-side-list {
+    display: grid;
+    gap: 10px;
+}
+
+.qe-xlsx-diff-side-row--added .qe-xlsx-diff-side-cell--new {
+    border-color: var(--qe-diff-added-border);
+    background: var(--qe-diff-added-bg);
+}
+
+.qe-xlsx-diff-side-row--removed .qe-xlsx-diff-side-cell--old {
+    border-color: var(--qe-diff-removed-border);
+    background: var(--qe-diff-removed-bg);
+}
+
+.qe-xlsx-diff-side-row--modified .qe-xlsx-diff-side-cell {
+    border-color: var(--qe-diff-modified-border);
 }
 
 .qe-xlsx-diff-table-wrap {
     border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--qe-diff-border);
     overflow: auto;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--qe-diff-surface);
+}
+
+.qe-xlsx-diff-table-wrap--list {
+    --qe-xlsx-diff-list-head-height: calc((0.78rem * 1.2) + 22px + 1px);
+    max-height: min(56vh, 620px);
 }
 
 .qe-xlsx-diff-table {
     width: 100%;
-    border-collapse: collapse;
-    min-width: 720px;
+    border-collapse: separate;
+    border-spacing: 0;
+    min-width: 760px;
 }
 
 .qe-xlsx-diff-table th,
 .qe-xlsx-diff-table td {
-    padding: 12px 14px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--qe-diff-border);
     text-align: left;
     vertical-align: top;
 }
 
-.qe-xlsx-diff-table th {
+.qe-xlsx-diff-table thead th {
     position: sticky;
     top: 0;
-    z-index: 1;
-    background: rgba(16, 22, 34, 0.96);
+    z-index: 2;
+    background: var(--qe-diff-header-bg);
     color: var(--secondary-text);
-    font-size: 0.82rem;
+    font-size: 0.78rem;
+    font-weight: 900;
+    line-height: 1.2;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.08em;
+}
+
+.qe-xlsx-diff-table-group-row th {
+    position: sticky;
+    top: calc(var(--qe-xlsx-diff-list-head-height) - 1px);
+    z-index: 1;
+    background: var(--qe-diff-surface-strong);
+    color: var(--text-color);
+    font-size: 0.82rem;
+    font-weight: 900;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
 }
 
 .qe-xlsx-diff-row--added {
-    background: rgba(92, 196, 125, 0.06);
+    background: color-mix(in srgb, var(--qe-diff-added-bg) 84%, transparent);
 }
 
 .qe-xlsx-diff-row--removed {
-    background: rgba(219, 95, 108, 0.06);
+    background: color-mix(in srgb, var(--qe-diff-removed-bg) 84%, transparent);
 }
 
 .qe-xlsx-diff-row--modified {
-    background: rgba(255, 204, 92, 0.06);
+    background: color-mix(in srgb, var(--qe-diff-modified-bg) 72%, transparent);
+}
+
+.qe-xlsx-diff-col--column,
+.qe-xlsx-diff-col--address,
+.qe-xlsx-diff-col--type {
+    white-space: nowrap;
+}
+
+.qe-xlsx-diff-col--column {
+    width: 142px;
+    color: var(--secondary-text);
+    font-weight: 800;
+    white-space: normal;
 }
 
 .qe-xlsx-diff-col--address {
-    width: 100px;
-    white-space: nowrap;
-    font-weight: 800;
+    width: 96px;
+    font-weight: 900;
 }
 
 .qe-xlsx-diff-col--type {
-    width: 128px;
-    white-space: nowrap;
+    width: 112px;
 }
 
 .qe-xlsx-diff-cell {
     display: inline-block;
-    max-width: 340px;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: top;
+    font-variant-numeric: tabular-nums;
 }
 
 .qe-xlsx-diff-cell--empty {
@@ -4072,35 +4369,92 @@ footer {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 92px;
-    padding: 6px 10px;
+    min-width: 82px;
+    padding: 4px 9px;
     border-radius: 999px;
-    font-size: 0.78rem;
-    font-weight: 800;
+    border: 1px solid transparent;
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .qe-xlsx-diff-badge--added {
-    background: rgba(92, 196, 125, 0.16);
-    color: #baf0c8;
+    background: var(--qe-diff-added-bg);
+    border-color: var(--qe-diff-added-border);
+    color: var(--qe-diff-added-text);
 }
 
 .qe-xlsx-diff-badge--removed {
-    background: rgba(219, 95, 108, 0.16);
-    color: #ffd7dd;
+    background: var(--qe-diff-removed-bg);
+    border-color: var(--qe-diff-removed-border);
+    color: var(--qe-diff-removed-text);
 }
 
 .qe-xlsx-diff-badge--modified {
-    background: rgba(92, 158, 255, 0.16);
-    color: #d7e6ff;
+    background: var(--qe-diff-modified-bg);
+    border-color: var(--qe-diff-modified-border);
+    color: var(--qe-diff-modified-text);
+}
+
+@media (max-width: 860px) {
+    .qe-xlsx-diff-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .qe-xlsx-diff-switch-bar {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .qe-xlsx-diff-switch-option {
+        flex: 1 1 0;
+        padding: 0 10px;
+    }
+
+    .qe-xlsx-diff-side-head,
+    .qe-xlsx-diff-side-row {
+        grid-template-columns: 1fr;
+    }
+
+    .qe-xlsx-diff-side-head {
+        display: none;
+    }
+
+    .qe-xlsx-diff-table {
+        min-width: 640px;
+    }
+}
+
+@media (max-width: 560px) {
+    .qe-xlsx-diff-group {
+        padding: 12px;
+    }
+
+    .qe-xlsx-diff-group-header,
+    .qe-xlsx-diff-topbar-meta {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .qe-xlsx-diff-switch-bar {
+        flex-wrap: wrap;
+    }
+
+    .qe-xlsx-diff-switch-option {
+        min-width: calc(50% - 4px);
+        flex: 1 1 calc(50% - 4px);
+    }
+
 }
 
 .qe-spinner {
     width: 34px;
     height: 34px;
     border-radius: 50%;
-    border: 3px solid rgba(255, 255, 255, 0.12);
-    border-top-color: rgba(47, 140, 255, 0.95);
-    box-shadow: 0 0 0 1px rgba(47, 140, 255, 0.15) inset, 0 10px 22px rgba(47, 140, 255, 0.10);
+    border: 3px solid var(--qe-diff-border);
+    border-top-color: var(--primary-color);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 18%, transparent);
     animation: qeSpin 0.85s linear infinite;
 }
 

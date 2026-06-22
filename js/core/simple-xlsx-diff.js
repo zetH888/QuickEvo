@@ -1,5 +1,64 @@
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
 import { getArrayBufferFromSource } from './excel-processor.js';
+import { fuzzyNormalizeText } from './utils.js';
+
+const DIFF_HEADER_ALIASES = {
+    NR_POL: [
+        'NR. PÓŁ',
+        'NR PÓŁ',
+        'NR. POL',
+        'NR POL',
+        'NR.PÓŁ',
+        'NR.POL',
+        'NUMER PÓŁKI',
+        'NUMER POLKI',
+        'NUMER PÓŁ',
+        'NUMER POL',
+        'PÓŁKA',
+        'POLKA',
+        'NR'
+    ],
+    GODZ: [
+        'GODZ',
+        'GODZ.',
+        'GODZINA',
+        'GODZINY',
+        'CZAS'
+    ],
+    ADRES: [
+        'ADRES',
+        'ULICA',
+        'UL.',
+        'LOKALIZACJA',
+        'ADRES DOSTAWY'
+    ],
+    NAZWA_PLACOWKI: [
+        'NAZWA PLACÓWKI',
+        'NAZWA PLACOWKI',
+        'PLACÓWKA',
+        'PLACOWKA',
+        'NAZWA',
+        'NAZWA PUNKTU',
+        'PUNKT',
+        'ODBIORCA'
+    ],
+    UWAGI: [
+        'UWAGI',
+        'UWAGA',
+        'INFO',
+        'INFORMACJE',
+        'KOMENTARZ',
+        'OPIS'
+    ]
+};
+
+const DIFF_HEADER_LABELS = {
+    NR_POL: 'Nr. pół',
+    GODZ: 'Godzina',
+    ADRES: 'Adres',
+    NAZWA_PLACOWKI: 'Nazwa placówki',
+    UWAGI: 'Uwagi'
+};
 
 /**
  * Buduje prosty diff XLSX dla pierwszego arkusza, porównując komórki po indeksach
@@ -33,6 +92,8 @@ export async function buildSimpleXlsxDiff(input) {
     const fileName = String(input?.fileName || '').trim();
     const oldMatrix = await readFirstSheetMatrix(input?.oldSource, fileName);
     const newMatrix = await readFirstSheetMatrix(input?.newSource, fileName);
+    const oldColumnHeaders = detectDiffColumnHeaders(oldMatrix);
+    const newColumnHeaders = detectDiffColumnHeaders(newMatrix);
     const maxRows = Math.max(oldMatrix.length, newMatrix.length);
     const summary = {
         cellsAdded: 0,
@@ -65,6 +126,7 @@ export async function buildSimpleXlsxDiff(input) {
                 address: XLSX.utils.encode_cell({ r: rowIndex, c: colIndex }),
                 rowIndex,
                 colIndex,
+                columnHeader: String(newColumnHeaders[colIndex] || oldColumnHeaders[colIndex] || ''),
                 type,
                 oldValue,
                 newValue
@@ -136,4 +198,68 @@ function normalizeMatrix(matrix) {
         while (normalizedRow.length < maxCols) normalizedRow.push('');
         return normalizedRow;
     });
+}
+
+/**
+ * Wykrywa nagłówki kolumn na potrzeby widoku diff.
+ * Zwraca tylko te etykiety, które odpowiadają znanym kolumnom tras,
+ * a komórkę z nazwą trasy w pierwszej kolumnie celowo ignoruje.
+ *
+ * @param {string[][]} matrix
+ * @returns {string[]}
+ */
+function detectDiffColumnHeaders(matrix) {
+    const safeMatrix = Array.isArray(matrix) ? matrix : [];
+    let bestRow = [];
+    let bestScore = -1;
+
+    for (let rowIndex = 0; rowIndex < safeMatrix.length; rowIndex += 1) {
+        const row = Array.isArray(safeMatrix[rowIndex]) ? safeMatrix[rowIndex] : [];
+        const nonEmptyCount = row.reduce((count, cell) => count + (normalizeCellValue(cell) ? 1 : 0), 0);
+        if (nonEmptyCount < 2) continue;
+
+        const headers = row.map((cell, colIndex) => normalizeHeaderCell(cell, colIndex));
+        const score = headers.reduce((count, cell) => count + (cell ? 1 : 0), 0);
+        if (score > bestScore) {
+            bestRow = headers;
+            bestScore = score;
+        }
+    }
+
+    return bestScore > 0 ? bestRow : [];
+}
+
+/**
+ * Normalizuje potencjalny nagłówek do etykiety używanej w diffie.
+ *
+ * @param {unknown} cell
+ * @param {number} colIndex
+ * @returns {string}
+ */
+function normalizeHeaderCell(cell, colIndex) {
+    const raw = normalizeCellValue(cell);
+    if (!raw) return '';
+
+    const normalized = normalizeDiffHeaderToken(raw);
+    const matchedKey = Object.entries(DIFF_HEADER_ALIASES)
+        .find(([, aliases]) => aliases.some((alias) => normalizeDiffHeaderToken(alias) === normalized))
+        ?. [0] || '';
+
+    if (matchedKey) return DIFF_HEADER_LABELS[matchedKey] || raw;
+    if (colIndex === 0) return '';
+    return '';
+}
+
+/**
+ * Normalizuje tekst nagłówka do porównania niezależnego od kropek,
+ * spacji, polskich znaków i prostych separatorów.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeDiffHeaderToken(value) {
+    return fuzzyNormalizeText(value)
+        .replace(/[^a-z0-9]+/g, '')
+        .trim()
+        .toUpperCase();
 }

@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.32.20-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.33.14-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -46,6 +46,13 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.33.14
+
+- Drugi modal podglądu różnic `.xlsx` został przebudowany wizualnie na bardziej czytelny diff view inspirowany IDE, bez zmiany logiki importu i bez ingerencji w pozostałe modale.
+- Podgląd różnic XLSX udostępnia teraz dwa przełączane widoki: `Lista` (domyślna przy pierwszym otwarciu, fallback tabelaryczny ze sticky headerem) oraz `Side by side`.
+- Warstwa prezentacji diffu otrzymała helpery normalizacji i formatowania wartości komórek: ignorowanie zmian sprowadzających się wyłącznie do spacji/trimu, spójne traktowanie pustych wartości, bardziej odporne rozpoznawanie godzin zapisanych w Excelu jako ułamki doby (np. `0.3541666666666667` -> `8:30`) oraz wykrywanie znanych nagłówków kolumn tras dla widoku `Lista` (`Nr. pół`, `Godzina`, `Adres`, `Nazwa placówki`, `Uwagi`) z pominięciem pierwszej komórki zawierającej nazwę trasy; dopasowanie aliasów toleruje teraz warianty z/bez kropek, z/bez polskich znaków i typowe skróty typu `godz`, `godz.`, `nr pol`, `numer półki`.
+- Style diff modala zostały oparte o nowe zmienne CSS zintegrowane z istniejącym systemem theme, dzięki czemu akcenty `Dodane` / `Usunięte` / `Zmienione` zachowują spójność w dark i light theme.
 
 ### Zmiany w wersji 2.32.20
 
@@ -87,7 +94,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate`, dat ISO (YYYY-MM-DD) oraz dynamicznego katalogu tras zbudowanego z plików zsynchronizowanych z Google Drive
 - Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i powodami zmian; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
-- Lazy podgląd różnic XLSX dla zmodyfikowanych plików: przycisk `Pokaż różnicę` otwiera drugi modal 80vw/80vh nad głównym oknem synchronizacji, porównuje lokalny `Blob` z IndexedDB z nowym `ArrayBuffer` z Google Drive i pokazuje listę zmienionych komórek bez nadpisywania danych
+- Lazy podgląd różnic XLSX dla zmodyfikowanych plików: przycisk `Pokaż różnicę` otwiera drugi modal 80vw/80vh nad głównym oknem synchronizacji, porównuje lokalny `Blob` z IndexedDB z nowym `ArrayBuffer` z Google Drive i pokazuje grupowany diff komórek z przełączanymi widokami `Lista` / `Side by side`, bez nadpisywania danych
 - Niestandardowy pasek przewijania w oknie zmian Google Drive (premium overlay, pełna funkcjonalność przewijania)
 - Trwałe przechowywanie w IndexedDB (dane lokalne; bez wysyłania na serwer)
 
