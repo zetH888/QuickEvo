@@ -15,8 +15,7 @@ const DIFF_HEADER_ALIASES = {
         'NUMER PÓŁ',
         'NUMER POL',
         'PÓŁKA',
-        'POLKA',
-        'NR'
+        'POLKA'
     ],
     GODZ: [
         'GODZ',
@@ -28,9 +27,7 @@ const DIFF_HEADER_ALIASES = {
     ADRES: [
         'ADRES',
         'ULICA',
-        'UL.',
-        'LOKALIZACJA',
-        'ADRES DOSTAWY'
+        'LOKALIZACJA'
     ],
     NAZWA_PLACOWKI: [
         'NAZWA PLACÓWKI',
@@ -53,11 +50,11 @@ const DIFF_HEADER_ALIASES = {
 };
 
 const DIFF_HEADER_LABELS = {
-    NR_POL: 'Nr. pół',
-    GODZ: 'Godzina',
-    ADRES: 'Adres',
-    NAZWA_PLACOWKI: 'Nazwa placówki',
-    UWAGI: 'Uwagi'
+    NR_POL: 'NR PÓŁ',
+    GODZ: 'GODZINA',
+    ADRES: 'ADRES',
+    NAZWA_PLACOWKI: 'NAZWA PLACÓWKI',
+    UWAGI: 'UWAGI'
 };
 
 /**

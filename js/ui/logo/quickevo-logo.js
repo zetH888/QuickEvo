@@ -105,7 +105,7 @@ function buildLogoDefs(prefix, palette, size) {
 function buildHeaderComposition(prefix, palette) {
     return `
         <g transform="translate(0 0)">
-            ${buildCoreLogo(prefix, palette, { x: 0, y: 0, compact: true })}
+            ${buildCoreLogo(prefix, palette, { x: 0, y: 0, compact: false })}
         </g>
     `;
 }
@@ -145,8 +145,8 @@ function buildWelcomeComposition(prefix, palette) {
  */
 function buildCoreLogo(prefix, palette, { x, y, compact }) {
     const layout = compact
-        ? { wordmarkY: 122, quickSize: 98, quickX: x + 104, quickText: 'uick', quickLength: 210, evoSize: 102, evoX: x + 330, evoLength: 114, gearCx: x + 482, gearCy: y + 83 }
-        : { wordmarkY: 126, quickSize: 104, quickX: x + 116, quickText: 'uick', quickLength: 228, evoSize: 108, evoX: x + 360, evoLength: 122, gearCx: x + 530, gearCy: y + 84 };
+        ? { wordmarkY: 122, quickSize: 98, quickX: x + 120, quickText: 'uick', quickLength: 212, evoSize: 102, evoX: x + 346, evoLength: 112, gearCx: x + 487, gearCy: y + 89 }
+        : { wordmarkY: 126, quickSize: 104, quickX: x + 134, quickText: 'uick', quickLength: 231, evoSize: 108, evoX: x + 377, evoLength: 120, gearCx: x + 528, gearCy: y + 91 };
     const iconCx = x + 78;
     const iconCy = y + 82;
     const orbitGroup = `
@@ -161,7 +161,7 @@ function buildCoreLogo(prefix, palette, { x, y, compact }) {
             ${buildCompassMark(prefix, palette, { cx: iconCx, cy: iconCy, compact })}
             ${orbitGroup}
             ${buildWordmark(prefix, palette, layout)}
-            ${buildGearGlyph(prefix, { cx: layout.gearCx, cy: layout.gearCy, outerRadius: compact ? 31 : 33, innerRadius: compact ? 12.5 : 13.5 })}
+            ${buildGearGlyph(prefix, { cx: layout.gearCx, cy: layout.gearCy, outerRadius: compact ? 30 : 32, innerRadius: compact ? 18.5 : 19.5 })}
         </g>
     `;
 }
@@ -177,8 +177,8 @@ function buildCoreLogo(prefix, palette, { x, y, compact }) {
 function buildWordmark(prefix, palette, layout) {
     return `
         <g class="qe-wordmark" aria-hidden="true" filter="url(#${prefix}WordmarkShadow)">
-            <text x="${layout.quickX}" y="${layout.wordmarkY}" font-family="Segoe UI, Inter, system-ui, Arial, sans-serif" font-size="${layout.quickSize}" font-weight="800" letter-spacing="-2.2" textLength="${layout.quickLength}" lengthAdjust="spacingAndGlyphs" fill="url(#${prefix}WhiteFade)" stroke="${palette.wordmarkStroke}" stroke-width="${palette.wordmarkStrokeWidth}" paint-order="stroke fill">${layout.quickText}</text>
-            <text x="${layout.evoX}" y="${layout.wordmarkY}" font-family="Segoe UI, Inter, system-ui, Arial, sans-serif" font-size="${layout.evoSize}" font-weight="800" letter-spacing="-2.1" textLength="${layout.evoLength}" lengthAdjust="spacingAndGlyphs" fill="url(#${prefix}Accent)" stroke="${palette.accentStroke}" stroke-width="${palette.accentStrokeWidth}" paint-order="stroke fill">Ev</text>
+            <text x="${layout.quickX}" y="${layout.wordmarkY}" font-family="Segoe UI, Inter, system-ui, Arial, sans-serif" font-size="${layout.quickSize}" font-weight="800" letter-spacing="-2.15" textLength="${layout.quickLength}" lengthAdjust="spacingAndGlyphs" fill="url(#${prefix}WhiteFade)" stroke="${palette.wordmarkStroke}" stroke-width="${palette.wordmarkStrokeWidth}" paint-order="stroke fill">${layout.quickText}</text>
+            <text x="${layout.evoX}" y="${layout.wordmarkY}" font-family="Segoe UI, Inter, system-ui, Arial, sans-serif" font-size="${layout.evoSize}" font-weight="800" letter-spacing="-1.95" textLength="${layout.evoLength}" lengthAdjust="spacingAndGlyphs" fill="url(#${prefix}Accent)" stroke="${palette.accentStroke}" stroke-width="${palette.accentStrokeWidth}" paint-order="stroke fill">Ev</text>
         </g>
     `;
 }
@@ -192,19 +192,21 @@ function buildWordmark(prefix, palette, layout) {
  * @returns {string}
  */
 function buildCompassMark(prefix, palette, { cx, cy, compact }) {
-    const outerRadius = compact ? 51 : 55;
-    const innerRadius = compact ? 28 : 30;
-    const toothHeight = compact ? 15 : 17;
-    const toothWidth = compact ? 10 : 11;
+    const outerRadius = compact ? 52 : 56;
+    const innerRadius = compact ? 30 : 32;
+    const ringMaskId = `${prefix}CompassRingMask`;
     return `
         <g aria-hidden="true">
-            ${buildGearTeeth({ cx, cy, count: 8, radius: outerRadius + 1, toothWidth, toothHeight, rotation: 0, fill: palette.wordmarkStrong, opacity: 0.98 })}
-            <path d="${buildDonutPath(cx, cy, outerRadius, innerRadius)}" fill="${palette.wordmarkStrong}" fill-rule="evenodd"></path>
-            <path d="${buildQTailPath(cx, cy, outerRadius, innerRadius, compact)}" fill="${palette.wordmarkStrong}" opacity="0.98"></path>
-            <path d="${buildArcBandPath(cx, cy, compact ? 47 : 51, compact ? 33.5 : 36.5, -36, 46)}" fill="url(#${prefix}AccentSoft)" opacity="0.98"></path>
-            <path d="${buildNeedlePath(cx, cy, { angleDeg: -48, tipLength: compact ? 66 : 70, tailLength: compact ? 48 : 52, width: compact ? 12.5 : 13.5 })}" fill="url(#${prefix}Needle)"></path>
-            <circle cx="${cx}" cy="${cy}" r="${compact ? 10 : 11}" fill="${palette.wordmarkStrong}"></circle>
-            <circle cx="${cx}" cy="${cy}" r="${compact ? 3.2 : 3.4}" fill="${palette.accentStart}" opacity="0.9"></circle>
+            <mask id="${ringMaskId}" maskUnits="userSpaceOnUse">
+                <rect x="${cx - 120}" y="${cy - 120}" width="240" height="240" fill="#ffffff"></rect>
+                <path d="${buildNeedlePath(cx, cy, { angleDeg: 42, tipLength: compact ? 74 : 80, tailLength: compact ? 74 : 80, width: compact ? 16.8 : 17.8 })}" fill="#000000"></path>
+            </mask>
+            <path d="${buildOffsetPolygonPath(cx, cy, compact ? [[-7, -56], [0, -80], [7, -56]] : [[-8, -60], [0, -85], [8, -60]])}" fill="${palette.wordmarkStrong}"></path>
+            <path d="${buildOffsetPolygonPath(cx, cy, compact ? [[-56, -7], [-80, 0], [-56, 7]] : [[-60, -8], [-85, 0], [-60, 8]])}" fill="${palette.wordmarkStrong}"></path>
+            <path d="${buildOffsetPolygonPath(cx, cy, compact ? [[-7, 56], [0, 80], [7, 56]] : [[-8, 60], [0, 85], [8, 60]])}" fill="${palette.wordmarkStrong}"></path>
+            <path d="${buildDonutPath(cx, cy, outerRadius, innerRadius)}" fill="${palette.wordmarkStrong}" fill-rule="evenodd" mask="url(#${ringMaskId})"></path>
+            <path d="${buildNeedlePath(cx, cy, { angleDeg: 42, tipLength: compact ? 68 : 74, tailLength: compact ? 68 : 74, width: compact ? 12.8 : 13.8 })}" fill="url(#${prefix}Needle)"></path>
+            <circle cx="${cx}" cy="${cy}" r="${compact ? 10.4 : 11.2}" fill="${palette.wordmarkStrong}"></circle>
         </g>
     `;
 }
@@ -219,8 +221,7 @@ function buildCompassMark(prefix, palette, { cx, cy, compact }) {
 function buildGearGlyph(prefix, { cx, cy, outerRadius, innerRadius }) {
     return `
         <g aria-hidden="true">
-            ${buildGearTeeth({ cx, cy, count: 8, radius: outerRadius + 1, toothWidth: 9, toothHeight: 15, rotation: 4, fill: `url(#${prefix}Accent)`, opacity: 1 })}
-            <path d="${buildDonutPath(cx, cy, outerRadius, innerRadius)}" fill="url(#${prefix}Accent)" fill-rule="evenodd"></path>
+            <path d="${buildManualGearPath(cx, cy, outerRadius, innerRadius)}" fill="url(#${prefix}Accent)" fill-rule="evenodd"></path>
         </g>
     `;
 }
@@ -426,33 +427,89 @@ function buildArcPath(cx, cy, radius, startDeg, endDeg) {
 }
 
 /**
- * Buduje pełniejszy pas akcentu na pierścieniu sygnetu, bliższy referencji PNG.
+ * Buduje zewnętrzny kontur zębatki z 8 grubymi zębami.
  *
  * @param {number} cx
  * @param {number} cy
- * @param {number} outerRadius
+ * @param {number} rootRadius
+ * @param {number} tipRadius
  * @param {number} innerRadius
- * @param {number} startDeg
- * @param {number} endDeg
+ * @param {number} toothCount
  * @returns {string}
  */
-function buildArcBandPath(cx, cy, outerRadius, innerRadius, startDeg, endDeg) {
-    const outerStart = polarToCartesian(cx, cy, outerRadius, startDeg);
-    const outerEnd = polarToCartesian(cx, cy, outerRadius, endDeg);
-    const innerEnd = polarToCartesian(cx, cy, innerRadius, endDeg);
-    const innerStart = polarToCartesian(cx, cy, innerRadius, startDeg);
-    const largeArc = Math.abs(endDeg - startDeg) > 180 ? 1 : 0;
+function buildGearRingPath(cx, cy, rootRadius, tipRadius, innerRadius, toothCount) {
+    const step = 360 / toothCount;
+    const halfRoot = step * 0.31;
+    const halfTip = step * 0.19;
+    const points = [];
+    for (let index = 0; index < toothCount; index += 1) {
+        const center = -90 + (index * step);
+        points.push(polarToCartesian(cx, cy, rootRadius, center - halfRoot));
+        points.push(polarToCartesian(cx, cy, tipRadius, center - halfTip));
+        points.push(polarToCartesian(cx, cy, tipRadius, center + halfTip));
+        points.push(polarToCartesian(cx, cy, rootRadius, center + halfRoot));
+    }
+    const outerPath = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`).join(' ');
     return [
-        `M ${outerStart.x.toFixed(2)} ${outerStart.y.toFixed(2)}`,
-        `A ${outerRadius} ${outerRadius} 0 ${largeArc} 1 ${outerEnd.x.toFixed(2)} ${outerEnd.y.toFixed(2)}`,
-        `L ${innerEnd.x.toFixed(2)} ${innerEnd.y.toFixed(2)}`,
-        `A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${innerStart.x.toFixed(2)} ${innerStart.y.toFixed(2)}`,
+        outerPath,
+        'Z',
+        `M ${cx} ${(cy - innerRadius).toFixed(2)}`,
+        `A ${innerRadius} ${innerRadius} 0 1 0 ${cx} ${(cy + innerRadius).toFixed(2)}`,
+        `A ${innerRadius} ${innerRadius} 0 1 0 ${cx} ${(cy - innerRadius).toFixed(2)}`,
         'Z'
     ].join(' ');
 }
 
 /**
- * Buduje ogon litery Q wychodzący z pierścienia.
+ * Buduje ścieżkę wielokąta z punktów zapisanych jako offsety względem środka.
+ *
+ * @param {number} cx
+ * @param {number} cy
+ * @param {Array<[number, number]>} offsets
+ * @returns {string}
+ */
+function buildOffsetPolygonPath(cx, cy, offsets) {
+    return offsets.map(([dx, dy], index) => `${index === 0 ? 'M' : 'L'} ${(cx + dx).toFixed(2)} ${(cy + dy).toFixed(2)}`).join(' ') + ' Z';
+}
+
+/**
+ * Buduje ręcznie narysowany wschodni segment kompasu.
+ *
+ * @param {number} cx
+ * @param {number} cy
+ * @param {boolean} compact
+ * @returns {string}
+ */
+function buildManualCompassEastSegmentPath(cx, cy, compact) {
+    return buildOffsetPolygonPath(
+        cx,
+        cy,
+        compact
+            ? [[38, -31], [55, -48], [86, -4], [82, 0], [88, 4], [58, 20], [45, 38], [34, 26], [40, 8], [39, -13]]
+            : [[41, -34], [60, -52], [93, -4], [89, 0], [95, 5], [63, 22], [48, 42], [36, 29], [43, 9], [42, -15]]
+    );
+}
+
+/**
+ * Buduje ręcznie narysowany ogonek litery `Q`.
+ *
+ * @param {number} cx
+ * @param {number} cy
+ * @param {boolean} compact
+ * @returns {string}
+ */
+function buildManualCompassQTailPath(cx, cy, compact) {
+    return buildOffsetPolygonPath(
+        cx,
+        cy,
+        compact
+            ? [[26, 33], [43, 44], [71, 61], [57, 79], [37, 64]]
+            : [[28, 36], [47, 48], [77, 66], [62, 86], [40, 69]]
+    );
+}
+
+/**
+ * Buduje ręcznie kontrolowaną zębatkę `o`.
  *
  * @param {number} cx
  * @param {number} cy
@@ -460,18 +517,37 @@ function buildArcBandPath(cx, cy, outerRadius, innerRadius, startDeg, endDeg) {
  * @param {number} innerRadius
  * @returns {string}
  */
-function buildQTailPath(cx, cy, outerRadius, innerRadius, compact) {
-    const outerA = polarToCartesian(cx, cy, outerRadius - 2, 37);
-    const outerB = polarToCartesian(cx, cy, outerRadius + (compact ? 8 : 9), 58);
-    const tip = { x: cx + (outerRadius * (compact ? 1.08 : 1.1)), y: cy + (outerRadius * (compact ? 1.08 : 1.1)) };
-    const innerA = polarToCartesian(cx, cy, innerRadius + 4, 27);
-    const innerB = polarToCartesian(cx, cy, innerRadius + 1, 45);
+function buildManualGearPath(cx, cy, outerRadius, innerRadius) {
+    return buildGearRingPath(cx, cy, outerRadius - 1, outerRadius + 4, innerRadius, 8);
+}
+
+/**
+ * Buduje obrócony prostokąt używany jako "gumka" do wycięcia fragmentu ringu.
+ *
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} length
+ * @param {number} width
+ * @param {number} angleDeg
+ * @returns {string}
+ */
+function buildRotatedRectPath(cx, cy, length, width, angleDeg) {
+    const angle = (angleDeg * Math.PI) / 180;
+    const ux = Math.cos(angle);
+    const uy = Math.sin(angle);
+    const px = -uy;
+    const py = ux;
+    const halfLength = length / 2;
+    const halfWidth = width / 2;
+    const p1 = { x: cx - (ux * halfLength) - (px * halfWidth), y: cy - (uy * halfLength) - (py * halfWidth) };
+    const p2 = { x: cx + (ux * halfLength) - (px * halfWidth), y: cy + (uy * halfLength) - (py * halfWidth) };
+    const p3 = { x: cx + (ux * halfLength) + (px * halfWidth), y: cy + (uy * halfLength) + (py * halfWidth) };
+    const p4 = { x: cx - (ux * halfLength) + (px * halfWidth), y: cy - (uy * halfLength) + (py * halfWidth) };
     return [
-        `M ${outerA.x.toFixed(2)} ${outerA.y.toFixed(2)}`,
-        `L ${outerB.x.toFixed(2)} ${outerB.y.toFixed(2)}`,
-        `L ${tip.x.toFixed(2)} ${tip.y.toFixed(2)}`,
-        `L ${innerB.x.toFixed(2)} ${innerB.y.toFixed(2)}`,
-        `L ${innerA.x.toFixed(2)} ${innerA.y.toFixed(2)}`,
+        `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`,
+        `L ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`,
+        `L ${p3.x.toFixed(2)} ${p3.y.toFixed(2)}`,
+        `L ${p4.x.toFixed(2)} ${p4.y.toFixed(2)}`,
         'Z'
     ].join(' ');
 }
@@ -595,25 +671,25 @@ export function getLogoPalette() {
     if (!isDark) {
         return {
             primary,
-            accentStart: '#8B7355',
-            accentMid: '#9A8263',
-            accentEnd: '#B09879',
-            accentSoft: '#C6B294',
-            wordmarkStrong: '#F4F1EC',
-            wordmarkSoft: 'rgba(227, 220, 211, 0.98)',
-            wordmarkStroke: 'rgba(190, 180, 168, 0.98)',
-            wordmarkStrokeWidth: 1.72,
-            wordmarkShadow: 'rgba(145, 131, 115, 0.66)',
-            wordmarkShadowOpacity: 0.44,
-            accentStroke: 'rgba(114, 92, 66, 0.22)',
-            accentStrokeWidth: 0.92,
-            shadowColor: 'rgba(140, 122, 98, 0.34)',
-            panelStroke: 'rgba(193, 178, 160, 0.7)',
-            panelLineStrong: 'rgba(160, 136, 105, 0.56)',
-            panelLineSoft: 'rgba(191, 174, 151, 0.48)',
-            nodeHalo: 'rgba(139, 115, 85, 0.08)',
-            lineSoft: 'rgba(214, 202, 188, 0.88)',
-            lineGhost: 'rgba(206, 192, 176, 0.58)'
+            accentStart: '#8A6F4D',
+            accentMid: '#9B7D58',
+            accentEnd: '#B39168',
+            accentSoft: '#C9AD88',
+            wordmarkStrong: '#FBF8F3',
+            wordmarkSoft: 'rgba(240, 232, 222, 0.99)',
+            wordmarkStroke: 'rgba(171, 154, 133, 0.98)',
+            wordmarkStrokeWidth: 2.08,
+            wordmarkShadow: 'rgba(132, 112, 88, 0.72)',
+            wordmarkShadowOpacity: 0.5,
+            accentStroke: 'rgba(112, 86, 55, 0.32)',
+            accentStrokeWidth: 1.18,
+            shadowColor: 'rgba(134, 114, 88, 0.42)',
+            panelStroke: 'rgba(193, 178, 160, 0.76)',
+            panelLineStrong: 'rgba(160, 136, 105, 0.62)',
+            panelLineSoft: 'rgba(191, 174, 151, 0.54)',
+            nodeHalo: 'rgba(139, 115, 85, 0.12)',
+            lineSoft: 'rgba(214, 202, 188, 0.92)',
+            lineGhost: 'rgba(206, 192, 176, 0.66)'
         };
     }
     return {

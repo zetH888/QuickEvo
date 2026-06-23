@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.33.14-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.33.54-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -46,6 +46,60 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.33.54
+
+- Cofnięto wyłącznie wcześniejsze zmiany responsywności welcome screenu, przywracając oryginalne zachowanie centrowania, wysokości grafiki i bazowych stylów tekstów na tym ekranie.
+- Zachowano pozostałe poprawki logotypu, w tym dopracowane maskowanie ringu `Q`.
+
+### Zmiany w wersji 2.33.52
+
+- Przywrócono centralny układ welcome screenu i mniej elastyczną wysokość grafiki, a ochronę przed kolizją tekstów z logo przeniesiono na ograniczenie szerokości, rezerwację wysokości i łagodniejsze skalowanie tekstów w niskich viewportach.
+- Dopracowano maskowanie ringu `Q`: szczelina wycinana przy igle została poszerzona tak, aby była bliższa odstępowi między trójkątami kierunków świata a zewnętrzną krawędzią ringu.
+
+### Zmiany w wersji 2.33.48
+
+- Ujednolicono rdzeń logo między headerem i welcome screenem: oba warianty korzystają teraz z tej samej geometrii sygnetu, napisu i zębatki, a wariant welcome dokłada wyłącznie dekoracje tła.
+- Poprawiono responsywność ekranu powitalnego: grafika ma bardziej elastyczną wysokość, a teksty `welcome-text` i `loading-status-text` są ograniczane szerokością i skalowane w niskich viewportach oraz w poziomym układzie mobilnym, dzięki czemu nie nachodzą na logo.
+- Wzmocniono widoczność sygnetu w jasnym motywie przez mocniejszy kontrast palety logo, wyraźniejszy obrys i cień.
+
+### Zmiany w wersji 2.33.44
+
+- Uproszczono sygnet `Q` zgodnie z nową koncepcją: igła kompasu została obrócona o 90 stopni względem poprzedniego wariantu i przejęła rolę ogonka litery `Q`, a osobny biały ogonek i niebieski prawy segment zostały usunięte.
+- Domknięto biały ring kompasu w miejscu po dawnym ogonku oraz dosunięto zębatkę `o` w wariancie welcome bliżej napisu `Ev`, tak aby układ był spójniejszy z logo w głównym ekranie aplikacji.
+
+### Zmiany w wersji 2.33.40
+
+- Proceduralnie strojoną geometrię sygnetu `Q` zastąpiono ręcznie kontrolowanymi ścieżkami SVG: osobno rysowany jest biały ring z wycięciami, trójkąty stron świata, większy niebieski segment wschodni oraz większy ogonek litery `Q`.
+- Geometria lockupu została delikatnie skorygowana po ręcznej przebudowie sygnetu, a zębatka `o` korzysta teraz z większego otworu wewnętrznego przy zachowaniu zwartej zewnętrznej bryły.
+
+### Zmiany w wersji 2.33.32
+
+- Sygnet `Q` został przerysowany od zera jako zestaw osobnych elementów: biały ring z mocniejszymi wycięciami, symetryczna niebieska igła, większy wschodni segment oraz znacznie wyraźniejszy ogonek w prawym dolnym rogu.
+- Zachowano dopracowaną zębatkę `o`, większy otwór wewnętrzny oraz wcześniejszą blokadę zaznaczania tekstu i SVG logo.
+
+### Zmiany w wersji 2.33.28
+
+- Sygnet `Q` został przebudowany według szkicu: usunięto niebieską kropkę ze środka, dodano kontrolowane pełne przerwy w białym ringu, powiększono romboidalny ogonek w prawym dolnym rogu oraz narysowano nowy wschodni segment z własnym trójkątnym zakończeniem.
+- Zębatka `o` zachowała zewnętrzną bryłę, ale otrzymała większy otwór wewnętrzny, aby lepiej odpowiadać referencji.
+- Zachowano blokadę zaznaczania tekstu i SVG logo, aby logotyp nadal był odbierany jako grafika, a nie selekcjonowalny napis.
+
+### Zmiany w wersji 2.33.24
+
+- Doprecyzowano kluczowe kształty logotypu na podstawie screenshotów referencyjnych: niebieska igła kompasu ma teraz symetryczną długość w obu kierunkach, wschodni segment sygnetu został wyraźniej wydzielony jako osobny niebieski element z własnym punktem kierunkowym, a romboidalny ogonek litery `Q` w prawym dolnym rogu jest większy i czytelniejszy.
+- Zwiększono odstęp między sygnetem `Q` a napisem `uick`, obniżono koło zębate `o` względem `Ev` oraz przebudowano zęby zębatki tak, aby były krótsze i grubsze.
+- Zablokowano możliwość zaznaczania tekstu i elementów SVG logo, aby logotyp zachowywał się jak nierozłączna grafika, a nie zwykły tekst w interfejsie.
+
+### Zmiany w wersji 2.33.20
+
+- Dopracowano geometrię sygnetu `Q`: zwiększono odstęp między kompasem a `uick`, przywrócono regularny dolny trójkąt południa zgodny z górnym i lewym punktem oraz dodano wyraźniejszy, osobny ogonek `Q` w prawym dolnym rogu sygnetu.
+- Przebudowano końcowe `o` w `QuickEvo`: zęby zębatki są teraz krótsze i wyraźnie grubsze, dzięki czemu bliżej odpowiadają referencji PNG.
+
+### Zmiany w wersji 2.33.18
+
+- Logotyp QuickEvo przeszedł ultra-precyzyjną iterację pod referencje `assets/Logo_02.png` i `assets/Logo_04.png`: sygnet jeszcze mocniej imituje literę `Q`, a wordmark renderuje już wyłącznie `uickEv`, dzięki czemu pierwsza litera jest tworzona wyłącznie przez kompas.
+- Dopracowano mikro-kerning i proporcje lockupu: przesunięto `uick`, zwężono relację `Ev`, zmniejszono oraz dosunięto zębatkę pełniącą rolę `o`, aby układ był bliższy oryginalnym PNG.
+- W jasnym motywie akcent loga korzysta z ciepłego, przygaszonego brązu spójnego z resztą interfejsu, a welcome screen zachowuje płynne, bezszwowe animacje linii z liniowym przepływem `stroke-dashoffset` oraz gęstszy układ dekoracyjnych ścieżek i punktów.
 
 ### Zmiany w wersji 2.33.14
 
