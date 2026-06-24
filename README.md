@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.33.54-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.34.8-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -46,6 +46,22 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.34.8
+
+- Widok `GRAFIK` zachowuje teraz stan UI przy powrocie tylko wtedy, gdy użytkownik wraca z ekranu otwartego bezpośrednio z grafiku: odtwarzane są miesiąc, filtry, zaznaczony dzień, zaznaczony kierowca oraz dokładna pozycja scrolla tabeli.
+- Dropdown wyboru grafiku korzysta z etykiet wyprowadzonych z nazw zaimportowanych plików grafiku (`MIESIĄC ROK`), ma przebudowany układ z osobnym rzędem nawigacji dnia oraz bardziej dopasowany styling dark/glass.
+- Tooltipy markerów grafiku ponownie pokazują znaczenia skrótów z `SCHEDULE_MARKER_MEANINGS`, również przy różnych wariantach wielkości liter kodu.
+- Synchronizacja Google Drive wykrywa i importuje wszystkie pliki grafiku dostępne w folderze grafiku, zamiast ograniczać się do miesiąca bieżącego; sam widok nadal domyślnie otwiera bieżący miesiąc, jeśli jest dostępny.
+- Filtrowanie tras w grafiku mocniej przytłumia niedopasowane badge'e, a pola filtrów używają tej samej domyślnej typografii co główny pasek wyszukiwania aplikacji.
+
+### Zmiany w wersji 2.34.0
+
+- Widok `GRAFIK` został przebudowany do logicznego komponentu `ScheduleGrid`, który zachowuje układ tabeli inspirowanej Excelem, ale porządkuje stan UI, renderowanie, zaznaczanie dnia, zaznaczanie kierowcy, filtrowanie oraz automatyczne przewijanie do wybranej kolumny.
+- Toolbar grafiku otrzymał nowy układ dark/glassmorphism z wyborem miesiąca, strzałkami dnia, akcją `Dziś`, informacją o wybranym dniu, filtrem kierowcy, filtrem trasy/symbolu i szybkim czyszczeniem filtrów.
+- Tabela grafiku ma teraz dopracowany sticky header i sticky pierwszą kolumnę z pełnym tłem, separatorem oraz poprawionym `z-index`, dzięki czemu kolumna kierowców nie przepuszcza już przewijanego contentu spod spodu.
+- Zaznaczenie dnia i kierowcy zostało wizualnie złagodzone: aktywna kolumna używa delikatnej ramki i subtelnego tła, wybrany wiersz nie niszczy badge'y tras, a przecięcie wiersza i kolumny dostaje mocniejszy akcent.
+- Weekendy, badge tras i scrollbary w widoku grafiku zostały wystylowane pod spójny dark/light glass dashboard look oraz poprawiono responsywność mobilną, w tym zwijanie toolbaru, węższe kolumny i lepsze ellipsis dla nazw kierowców.
 
 ### Zmiany w wersji 2.33.54
 
@@ -162,7 +178,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
 - Główna nawigacja `TRASY` / `KIEROWCY` / `GRAFIK` działa jak toggle sekcji: pierwsze kliknięcie otwiera widok, a ponowne kliknięcie aktywnego przycisku zamyka sekcję i wraca do ekranu wyszukiwania z paskiem inputu
 - Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
-- Ekran „Grafik” do swobodnego przeglądania harmonogramu w formie tabeli zbliżonej do arkusza: kierowcy w kolejności z pliku, kolumny dni z akcentem weekendów, zaznaczanie całej kolumny dnia oraz klikalne kody tras otwierające podgląd w kontekście wybranej daty
+- Ekran `GRAFIK` do swobodnego przeglądania harmonogramu w formie nowoczesnego data-gridu z zachowaniem układu arkusza: sticky header dni, sticky kolumna kierowców, wybór dnia i kierowcy, filtrowanie po kierowcy i trasie/symbolu, akcja `Dziś`, subtelne weekendy oraz klikalne badge'e tras otwierające podgląd w kontekście wybranej daty
 - Ekran powitalny z efektem glassmorphism
 - Dwa warianty logotypu QuickEvo: lekki w headerze i rozbudowany, dekoracyjny w ekranie powitalnym
 - Ciemny motyw (domyślny)

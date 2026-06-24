@@ -218,13 +218,19 @@ const {
     backToSearchBtn,
     scheduleView,
     backToSearchFromScheduleBtn,
+    scheduleTableContainer,
     scheduleTableHeader,
     scheduleTableBody,
     scheduleMonthSelect,
     schedulePrevMonthBtn,
     scheduleNextMonthBtn,
     scheduleTodayBtn,
+    scheduleSelectedDay,
     scheduleSubtitle,
+    scheduleDriverFilter,
+    scheduleRouteFilter,
+    scheduleRouteFilterOptions,
+    scheduleClearFiltersBtn,
     previewMeta,
     loadingOverlay,
     loadingTitleText,
@@ -259,7 +265,7 @@ let modalController = null;
 /** @type {{ showSearch: Function, showPreview: Function } | null} */
 let previewController = null;
 
-/** @type {{ isVisible: Function, setAvailableMonthsList: Function, setMonthByKey: Function, renderMonthDays: Function, setSelectedDay: Function, goToday: Function } | null} */
+/** @type {{ isVisible: Function, getViewState: Function, resetViewState: Function, restoreViewState: Function, setAvailableMonthsList: Function, setMonthByKey: Function, renderMonthDays: Function, setSelectedDay: Function, goToday: Function } | null} */
 let scheduleController = null;
 
 /** @type {{ ensureSections: Function, updateCounts: Function, syncHeights: Function, toggleCategory: Function } | null} */
@@ -429,6 +435,9 @@ let lastPreviewState = { fileName: null, rowIndex: null, contextIsoDate: null };
  * @type {number}
  */
 let primaryNavTransitionToken = 0;
+let currentVisibleView = 'home';
+let currentViewEnteredFrom = '';
+let lastScheduleViewState = null;
 
 /**
  * Obserwatory listy wyników utrzymujące poprawny layout (np. wysokości sekcji kategorii)
@@ -2179,6 +2188,7 @@ function isRouteCategoryCollapsed(category) {
  * Wyświetla widok podglądu pełnej tabeli pliku.
  */
 function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false, contextIsoDate: null }) {
+    trackVisibleView('preview');
     if (scheduleView) scheduleView.classList.add('view-hidden');
     if (routesView) routesView.classList.add('view-hidden');
     if (driversView) driversView.classList.add('view-hidden');
@@ -2271,13 +2281,19 @@ function ensureScheduleController() {
     if (scheduleController) return scheduleController;
     scheduleController = createScheduleController({
         scheduleView,
+        tableContainer: scheduleTableContainer,
         tableHeaderRow: scheduleTableHeader,
         tableBody: scheduleTableBody,
         monthSelect: scheduleMonthSelect,
+        selectedDayEl: scheduleSelectedDay,
         subtitleEl: scheduleSubtitle,
         prevMonthBtn: schedulePrevMonthBtn,
         nextMonthBtn: scheduleNextMonthBtn,
         todayBtn: scheduleTodayBtn,
+        driverFilterInput: scheduleDriverFilter,
+        routeFilterInput: scheduleRouteFilter,
+        routeFilterOptionsEl: scheduleRouteFilterOptions,
+        clearFiltersBtn: scheduleClearFiltersBtn,
         getMonthScheduleTable: (year, month) => ensureScheduleService().getMonthScheduleTable(year, month),
         markerMeanings: (qeConstants && qeConstants.SCHEDULE_MARKER_MEANINGS && typeof qeConstants.SCHEDULE_MARKER_MEANINGS === 'object')
             ? qeConstants.SCHEDULE_MARKER_MEANINGS
@@ -2590,9 +2606,38 @@ function setPrimaryNavActive(activeKey) {
 }
 
 /**
+ * Zapisuje stan grafiku przed opuszczeniem widoku oraz śledzi,
+ * z jakiego ekranu otwarto aktualny widok.
+ *
+ * @param {'home'|'preview'|'routes'|'drivers'|'schedule'} nextView
+ */
+function trackVisibleView(nextView) {
+    const next = String(nextView || '').trim();
+    const prev = String(currentVisibleView || '').trim();
+
+    if (prev === 'schedule' && next !== 'schedule' && scheduleController && typeof scheduleController.getViewState === 'function') {
+        try { lastScheduleViewState = scheduleController.getViewState(); } catch { }
+    }
+
+    currentViewEnteredFrom = prev;
+    currentVisibleView = next || prev || 'home';
+}
+
+/**
+ * Określa, czy wejście do widoku grafiku powinno odtworzyć
+ * poprzedni stan po wyjściu z grafiku.
+ *
+ * @returns {boolean}
+ */
+function shouldRestoreScheduleView() {
+    return currentVisibleView === 'schedule' || currentViewEnteredFrom === 'schedule';
+}
+
+/**
  * Powraca do głównego widoku wyszukiwania.
  */
 function goHome() {
+    trackVisibleView('home');
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
     if (scheduleView) scheduleView.classList.add('view-hidden');
     if (routesView) routesView.classList.add('view-hidden');
@@ -3283,6 +3328,7 @@ async function renderDriversView() {
 }
 
 function showRoutesShell() {
+    trackVisibleView('routes');
     if (searchView) searchView.classList.add('view-hidden');
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
     if (scheduleView) scheduleView.classList.add('view-hidden');
@@ -3292,6 +3338,7 @@ function showRoutesShell() {
 }
 
 function showDriversShell() {
+    trackVisibleView('drivers');
     if (searchView) searchView.classList.add('view-hidden');
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
     if (scheduleView) scheduleView.classList.add('view-hidden');
@@ -3333,6 +3380,7 @@ function openRouteFromSchedule(routeCode, isoDate) {
  * Pokazuje widok grafiku, ukrywając pozostałe widoki.
  */
 function showScheduleShell() {
+    trackVisibleView('schedule');
     if (searchView) searchView.classList.add('view-hidden');
     if (filePreviewView) filePreviewView.classList.add('view-hidden');
     if (routesView) routesView.classList.add('view-hidden');
@@ -3347,47 +3395,69 @@ function showScheduleShell() {
  * @param {{ ym?: string, selectedIsoDate?: (string|null), skipPush?: boolean, source?: string }} opts
  */
 async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source = '', transitionToken = 0 } = {}) {
+    const restoreScheduleState = shouldRestoreScheduleView();
     showScheduleShell();
     if (scheduleSubtitle) scheduleSubtitle.textContent = 'Ładowanie grafiku...';
 
     const scheduleFiles = await docsListFiles();
-    const monthKeys = [];
     const list = Array.isArray(scheduleFiles) ? scheduleFiles : [];
+    const monthEntriesMap = new Map();
     for (const f of list) {
         const name = String(f?.name ?? '').trim();
         if (!name) continue;
         const meta = parseScheduleFileNameYearMonth(name);
         if (!meta?.key) continue;
-        monthKeys.push(meta.key);
+        const existing = monthEntriesMap.get(meta.key);
+        const candidate = {
+            key: meta.key,
+            label: String(meta.displayLabel || meta.key).trim(),
+            fileName: name
+        };
+        if (!existing || String(candidate.fileName).localeCompare(String(existing.fileName), 'pl', { sensitivity: 'base' }) < 0) {
+            monthEntriesMap.set(meta.key, candidate);
+        }
     }
-    monthKeys.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-    const uniqueMonthKeys = Array.from(new Set(monthKeys));
+    const monthEntries = Array.from(monthEntriesMap.values())
+        .sort((a, b) => String(a.key).localeCompare(String(b.key), 'pl', { sensitivity: 'base' }));
+    const uniqueMonthKeys = monthEntries.map(item => item.key);
 
     const now = new Date();
     const nowYm = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const requestedYm = String(ym || '').trim();
+    const restoredYm = restoreScheduleState ? String(lastScheduleViewState?.monthKey || '').trim() : '';
     const defaultYm = uniqueMonthKeys.includes(nowYm)
         ? nowYm
         : (uniqueMonthKeys.length > 0 ? uniqueMonthKeys[uniqueMonthKeys.length - 1] : '');
-    const targetYm = uniqueMonthKeys.includes(requestedYm) ? requestedYm : defaultYm;
+    const targetYm = uniqueMonthKeys.includes(restoredYm)
+        ? restoredYm
+        : (uniqueMonthKeys.includes(requestedYm) ? requestedYm : defaultYm);
 
     const routeRecords = await getRouteFileRecords();
     refreshRouteMetaIndex(routeRecords);
     dataStore.rebuildRouteFileIndex(routeRecords);
 
     const ctrl = ensureScheduleController();
-    ctrl.setAvailableMonthsList(uniqueMonthKeys);
-    if (targetYm) ctrl.setMonthByKey(targetYm);
+    ctrl.setAvailableMonthsList(monthEntries);
 
     const iso = typeof selectedIsoDate === 'string' ? selectedIsoDate.trim() : '';
-    if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) ctrl.setSelectedDay(iso);
+    if (restoreScheduleState && lastScheduleViewState && typeof ctrl.restoreViewState === 'function') {
+        ctrl.restoreViewState(lastScheduleViewState, { fallbackMonthKey: targetYm });
+    } else {
+        if (typeof ctrl.resetViewState === 'function') ctrl.resetViewState();
+        if (targetYm) ctrl.setMonthByKey(targetYm);
+        if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) ctrl.setSelectedDay(iso);
+    }
 
     if (transitionToken && transitionToken !== primaryNavTransitionToken) return;
 
-    if (!skipPush && targetYm) {
-        ensureNavigationService().pushSchedule({ ym: targetYm, selectedIsoDate: iso || null });
+    const activeScheduleState = typeof ctrl.getViewState === 'function' ? ctrl.getViewState() : null;
+    const resolvedYm = String(activeScheduleState?.monthKey || targetYm || '').trim();
+    const resolvedIso = typeof activeScheduleState?.selectedIsoDate === 'string' ? activeScheduleState.selectedIsoDate.trim() : (iso || null);
+
+    if (!skipPush && resolvedYm) {
+        ensureNavigationService().pushSchedule({ ym: resolvedYm, selectedIsoDate: resolvedIso || null });
     }
-    logClientEvent('navigate', { to: 'schedule', ym: targetYm, source: String(source || '') });
+    logClientEvent('navigate', { to: 'schedule', ym: resolvedYm || targetYm, source: String(source || '') });
 }
 
 /**

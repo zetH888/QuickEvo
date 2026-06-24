@@ -166,7 +166,8 @@ export function createScheduleService(cfg = {}) {
         const month = Number(c.monthsPl?.[monthKey]);
         if (!Number.isInteger(month) || month < 1 || month > 12) return null;
 
-        return { year, month, key: scheduleMonthKey(year, month) };
+        const displayLabel = `${String(monthRaw || '').toUpperCase()} ${String(yearRaw || '').trim()}`;
+        return { year, month, key: scheduleMonthKey(year, month), displayLabel, fileName: name };
     }
 
     function isScheduleFileName(fileName) {
@@ -656,7 +657,13 @@ export function createScheduleService(cfg = {}) {
             rows.push(Object.freeze({ driverName, cells: Object.freeze(cells) }));
         }
 
-        return Object.freeze({ year: y, month: m, days: Object.freeze(days), rows: Object.freeze(rows) });
+        return Object.freeze({
+            year: y,
+            month: m,
+            fileName: String(monthCache.fileName || ''),
+            days: Object.freeze(days),
+            rows: Object.freeze(rows)
+        });
     }
 
     function clearCache() {

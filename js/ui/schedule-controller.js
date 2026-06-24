@@ -2,12 +2,9 @@
  * @module schedule-controller
  *
  * @description
- * Kontroler widoku grafiku do swobodnego przeglądania harmonogramu pracy.
- *
- * Widok jest renderowany jako tabela zbliżona do oryginalnego arkusza:
- * - nagłówek: „Kierowca” + kolumny dni (numer dnia / skrót dnia tygodnia),
- * - wiersze: kierowcy w kolejności z pliku grafiku,
- * - komórki: tokeny w kolejności z komórki (trasy i markery), tokeny tras są klikalne.
+ * Logiczny komponent `ScheduleGrid` odpowiedzialny za render grafiku kierowców
+ * w formie tabeli inspirowanej arkuszem Excel, z nowoczesnym toolbar'em,
+ * filtrowaniem, sticky headerem i sticky kolumną kierowców.
  */
 
 /**
@@ -28,7 +25,7 @@ function parseYearMonth(ym) {
 }
 
 /**
- * Buduje `YYYY-MM-DD` z części liczbowych.
+ * Buduje datę ISO `YYYY-MM-DD`.
  *
  * @param {number} year
  * @param {number} month
@@ -44,6 +41,19 @@ function buildIsoDate(year, month, day) {
 }
 
 /**
+ * Normalizuje wartość tekstową do porównań filtrów.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function normalizeFilterValue(value) {
+    return String(value ?? '')
+        .trim()
+        .toLocaleLowerCase('pl-PL')
+        .replace(/\s+/g, ' ');
+}
+
+/**
  * Sprawdza, czy string ma format ISO `YYYY-MM-DD`.
  *
  * @param {unknown} value
@@ -51,23 +61,77 @@ function buildIsoDate(year, month, day) {
  */
 function coerceIsoDate(value) {
     const raw = String(value ?? '').trim();
-    if (!raw) return null;
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+    if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
     return raw;
 }
 
 /**
- * Tworzy kontroler widoku grafiku.
+ * Tworzy stabilny identyfikator kierowcy na potrzeby zaznaczenia wiersza.
+ *
+ * @param {unknown} driverName
+ * @returns {string}
+ */
+function buildDriverId(driverName) {
+    return normalizeFilterValue(driverName).replace(/\s+/g, '-');
+}
+
+/**
+ * Formatuje label dnia do headera i statusu toolbaru.
+ *
+ * @param {Intl.DateTimeFormat} dtfWeekday
+ * @param {string} isoDate
+ * @returns {{ weekday: string, date: string, fullLabel: string }}
+ */
+function formatDayHeaderParts(dtfWeekday, isoDate) {
+    const iso = coerceIsoDate(isoDate);
+    if (!iso) return { weekday: '', date: '', fullLabel: 'Wybrano: brak' };
+    const year = Number(iso.slice(0, 4));
+    const month = Number(iso.slice(5, 7));
+    const day = Number(iso.slice(8, 10));
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+        return { weekday: '', date: '', fullLabel: 'Wybrano: brak' };
+    }
+    const dateObj = new Date(year, month - 1, day);
+    const weekday = dtfWeekday.format(dateObj);
+    const date = `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}`;
+    return {
+        weekday,
+        date,
+        fullLabel: `Wybrano: ${weekday} ${date}`
+    };
+}
+
+/**
+ * Sprawdza, czy przekazane `ym` odpowiada dzisiejszemu miesiącowi.
+ *
+ * @param {string} ym
+ * @returns {boolean}
+ */
+function isCurrentMonthKey(ym) {
+    const meta = parseYearMonth(ym);
+    if (!meta) return false;
+    const now = new Date();
+    return meta.year === now.getFullYear() && meta.month === (now.getMonth() + 1);
+}
+
+/**
+ * Tworzy logiczny komponent `ScheduleGrid`.
  *
  * @param {Object} cfg
  * @param {HTMLElement|null} cfg.scheduleView
+ * @param {HTMLElement|null} cfg.tableContainer
  * @param {HTMLTableRowElement|null} cfg.tableHeaderRow
  * @param {HTMLTableSectionElement|null} cfg.tableBody
  * @param {HTMLSelectElement|null} cfg.monthSelect
+ * @param {HTMLInputElement|null} cfg.driverFilterInput
+ * @param {HTMLInputElement|null} cfg.routeFilterInput
+ * @param {HTMLElement|null} cfg.routeFilterOptionsEl
+ * @param {HTMLElement|null} cfg.selectedDayEl
  * @param {HTMLElement|null} cfg.subtitleEl
  * @param {HTMLButtonElement|null} cfg.prevMonthBtn
  * @param {HTMLButtonElement|null} cfg.nextMonthBtn
  * @param {HTMLButtonElement|null} cfg.todayBtn
+ * @param {HTMLButtonElement|null} cfg.clearFiltersBtn
  * @param {(year: number, month: number) => ({
  *   year: number,
  *   month: number,
@@ -77,430 +141,925 @@ function coerceIsoDate(value) {
  * @param {Record<string, string>} cfg.markerMeanings
  * @param {(routeCode: string) => boolean} cfg.isRouteAvailable
  * @param {(opts: { routeCode: string, isoDate: string }) => void} cfg.onOpenRoute
- * @param {(key: string, value: string) => void} cfg.storageSet
- * @param {(key: string) => (string|null)} cfg.storageGet
  */
-export function createScheduleController(cfg = {}) {
+export function createScheduleGrid(cfg = {}) {
     const scheduleView = cfg?.scheduleView || null;
+    const tableContainer = cfg?.tableContainer || null;
     const tableHeaderRow = cfg?.tableHeaderRow || null;
     const tableBody = cfg?.tableBody || null;
     const monthSelect = cfg?.monthSelect || null;
+    const driverFilterInput = cfg?.driverFilterInput || null;
+    const routeFilterInput = cfg?.routeFilterInput || null;
+    const routeFilterOptionsEl = cfg?.routeFilterOptionsEl || null;
+    const selectedDayEl = cfg?.selectedDayEl || null;
     const subtitleEl = cfg?.subtitleEl || null;
-    const prevMonthBtn = cfg?.prevMonthBtn || null;
-    const nextMonthBtn = cfg?.nextMonthBtn || null;
+    const prevDayBtn = cfg?.prevMonthBtn || null;
+    const nextDayBtn = cfg?.nextMonthBtn || null;
     const todayBtn = cfg?.todayBtn || null;
+    const clearFiltersBtn = cfg?.clearFiltersBtn || null;
 
     const getMonthScheduleTable = typeof cfg?.getMonthScheduleTable === 'function' ? cfg.getMonthScheduleTable : (() => null);
     const markerMeanings = cfg?.markerMeanings && typeof cfg.markerMeanings === 'object' ? cfg.markerMeanings : {};
     const isRouteAvailable = typeof cfg?.isRouteAvailable === 'function' ? cfg.isRouteAvailable : (() => false);
     const onOpenRoute = typeof cfg?.onOpenRoute === 'function' ? cfg.onOpenRoute : (() => { });
-    const storageSet = typeof cfg?.storageSet === 'function' ? cfg.storageSet : (() => { });
-    const storageGet = typeof cfg?.storageGet === 'function' ? cfg.storageGet : (() => null);
 
     const dtfWeekday = new Intl.DateTimeFormat('pl-PL', { weekday: 'short' });
-    const dtfMonthLabel = new Intl.DateTimeFormat('pl-PL', { month: 'long', year: 'numeric' });
 
-    let current = { year: 0, month: 0, key: '' };
-    let selectedIsoDate = null;
-    let availableMonths = [];
-    let lastMonthTable = null;
+    const state = {
+        current: { year: 0, month: 0, key: '' },
+        availableMonths: [],
+        selectedDayIndex: -1,
+        selectedIsoDate: null,
+        selectedDriverId: '',
+        selectedDriverName: '',
+        selectedScheduleFile: '',
+        driverFilter: '',
+        routeFilter: '',
+        monthTable: null,
+        viewModel: null
+    };
 
-    const SELECTED_DAY_STORAGE_PREFIX = 'qe_schedule_selected_iso_';
-
-    function isVisible() {
-        return Boolean(scheduleView && !scheduleView.classList.contains('view-hidden'));
-    }
-
-    function setSubtitle(text) {
-        if (!subtitleEl) return;
-        subtitleEl.textContent = String(text ?? '');
-    }
-
+    /**
+     * Czyści zawartość tabeli.
+     */
     function clearTable() {
         tableHeaderRow?.replaceChildren?.();
         tableBody?.replaceChildren?.();
     }
 
-    function formatDayHeaderParts(isoDate) {
-        const iso = coerceIsoDate(isoDate);
-        if (!iso) return { weekday: '', date: '' };
-        const year = Number(iso.slice(0, 4));
-        const month = Number(iso.slice(5, 7));
-        const day = Number(iso.slice(8, 10));
-        if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return { weekday: '', date: '' };
-        const d = new Date(year, month - 1, day);
-        return {
-            weekday: dtfWeekday.format(d),
-            date: `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}`
-        };
+    /**
+     * Sprawdza, czy widok grafiku jest aktualnie widoczny.
+     *
+     * @returns {boolean}
+     */
+    function isVisible() {
+        return Boolean(scheduleView && !scheduleView.classList.contains('view-hidden'));
     }
 
     /**
-     * Zaznacza całą kolumnę dnia (nagłówek + wszystkie komórki), zgodnie z wymaganiem.
-     *
-     * @param {string} isoDate
+     * Synchronizuje wartości pól filtrów z aktualnym stanem.
      */
-    function setSelectedDay(isoDate) {
-        const iso = coerceIsoDate(isoDate);
-        if (!iso) return;
-        selectedIsoDate = iso;
-        storageSet(`${SELECTED_DAY_STORAGE_PREFIX}${current.key}`, iso);
-
-        if (tableHeaderRow) {
-            const ths = tableHeaderRow.querySelectorAll('[data-iso-date]');
-            for (const th of ths) {
-                if (!(th instanceof HTMLElement)) continue;
-                th.classList.toggle('is-selected-day', String(th.dataset.isoDate || '') === iso);
-            }
+    function syncFilterInputs() {
+        if (driverFilterInput && driverFilterInput.value !== state.driverFilter) {
+            driverFilterInput.value = state.driverFilter;
         }
-
-        if (tableBody) {
-            const tds = tableBody.querySelectorAll('[data-iso-date]');
-            for (const td of tds) {
-                if (!(td instanceof HTMLElement)) continue;
-                td.classList.toggle('is-selected-day', String(td.dataset.isoDate || '') === iso);
-            }
-        }
-
-        const parts = formatDayHeaderParts(iso);
-        setSubtitle(`Wybrano: ${parts.weekday} ${parts.date}`);
-
-        updateDayNavButtons();
-
-        const safeIso = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(iso) : iso;
-        const headerCell = tableHeaderRow?.querySelector?.(`[data-iso-date="${safeIso}"]`);
-        if (headerCell instanceof HTMLElement) {
-            headerCell.scrollIntoView({ block: 'nearest', inline: 'center' });
+        if (routeFilterInput && routeFilterInput.value !== state.routeFilter) {
+            routeFilterInput.value = state.routeFilter;
         }
     }
 
-    function tryRestoreSelectedDay() {
-        const stored = storageGet(`${SELECTED_DAY_STORAGE_PREFIX}${current.key}`);
-        const iso = coerceIsoDate(stored);
-        if (iso) return iso;
-        return null;
+    /**
+     * Ustawia tekst pomocniczy pod tytułem widoku.
+     *
+     * @param {string} text
+     */
+    function setSubtitle(text) {
+        if (!subtitleEl) return;
+        subtitleEl.textContent = String(text ?? '');
     }
 
+    /**
+     * Ustawia tekst prezentujący wybrany dzień.
+     *
+     * @param {string} text
+     */
+    function setSelectedDayLabel(text) {
+        if (!selectedDayEl) return;
+        selectedDayEl.textContent = String(text ?? '');
+    }
+
+    /**
+     * Zwraca listę dni obecnie dostępnych w aktywnym modelu widoku.
+     *
+     * @returns {Array<{ isoDate: string, day: number, weekday: number, isWeekend: boolean, isToday: boolean }>}
+     */
+    function getVisibleDays() {
+        return Array.isArray(state?.viewModel?.days) ? state.viewModel.days : [];
+    }
+
+    /**
+     * Zwraca datę ISO dzisiejszego dnia, jeśli istnieje dla wybranego miesiąca.
+     *
+     * @returns {string}
+     */
+    function getTodayIsoForCurrentSchedule() {
+        if (!state.current.key || !isCurrentMonthKey(state.current.key)) return '';
+        const now = new Date();
+        const iso = buildIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        const days = Array.isArray(state?.monthTable?.days) ? state.monthTable.days : [];
+        return days.some(day => String(day?.isoDate || '') === iso) ? iso : '';
+    }
+
+    /**
+     * Rozwiązuje domyślnie zaznaczony dzień dla nowo wybranego miesiąca.
+     *
+     * @param {string} preferredIso
+     * @returns {string}
+     */
+    function resolveDefaultSelectedDay(preferredIso = '') {
+        const days = Array.isArray(state?.monthTable?.days) ? state.monthTable.days : [];
+        const preferred = coerceIsoDate(preferredIso);
+        if (preferred && days.some(day => String(day?.isoDate || '') === preferred)) return preferred;
+        const todayIso = getTodayIsoForCurrentSchedule();
+        if (todayIso) return todayIso;
+        return days.length > 0 ? String(days[0]?.isoDate || '') : '';
+    }
+
+    /**
+     * Buduje listę opcji dla selecta miesięcy.
+     */
     function buildMonthSelectOptions() {
         if (!monthSelect) return;
         monthSelect.replaceChildren();
 
-        for (const item of availableMonths) {
-            const ym = String(item?.key ?? '');
-            const meta = parseYearMonth(ym);
+        for (const item of state.availableMonths) {
+            const meta = parseYearMonth(item?.key);
             if (!meta) continue;
-            const d = new Date(meta.year, meta.month - 1, 1);
             const opt = document.createElement('option');
             opt.value = meta.key;
-            opt.textContent = dtfMonthLabel.format(d);
-            if (meta.key === current.key) opt.selected = true;
+            opt.textContent = String(item?.label || '').trim() || meta.key;
+            opt.selected = meta.key === state.current.key;
             monthSelect.appendChild(opt);
         }
     }
 
     /**
-     * Zwraca listę dni (ISO) aktualnie wyrenderowanych w nagłówku tabeli.
-     * Jest to źródło prawdy dla nawigacji ←/→, aby nie wiązać logiki z modelem danych.
-     *
-     * @returns {string[]}
+     * Aktualizuje listę podpowiedzi dla filtra trasy/symbolu.
      */
-    function getRenderedDayIsoList() {
-        if (!tableHeaderRow) return [];
-        const ths = tableHeaderRow.querySelectorAll('[data-iso-date]');
-        const out = [];
-        for (const th of ths) {
-            if (!(th instanceof HTMLElement)) continue;
-            const iso = coerceIsoDate(th.dataset.isoDate);
-            if (iso) out.push(iso);
+    function updateRouteFilterOptions() {
+        if (!routeFilterOptionsEl) return;
+        routeFilterOptionsEl.replaceChildren();
+
+        const uniqueCodes = new Set();
+        const rows = Array.isArray(state?.monthTable?.rows) ? state.monthTable.rows : [];
+        for (const row of rows) {
+            const cells = Array.isArray(row?.cells) ? row.cells : [];
+            for (const cell of cells) {
+                const tokens = Array.isArray(cell?.tokens) ? cell.tokens : [];
+                for (const token of tokens) {
+                    const code = String(token?.code ?? '').trim();
+                    if (code) uniqueCodes.add(code);
+                }
+            }
         }
-        return out;
+
+        const sortedCodes = Array.from(uniqueCodes);
+        sortedCodes.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+
+        for (const code of sortedCodes) {
+            const opt = document.createElement('option');
+            opt.value = code;
+            routeFilterOptionsEl.appendChild(opt);
+        }
     }
 
     /**
-     * Zwraca indeks aktualnie zaznaczonego dnia w wyrenderowanej liście dni.
-     * Jeśli nie da się go ustalić, zwraca `-1`.
+     * Nakłada filtry widoku na aktualny model miesiąca.
      *
-     * @returns {number}
+     * @returns {{
+     *   days: Array<{ isoDate: string, day: number, weekday: number, isWeekend: boolean, isToday: boolean }>,
+     *   rows: Array<{
+     *     driverName: string,
+     *     driverId: string,
+     *     isSelectedDriver: boolean,
+     *     cells: Array<{
+     *       isoDate: string,
+     *       isWeekend: boolean,
+     *       isToday: boolean,
+     *       isSelectedDay: boolean,
+     *       isIntersection: boolean,
+     *       isRouteMatch: boolean,
+     *       isDimmedByRouteFilter: boolean,
+     *       tokens: any[],
+     *       title: string
+     *     }>
+     *   }>,
+     *   totalDrivers: number,
+     *   visibleDrivers: number
+     * }}
      */
-    function getSelectedDayIndex() {
-        const days = getRenderedDayIsoList();
-        const iso = coerceIsoDate(selectedIsoDate);
-        if (!iso || days.length === 0) return -1;
-        return days.findIndex(d => d === iso);
+    function applyScheduleFilters() {
+        const monthTable = state.monthTable;
+        const emptyView = { days: [], rows: [], totalDrivers: 0, visibleDrivers: 0 };
+        if (!monthTable || !Array.isArray(monthTable.days) || !Array.isArray(monthTable.rows)) return emptyView;
+
+        const driverNeedle = normalizeFilterValue(state.driverFilter);
+        const routeNeedle = normalizeFilterValue(state.routeFilter);
+        const todayIso = getTodayIsoForCurrentSchedule();
+
+        const days = monthTable.days.map(day => ({
+            isoDate: String(day?.isoDate || ''),
+            day: Number(day?.day || 0),
+            weekday: Number(day?.weekday || 0),
+            isWeekend: Boolean(day?.isWeekend),
+            isToday: String(day?.isoDate || '') === todayIso
+        }));
+
+        const rows = [];
+        for (const rawRow of monthTable.rows) {
+            const driverName = String(rawRow?.driverName ?? '').trim();
+            const driverId = buildDriverId(driverName);
+            if (!driverName) continue;
+
+            if (driverNeedle && !normalizeFilterValue(driverName).includes(driverNeedle)) {
+                continue;
+            }
+
+            const rawCells = Array.isArray(rawRow?.cells) ? rawRow.cells : [];
+            const cells = rawCells.map((cell, index) => {
+                const isoDate = String(cell?.isoDate || days[index]?.isoDate || '');
+                const tokens = Array.isArray(cell?.tokens) ? cell.tokens.filter(Boolean) : [];
+                const tokenCodes = tokens.map(token => String(token?.code ?? '').trim()).filter(Boolean);
+                const routeMatch = !routeNeedle || tokenCodes.some(code => normalizeFilterValue(code).includes(routeNeedle));
+                const title = tokenCodes.join(' / ');
+                const isSelectedDay = state.selectedIsoDate === isoDate;
+                const isSelectedDriver = state.selectedDriverId && state.selectedDriverId === driverId;
+
+                return {
+                    isoDate,
+                    isWeekend: Boolean(days[index]?.isWeekend),
+                    isToday: Boolean(days[index]?.isToday),
+                    isSelectedDay,
+                    isIntersection: isSelectedDay && isSelectedDriver,
+                    isRouteMatch: routeMatch,
+                    isDimmedByRouteFilter: Boolean(routeNeedle) && !routeMatch,
+                    tokens,
+                    title
+                };
+            });
+
+            const rowMatchesRoute = !routeNeedle || cells.some(cell => cell.isRouteMatch);
+            if (!rowMatchesRoute) continue;
+
+            rows.push({
+                driverName,
+                driverId,
+                isSelectedDriver: state.selectedDriverId === driverId,
+                cells
+            });
+        }
+
+        return {
+            days,
+            rows,
+            totalDrivers: monthTable.rows.length,
+            visibleDrivers: rows.length
+        };
     }
 
     /**
-     * Wylicza ISO poprzedniego/następnego dnia w aktualnie wyświetlanym miesiącu.
-     * Logika celowo nie zmienia miesiąca — do tego służy select.
-     *
-     * @param {number} direction
-     * @returns {string}
+     * Dba o spójność zaznaczeń po zmianie filtrów lub miesiąca.
      */
-    function computePrevNextSelectedDayIso(direction) {
-        const days = getRenderedDayIsoList();
-        if (days.length === 0) return '';
-        const idx = getSelectedDayIndex();
-        const baseIdx = idx >= 0 ? idx : 0;
-        const nextIdx = baseIdx + (direction < 0 ? -1 : 1);
-        if (nextIdx < 0 || nextIdx >= days.length) return '';
-        return String(days[nextIdx] ?? '');
+    function syncSelectionState() {
+        const visibleDays = getVisibleDays();
+        if (!visibleDays.length) {
+            state.selectedIsoDate = null;
+            state.selectedDayIndex = -1;
+        } else if (!visibleDays.some(day => day.isoDate === state.selectedIsoDate)) {
+            state.selectedIsoDate = resolveDefaultSelectedDay();
+            state.selectedDayIndex = visibleDays.findIndex(day => day.isoDate === state.selectedIsoDate);
+        } else {
+            state.selectedDayIndex = visibleDays.findIndex(day => day.isoDate === state.selectedIsoDate);
+        }
+
+        const visibleRows = Array.isArray(state?.viewModel?.rows) ? state.viewModel.rows : [];
+        if (state.selectedDriverId && !visibleRows.some(row => row.driverId === state.selectedDriverId)) {
+            state.selectedDriverId = '';
+            state.selectedDriverName = '';
+        }
     }
 
     /**
-     * Ustawia stan disabled przycisków ←/→ zgodnie z tym,
-     * czy można przesunąć akcent na sąsiednią kolumnę dnia.
+     * Aktualizuje teksty pomocnicze w toolbarze.
      */
-    function updateDayNavButtons() {
-        const days = getRenderedDayIsoList();
-        if (!prevMonthBtn || !nextMonthBtn) return;
-        if (days.length === 0) {
-            prevMonthBtn.disabled = true;
-            nextMonthBtn.disabled = true;
+    function renderScheduleToolbar() {
+        syncFilterInputs();
+        updateDayNavButtons();
+
+        const parts = formatDayHeaderParts(dtfWeekday, state.selectedIsoDate || '');
+        setSelectedDayLabel(parts.fullLabel);
+
+        const visibleDrivers = Number(state?.viewModel?.visibleDrivers || 0);
+        const totalDrivers = Number(state?.viewModel?.totalDrivers || 0);
+        if (!state.monthTable) {
+            setSubtitle('Brak danych grafiku dla wybranego miesiąca.');
             return;
         }
-        const idx = getSelectedDayIndex();
-        const resolvedIdx = idx >= 0 ? idx : 0;
-        prevMonthBtn.disabled = resolvedIdx <= 0;
-        nextMonthBtn.disabled = resolvedIdx >= days.length - 1;
+
+        if (visibleDrivers === 0) {
+            setSubtitle('Brak wyników dla wybranych filtrów. Wyczyść filtry, aby zobaczyć cały grafik.');
+            return;
+        }
+
+        setSubtitle(`Pokazano ${visibleDrivers} z ${totalDrivers} kierowców`);
     }
 
     /**
-     * Renderuje zawartość komórki (lista tokenów), zachowując kolejność i separator „/”.
+     * Ustawia stan disabled dla przycisków nawigacji dziennej i akcji `Dziś`.
+     */
+    function updateDayNavButtons() {
+        const days = getVisibleDays();
+        if (prevDayBtn) prevDayBtn.disabled = state.selectedDayIndex <= 0 || days.length === 0;
+        if (nextDayBtn) nextDayBtn.disabled = state.selectedDayIndex < 0 || state.selectedDayIndex >= (days.length - 1);
+
+        if (todayBtn) {
+            const currentMonthExists = state.availableMonths.some(item => String(item?.key || '') === buildIsoDate(new Date().getFullYear(), new Date().getMonth() + 1, 1).slice(0, 7));
+            todayBtn.disabled = !currentMonthExists;
+        }
+    }
+
+    /**
+     * Renderuje pusty stan tabeli.
+     *
+     * @param {string} primaryText
+     * @param {string} secondaryText
+     * @param {number} colSpan
+     */
+    function renderEmptyState(primaryText, secondaryText, colSpan) {
+        if (!tableBody) return;
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = Math.max(1, Number(colSpan) || 1);
+        td.className = 'schedule-empty-state';
+        td.innerHTML = `<strong>${String(primaryText || '')}</strong><span>${String(secondaryText || '')}</span>`;
+        tr.appendChild(td);
+        tableBody.appendChild(tr);
+    }
+
+    /**
+     * Renderuje tokeny w komórce grafiku.
      *
      * @param {HTMLElement} cellEl
      * @param {string} isoDate
-     * @param {{ kind: 'route'|'marker', code: string, category?: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }[]} tokens
+     * @param {string} cellTitle
+     * @param {Array<{ kind: 'route'|'marker', code: string, category?: string }>} tokens
      */
-    function renderCellTokens(cellEl, isoDate, tokens) {
+    function renderCellTokens(cellEl, isoDate, cellTitle, tokens) {
         const list = Array.isArray(tokens) ? tokens : [];
         if (list.length === 0) {
             const empty = document.createElement('span');
             empty.className = 'schedule-empty';
-            empty.textContent = '';
+            empty.textContent = '—';
             cellEl.appendChild(empty);
             return;
         }
 
         const wrap = document.createElement('div');
         wrap.className = 'schedule-cell-inner';
-        for (let i = 0; i < list.length; i++) {
-            const tok = list[i];
-            const kind = tok?.kind === 'marker' ? 'marker' : 'route';
-            const code = String(tok?.code ?? '').trim();
+
+        for (let index = 0; index < list.length; index += 1) {
+            const token = list[index];
+            const kind = token?.kind === 'marker' ? 'marker' : 'route';
+            const code = String(token?.code ?? '').trim();
             if (!code) continue;
 
-            if (i > 0) {
-                const sep = document.createElement('span');
-                sep.className = 'schedule-chip-sep';
-                sep.textContent = '/';
-                wrap.appendChild(sep);
+            if (index > 0) {
+                const separator = document.createElement('span');
+                separator.className = 'schedule-token-separator';
+                separator.textContent = '/';
+                wrap.appendChild(separator);
             }
 
             if (kind === 'marker') {
-                const el = document.createElement('span');
-                el.className = 'schedule-chip schedule-chip--marker';
-                el.textContent = code;
-                const meaning = String(markerMeanings?.[code] ?? '').trim();
-                if (meaning) el.title = meaning;
-                wrap.appendChild(el);
+                const marker = document.createElement('span');
+                marker.className = 'route-badge route-badge--marker';
+                marker.textContent = code;
+                const meaning = String(
+                    markerMeanings?.[code]
+                    ?? markerMeanings?.[String(code || '').toUpperCase()]
+                    ?? markerMeanings?.[String(code || '').toLowerCase()]
+                    ?? markerMeanings?.[`${String(code || '').slice(0, 1).toUpperCase()}${String(code || '').slice(1).toLowerCase()}`]
+                    ?? ''
+                ).trim();
+                marker.title = meaning || code;
+                marker.setAttribute('aria-label', meaning ? `${code}: ${meaning}` : code);
+                wrap.appendChild(marker);
                 continue;
             }
 
-            const isAvailable = isRouteAvailable(code);
-            const btn = document.createElement('button');
-            const cat = String(tok?.category ?? '').trim();
-            btn.className = ['schedule-chip', cat ? `schedule-chip--${cat}` : ''].filter(Boolean).join(' ');
-            btn.type = 'button';
-            btn.textContent = code;
-            btn.disabled = !isAvailable;
-            btn.dataset.action = 'open-route';
-            btn.dataset.isoDate = isoDate;
-            btn.dataset.routeCode = code;
-            btn.setAttribute('aria-label', isAvailable
-                ? `Otwórz trasę ${code} dla dnia ${isoDate}`
-                : `Trasa ${code} nie jest dostępna w bazie`);
-            wrap.appendChild(btn);
+            const routeAvailable = isRouteAvailable(code);
+            const badge = document.createElement('button');
+            const category = String(token?.category ?? '').trim();
+            badge.type = 'button';
+            badge.className = ['route-badge', category ? `route-badge--${category}` : ''].filter(Boolean).join(' ');
+            badge.textContent = code;
+            badge.title = cellTitle || code;
+            badge.dataset.action = 'open-route';
+            badge.dataset.isoDate = isoDate;
+            badge.dataset.routeCode = code;
+            badge.disabled = !routeAvailable;
+            badge.setAttribute(
+                'aria-label',
+                routeAvailable
+                    ? `Otwórz trasę ${code} dla dnia ${isoDate}`
+                    : `Trasa ${code} nie jest dostępna w bazie`
+            );
+            wrap.appendChild(badge);
         }
+
         cellEl.appendChild(wrap);
     }
 
-    function renderTable(monthTable) {
-        if (!monthTable || !Array.isArray(monthTable.days) || !Array.isArray(monthTable.rows)) return;
-        if (!tableHeaderRow || !tableBody) return;
+    /**
+     * Renderuje aktualny model widoku grafiku.
+     */
+    function renderScheduleGrid() {
         clearTable();
 
-        const thDriver = document.createElement('th');
-        thDriver.textContent = 'Kierowca';
-        tableHeaderRow.appendChild(thDriver);
+        const view = state.viewModel;
+        const dayCount = Array.isArray(view?.days) ? view.days.length : 0;
 
-        for (const d of monthTable.days) {
-            const iso = coerceIsoDate(d?.isoDate);
-            if (!iso) continue;
-            const parts = formatDayHeaderParts(iso);
+        if (tableHeaderRow) {
+            const driverHeader = document.createElement('th');
+            driverHeader.className = 'driver-header';
+            driverHeader.scope = 'col';
+            driverHeader.textContent = 'Kierowca \\ Dzień';
+            tableHeaderRow.appendChild(driverHeader);
 
-            const th = document.createElement('th');
-            th.dataset.isoDate = iso;
-            th.classList.toggle('is-weekend', Boolean(d?.isWeekend));
-
-            const btn = document.createElement('button');
-            btn.className = 'schedule-day-header-btn';
-            btn.type = 'button';
-            btn.dataset.action = 'select-day';
-            btn.dataset.isoDate = iso;
-            btn.innerHTML = `<span class="schedule-day-number">${String(d?.day ?? '')}</span><span class="schedule-day-weekday">${parts.weekday}</span>`;
-            th.appendChild(btn);
-            tableHeaderRow.appendChild(th);
-        }
-
-        const frag = document.createDocumentFragment();
-        for (const r of monthTable.rows) {
-            const tr = document.createElement('tr');
-
-            const tdName = document.createElement('td');
-            tdName.textContent = String(r?.driverName ?? '');
-            tr.appendChild(tdName);
-
-            const cells = Array.isArray(r?.cells) ? r.cells : [];
-            for (let i = 0; i < cells.length; i++) {
-                const c = cells[i];
-                const iso = coerceIsoDate(c?.isoDate);
-                const td = document.createElement('td');
-                td.className = 'schedule-cell';
-                if (iso) td.dataset.isoDate = iso;
-                const dayMeta = monthTable.days[i];
-                td.classList.toggle('is-weekend', Boolean(dayMeta?.isWeekend));
-                renderCellTokens(td, iso || '', Array.isArray(c?.tokens) ? c.tokens : []);
-                tr.appendChild(td);
-            }
-
-            frag.appendChild(tr);
-        }
-
-        tableBody.appendChild(frag);
-
-        const restored = tryRestoreSelectedDay();
-        const fallbackIso = restored || (monthTable.days.length > 0 ? monthTable.days[0].isoDate : null);
-        if (fallbackIso) setSelectedDay(fallbackIso);
-    }
-
-    function renderMonthDays({ year, month } = {}) {
-        const y = Number(year);
-        const m = Number(month);
-        if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return;
-        const key = `${y}-${String(m).padStart(2, '0')}`;
-        current = { year: y, month: m, key };
-
-        buildMonthSelectOptions();
-        clearTable();
-        lastMonthTable = null;
-        updateDayNavButtons();
-
-        const table = getMonthScheduleTable(y, m);
-        lastMonthTable = table;
-        if (!table) {
-            setSubtitle('Brak danych grafiku dla wybranego miesiąca.');
-            if (tableHeaderRow) {
+            const days = Array.isArray(view?.days) ? view.days : [];
+            for (const day of days) {
+                const parts = formatDayHeaderParts(dtfWeekday, day.isoDate);
                 const th = document.createElement('th');
-                th.textContent = 'Kierowca';
+                th.className = 'schedule-day-header';
+                th.dataset.isoDate = day.isoDate;
+                th.classList.toggle('is-weekend', Boolean(day.isWeekend));
+                th.classList.toggle('is-selected-day', state.selectedIsoDate === day.isoDate);
+                th.classList.toggle('is-today', Boolean(day.isToday));
+
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'schedule-day-header-btn';
+                btn.dataset.action = 'select-day';
+                btn.dataset.isoDate = day.isoDate;
+                btn.innerHTML = `<span class="schedule-day-number">${String(day.day || '')}</span><span class="schedule-day-weekday">${parts.weekday}</span>`;
+                btn.title = `Wybierz dzień ${parts.date}`;
+                th.appendChild(btn);
                 tableHeaderRow.appendChild(th);
             }
-            if (tableBody) {
-                const tr = document.createElement('tr');
-                const td = document.createElement('td');
-                td.className = 'schedule-empty';
-                td.textContent = 'Nie znaleziono wczytanego pliku grafiku dla tego miesiąca.';
-                tr.appendChild(td);
-                tableBody.appendChild(tr);
-            }
+        }
+
+        if (!state.monthTable) {
+            renderEmptyState(
+                'Brak danych grafiku dla wybranego miesiąca.',
+                'Nie znaleziono wczytanego pliku grafiku dla tego miesiąca.',
+                1
+            );
             return;
         }
 
-        setSubtitle('Kliknij dzień w nagłówku, aby zaznaczyć całą kolumnę.');
-        renderTable(table);
+        if (!view || !Array.isArray(view.rows) || view.rows.length === 0) {
+            renderEmptyState(
+                'Brak wyników dla wybranych filtrów.',
+                'Wyczyść filtry, aby zobaczyć cały grafik.',
+                dayCount + 1
+            );
+            return;
+        }
+
+        const bodyFragment = document.createDocumentFragment();
+        for (const row of view.rows) {
+            const tr = document.createElement('tr');
+            tr.className = 'schedule-row';
+            tr.classList.toggle('is-selected-driver', Boolean(row.isSelectedDriver));
+            tr.dataset.driverId = row.driverId;
+
+            const driverCell = document.createElement('td');
+            driverCell.className = 'driver-cell';
+            driverCell.dataset.action = 'select-driver';
+            driverCell.dataset.driverId = row.driverId;
+            driverCell.dataset.driverName = row.driverName;
+            driverCell.setAttribute('role', 'button');
+            driverCell.setAttribute('tabindex', '0');
+            driverCell.setAttribute('aria-pressed', row.isSelectedDriver ? 'true' : 'false');
+            driverCell.title = row.driverName;
+            driverCell.textContent = row.driverName;
+            tr.appendChild(driverCell);
+
+            for (const cell of row.cells) {
+                const td = document.createElement('td');
+                td.className = 'schedule-cell';
+                td.dataset.isoDate = cell.isoDate;
+                td.classList.toggle('is-weekend', Boolean(cell.isWeekend));
+                td.classList.toggle('is-selected-day', Boolean(cell.isSelectedDay));
+                td.classList.toggle('is-selected-driver', Boolean(row.isSelectedDriver));
+                td.classList.toggle('is-selection-intersection', Boolean(cell.isIntersection));
+                td.classList.toggle('is-route-dimmed', Boolean(cell.isDimmedByRouteFilter));
+                td.classList.toggle('is-today', Boolean(cell.isToday));
+                td.title = cell.title || '';
+                renderCellTokens(td, cell.isoDate, cell.title, cell.tokens);
+                tr.appendChild(td);
+            }
+
+            bodyFragment.appendChild(tr);
+        }
+
+        tableBody?.appendChild?.(bodyFragment);
     }
 
+    /**
+     * Przewija tabelę do aktualnie zaznaczonej kolumny dnia.
+     *
+     * @param {ScrollBehavior} [behavior='smooth']
+     */
+    function scrollToSelectedDay(behavior = 'smooth') {
+        const iso = coerceIsoDate(state.selectedIsoDate);
+        if (!iso) return;
+        const safeIso = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(iso) : iso;
+        const headerCell = tableHeaderRow?.querySelector?.(`[data-iso-date="${safeIso}"]`);
+        if (!(headerCell instanceof HTMLElement)) return;
+
+        window.requestAnimationFrame(() => {
+            headerCell.scrollIntoView({
+                block: 'nearest',
+                inline: 'center',
+                behavior
+            });
+        });
+    }
+
+    /**
+     * Renderuje cały widok grafiku na podstawie aktualnego stanu.
+     *
+     * @param {{ scrollToDay?: boolean, scrollBehavior?: ScrollBehavior }} [options]
+     */
+    function refreshView(options = {}) {
+        state.viewModel = applyScheduleFilters();
+        syncSelectionState();
+        state.viewModel = applyScheduleFilters();
+        syncSelectionState();
+        renderScheduleToolbar();
+        renderScheduleGrid();
+
+        if (options.scrollToDay) {
+            scrollToSelectedDay(options.scrollBehavior || 'smooth');
+        }
+    }
+
+    /**
+     * Ustawia wybrany dzień, jeśli istnieje w aktualnym miesiącu.
+     *
+     * @param {string} isoDate
+     * @param {{ shouldScroll?: boolean }} [options]
+     */
+    function setSelectedDay(isoDate, options = {}) {
+        const iso = coerceIsoDate(isoDate);
+        const days = Array.isArray(state?.monthTable?.days) ? state.monthTable.days : [];
+        if (!iso || !days.some(day => String(day?.isoDate || '') === iso)) return;
+        state.selectedIsoDate = iso;
+        state.selectedDayIndex = days.findIndex(day => String(day?.isoDate || '') === iso);
+        refreshView({ scrollToDay: options.shouldScroll !== false });
+    }
+
+    /**
+     * Ustawia zaznaczony wiersz kierowcy.
+     *
+     * @param {string} driverId
+     * @param {string} driverName
+     */
+    function setSelectedDriver(driverId, driverName) {
+        const nextId = String(driverId || '').trim();
+        if (!nextId) {
+            state.selectedDriverId = '';
+            state.selectedDriverName = '';
+            refreshView({ scrollToDay: false });
+            return;
+        }
+
+        if (state.selectedDriverId === nextId) {
+            state.selectedDriverId = '';
+            state.selectedDriverName = '';
+            refreshView({ scrollToDay: false });
+            return;
+        }
+
+        state.selectedDriverId = nextId;
+        state.selectedDriverName = String(driverName || '').trim();
+        refreshView({ scrollToDay: false });
+    }
+
+    /**
+     * Czyści oba filtry toolbaru.
+     */
+    function clearScheduleFilters() {
+        state.driverFilter = '';
+        state.routeFilter = '';
+        refreshView({ scrollToDay: false });
+    }
+
+    /**
+     * Czyści zaznaczenia, filtry oraz pozycję scrolla komponentu.
+     */
+    function resetViewState() {
+        state.selectedDayIndex = -1;
+        state.selectedIsoDate = null;
+        state.selectedDriverId = '';
+        state.selectedDriverName = '';
+        state.driverFilter = '';
+        state.routeFilter = '';
+        syncFilterInputs();
+        if (tableContainer instanceof HTMLElement) {
+            tableContainer.scrollLeft = 0;
+            tableContainer.scrollTop = 0;
+        }
+    }
+
+    /**
+     * Zwraca aktualny stan UI grafiku do późniejszego odtworzenia.
+     *
+     * @returns {{
+     *   monthKey: string,
+     *   selectedIsoDate: string|null,
+     *   selectedDriverId: string,
+     *   selectedDriverName: string,
+     *   driverFilter: string,
+     *   routeFilter: string,
+     *   scrollLeft: number,
+     *   scrollTop: number
+     * }}
+     */
+    function getViewState() {
+        return Object.freeze({
+            monthKey: String(state.current.key || ''),
+            selectedIsoDate: state.selectedIsoDate || null,
+            selectedDriverId: String(state.selectedDriverId || ''),
+            selectedDriverName: String(state.selectedDriverName || ''),
+            driverFilter: String(state.driverFilter || ''),
+            routeFilter: String(state.routeFilter || ''),
+            scrollLeft: tableContainer instanceof HTMLElement ? Math.max(0, Number(tableContainer.scrollLeft) || 0) : 0,
+            scrollTop: tableContainer instanceof HTMLElement ? Math.max(0, Number(tableContainer.scrollTop) || 0) : 0
+        });
+    }
+
+    /**
+     * Odtwarza zapisany stan UI grafiku.
+     *
+     * @param {any} snapshot
+     * @param {{ fallbackMonthKey?: string }} [options]
+     */
+    function restoreViewState(snapshot, options = {}) {
+        const safeSnapshot = snapshot && typeof snapshot === 'object' ? snapshot : {};
+        const requestedMonthKey = String(safeSnapshot?.monthKey || '').trim();
+        const fallbackMonthKey = String(options?.fallbackMonthKey || '').trim();
+        const targetMonthKey = state.availableMonths.some(item => String(item?.key || '') === requestedMonthKey)
+            ? requestedMonthKey
+            : fallbackMonthKey;
+
+        state.driverFilter = String(safeSnapshot?.driverFilter || '').trim();
+        state.routeFilter = String(safeSnapshot?.routeFilter || '').trim();
+        state.selectedDriverId = String(safeSnapshot?.selectedDriverId || '').trim();
+        state.selectedDriverName = String(safeSnapshot?.selectedDriverName || '').trim();
+        syncFilterInputs();
+
+        if (targetMonthKey) {
+            setMonthByKey(targetMonthKey, {
+                selectedIsoDate: String(safeSnapshot?.selectedIsoDate || '').trim(),
+                scrollBehavior: 'auto'
+            });
+        } else {
+            refreshView({ scrollToDay: false });
+        }
+
+        const scrollLeft = Math.max(0, Number(safeSnapshot?.scrollLeft) || 0);
+        const scrollTop = Math.max(0, Number(safeSnapshot?.scrollTop) || 0);
+        if (tableContainer instanceof HTMLElement) {
+            window.requestAnimationFrame(() => {
+                tableContainer.scrollLeft = scrollLeft;
+                tableContainer.scrollTop = scrollTop;
+            });
+        }
+    }
+
+    /**
+     * Zwraca sąsiedni dzień względem aktualnego zaznaczenia.
+     *
+     * @param {number} direction
+     * @returns {string}
+     */
+    function getAdjacentDayIso(direction) {
+        const days = getVisibleDays();
+        if (!days.length) return '';
+        const baseIndex = state.selectedDayIndex >= 0 ? state.selectedDayIndex : 0;
+        const nextIndex = baseIndex + (direction < 0 ? -1 : 1);
+        if (nextIndex < 0 || nextIndex >= days.length) return '';
+        return String(days[nextIndex]?.isoDate || '');
+    }
+
+    /**
+     * Wybiera miesiąc po kluczu `YYYY-MM`.
+     *
+     * @param {string} ym
+     * @param {{ selectedIsoDate?: string, scrollBehavior?: ScrollBehavior }} [options]
+     */
+    function setMonthByKey(ym, options = {}) {
+        const meta = parseYearMonth(ym);
+        if (!meta) return;
+
+        state.current = { year: meta.year, month: meta.month, key: meta.key };
+        state.selectedScheduleFile = meta.key;
+        state.monthTable = getMonthScheduleTable(meta.year, meta.month);
+        state.selectedScheduleFile = String(state?.monthTable?.fileName || meta.key);
+        buildMonthSelectOptions();
+        updateRouteFilterOptions();
+
+        if (!state.monthTable) {
+            state.selectedIsoDate = null;
+            state.selectedDayIndex = -1;
+            refreshView({ scrollToDay: false });
+            return;
+        }
+
+        state.selectedIsoDate = resolveDefaultSelectedDay(options.selectedIsoDate || '');
+        state.selectedDayIndex = Array.isArray(state.monthTable.days)
+            ? state.monthTable.days.findIndex(day => String(day?.isoDate || '') === state.selectedIsoDate)
+            : -1;
+
+        refreshView({ scrollToDay: true, scrollBehavior: options.scrollBehavior || 'auto' });
+    }
+
+    /**
+     * Renderuje miesiąc na podstawie części liczbowych.
+     *
+     * @param {{ year?: number, month?: number, selectedIsoDate?: string }} opts
+     */
+    function renderMonthDays(opts = {}) {
+        const year = Number(opts?.year);
+        const month = Number(opts?.month);
+        if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return;
+        setMonthByKey(`${year}-${String(month).padStart(2, '0')}`, { selectedIsoDate: String(opts?.selectedIsoDate || '') });
+    }
+
+    /**
+     * Ustawia listę dostępnych miesięcy grafiku.
+     *
+     * @param {string[]} list
+     */
     function setAvailableMonthsList(list) {
         const src = Array.isArray(list) ? list : [];
-        const normalized = src
-            .map(x => String(x ?? '').trim())
-            .map(k => parseYearMonth(k)?.key || '')
-            .filter(Boolean);
-        const unique = Array.from(new Set(normalized));
-        unique.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-        availableMonths = unique.map(key => Object.freeze({ key }));
+        const normalized = [];
+        for (const item of src) {
+            const rawKey = typeof item === 'string' ? item : item?.key;
+            const meta = parseYearMonth(rawKey);
+            if (!meta) continue;
+            const rawLabel = typeof item === 'string' ? '' : String(item?.label || '').trim();
+            normalized.push({
+                key: meta.key,
+                label: rawLabel || meta.key
+            });
+        }
+        normalized.sort((a, b) => String(a.key).localeCompare(String(b.key), 'pl', { sensitivity: 'base' }));
+        const unique = new Map();
+        for (const item of normalized) {
+            if (!unique.has(item.key)) unique.set(item.key, Object.freeze(item));
+        }
+        state.availableMonths = Array.from(unique.values());
         buildMonthSelectOptions();
         updateDayNavButtons();
     }
 
-    function setMonthByKey(ym) {
-        const meta = parseYearMonth(ym);
-        if (!meta) return;
-        renderMonthDays({ year: meta.year, month: meta.month });
-    }
-
+    /**
+     * Przechodzi do dzisiejszego dnia, jeśli istnieje w dostępnych danych.
+     */
     function goToday() {
         const now = new Date();
-        const ym = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        if (availableMonths.some(m => m.key === ym)) {
-            setMonthByKey(ym);
-            const iso = buildIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
-            if (iso) setSelectedDay(iso);
+        const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const todayIso = buildIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate());
+        if (!state.availableMonths.some(item => String(item?.key || '') === monthKey)) return;
+
+        if (state.current.key !== monthKey) {
+            setMonthByKey(monthKey, { selectedIsoDate: todayIso, scrollBehavior: 'smooth' });
             return;
         }
-        const fallback = availableMonths.length > 0 ? availableMonths[availableMonths.length - 1].key : '';
-        if (fallback) setMonthByKey(fallback);
+
+        setSelectedDay(todayIso, { shouldScroll: true });
     }
 
-    function handleTableClick(e) {
-        const target = e?.target;
+    /**
+     * Obsługuje kliknięcia w nagłówku i treści tabeli.
+     *
+     * @param {MouseEvent} event
+     */
+    function handleTableClick(event) {
+        const target = event?.target;
         if (!(target instanceof Element)) return;
-        const btn = target.closest('[data-action]');
-        if (!(btn instanceof HTMLElement)) return;
-        const action = String(btn.dataset.action || '');
-        if (action === 'select-day') {
-            const iso = btn.dataset.isoDate;
-            if (iso) setSelectedDay(iso);
-            return;
+
+        const actionEl = target.closest('[data-action]');
+        if (actionEl instanceof HTMLElement) {
+            const action = String(actionEl.dataset.action || '');
+
+            if (action === 'open-route') {
+                event.stopPropagation();
+                const routeCode = String(actionEl.dataset.routeCode || '').trim();
+                const isoDate = String(actionEl.dataset.isoDate || '').trim();
+                if (!routeCode || !isoDate) return;
+                onOpenRoute({ routeCode, isoDate });
+                return;
+            }
+
+            if (action === 'select-day') {
+                const isoDate = String(actionEl.dataset.isoDate || '').trim();
+                if (isoDate) setSelectedDay(isoDate, { shouldScroll: true });
+                return;
+            }
+
+            if (action === 'select-driver') {
+                const driverId = String(actionEl.dataset.driverId || '').trim();
+                const driverName = String(actionEl.dataset.driverName || '').trim();
+                setSelectedDriver(driverId, driverName);
+                return;
+            }
         }
-        if (action === 'open-route') {
-            const routeCode = String(btn.dataset.routeCode || '').trim();
-            const iso = String(btn.dataset.isoDate || '').trim();
-            if (!routeCode || !iso) return;
-            setSelectedDay(iso);
-            onOpenRoute({ routeCode, isoDate: iso });
+
+        if (target.closest('.route-badge')) return;
+
+        const cell = target.closest('td[data-iso-date]');
+        if (cell instanceof HTMLElement) {
+            const isoDate = String(cell.dataset.isoDate || '').trim();
+            if (isoDate) setSelectedDay(isoDate, { shouldScroll: true });
         }
     }
 
+    /**
+     * Obsługuje klawiaturę dla interaktywnej komórki kierowcy.
+     *
+     * @param {KeyboardEvent} event
+     */
+    function handleDriverKeydown(event) {
+        const target = event?.target;
+        if (!(target instanceof HTMLElement)) return;
+        if (!target.classList.contains('driver-cell')) return;
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        const driverId = String(target.dataset.driverId || '').trim();
+        const driverName = String(target.dataset.driverName || '').trim();
+        setSelectedDriver(driverId, driverName);
+    }
+
+    /**
+     * Podpina wszystkie handlery UI.
+     */
     function attach() {
         tableHeaderRow?.addEventListener?.('click', handleTableClick);
         tableBody?.addEventListener?.('click', handleTableClick);
+        tableBody?.addEventListener?.('keydown', handleDriverKeydown);
 
         monthSelect?.addEventListener?.('change', () => {
             const key = String(monthSelect.value || '').trim();
             if (key) setMonthByKey(key);
         });
 
-        prevMonthBtn?.addEventListener?.('click', () => {
-            const iso = computePrevNextSelectedDayIso(-1);
-            if (iso) setSelectedDay(iso);
+        prevDayBtn?.addEventListener?.('click', () => {
+            const isoDate = getAdjacentDayIso(-1);
+            if (isoDate) setSelectedDay(isoDate, { shouldScroll: true });
         });
 
-        nextMonthBtn?.addEventListener?.('click', () => {
-            const iso = computePrevNextSelectedDayIso(1);
-            if (iso) setSelectedDay(iso);
+        nextDayBtn?.addEventListener?.('click', () => {
+            const isoDate = getAdjacentDayIso(1);
+            if (isoDate) setSelectedDay(isoDate, { shouldScroll: true });
         });
 
-        todayBtn?.addEventListener?.('click', () => goToday());
+        todayBtn?.addEventListener?.('click', () => {
+            goToday();
+        });
+
+        driverFilterInput?.addEventListener?.('input', () => {
+            state.driverFilter = String(driverFilterInput.value || '').trim();
+            refreshView({ scrollToDay: false });
+        });
+
+        routeFilterInput?.addEventListener?.('input', () => {
+            state.routeFilter = String(routeFilterInput.value || '').trim();
+            refreshView({ scrollToDay: false });
+        });
+
+        clearFiltersBtn?.addEventListener?.('click', () => {
+            clearScheduleFilters();
+        });
     }
 
     attach();
+    refreshView({ scrollToDay: false });
 
     return Object.freeze({
         isVisible,
+        getViewState,
+        resetViewState,
+        restoreViewState,
         setAvailableMonthsList,
         setMonthByKey,
         renderMonthDays,
         setSelectedDay,
-        goToday
+        setSelectedDriver,
+        goToday,
+        scrollToSelectedDay
     });
+}
+
+/**
+ * Fasada zgodności wstecznej.
+ *
+ * @param {Object} cfg
+ * @returns {ReturnType<typeof createScheduleGrid>}
+ */
+export function createScheduleController(cfg = {}) {
+    return createScheduleGrid(cfg);
 }

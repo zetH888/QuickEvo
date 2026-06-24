@@ -65,9 +65,8 @@ export function createDriveUnifiedSyncApplication(cfg) {
         }
     }
 
-    function selectCurrentMonthScheduleDriveFile(files, { now = new Date() } = {}) {
+    function listScheduleDriveFiles(files) {
         const list = Array.isArray(files) ? files : [];
-        const { year, month } = getNowYearMonth(now);
         const parseStrict = typeof cfg.parseScheduleMetaStrictXlsx === 'function' ? cfg.parseScheduleMetaStrictXlsx : (() => null);
         const candidates = [];
 
@@ -75,10 +74,8 @@ export function createDriveUnifiedSyncApplication(cfg) {
             const name = String(f?.name || '').trim();
             const meta = parseStrict(name);
             if (!meta) continue;
-            if (meta.year !== year || meta.month !== month) continue;
             candidates.push({ ...f, _scheduleMeta: meta });
         }
-        if (candidates.length === 0) return null;
 
         candidates.sort((a, b) => {
             const ta = Number.isFinite(Number(a?.driveModifiedAt)) ? Number(a.driveModifiedAt) : 0;
@@ -87,18 +84,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
             return String(a?.name || '').localeCompare(String(b?.name || ''), 'pl', { sensitivity: 'base' });
         });
 
-        if (candidates.length > 1) {
-            try {
-                cfg.logAction?.('sync', {
-                    phase: 'schedule_multiple_candidates',
-                    count: candidates.length,
-                    chosen: String(candidates[0]?.name || ''),
-                    candidates: candidates.slice(0, 6).map(c => String(c?.name || '')).filter(Boolean)
-                }, 'WARN');
-            } catch { }
-        }
-
-        return candidates[0];
+        return candidates;
     }
 
     /**
@@ -205,22 +191,22 @@ export function createDriveUnifiedSyncApplication(cfg) {
             scheduleAllPromise,
             driverContactsPromise
         ]);
-        const schedule = selectCurrentMonthScheduleDriveFile(scheduleAll);
-        return { routes, schedule, scheduleAll, driverContacts };
+        const scheduleFiles = listScheduleDriveFiles(scheduleAll);
+        return { routes, scheduleFiles, scheduleAll, driverContacts };
     }
 
-    async function computeChanges({ routes, schedule, scheduleAll, driverContacts }) {
+    async function computeChanges({ routes, scheduleFiles, scheduleAll, driverContacts }) {
         const dbListRaw = await cfg.listDbFiles();
         const listDb = Array.isArray(dbListRaw) ? dbListRaw : [];
         const dbNames = new Set(listDb.map(r => String(r?.name ?? '').trim()).filter(Boolean));
         const changed = [];
 
         const routeFiles = Array.isArray(routes) ? routes : [];
-        const scheduleFiles = Array.isArray(scheduleAll) ? scheduleAll : [];
+        const scheduleDriveFiles = Array.isArray(scheduleAll) ? scheduleAll : [];
         const driverContactsName = String(driverContacts?.name || '').trim();
         const driveNames = new Set([
             ...routeFiles.map((file) => String(file?.name || '').trim()).filter(Boolean),
-            ...scheduleFiles.map((file) => String(file?.name || '').trim()).filter(Boolean),
+            ...scheduleDriveFiles.map((file) => String(file?.name || '').trim()).filter(Boolean),
             ...(driverContactsName ? [driverContactsName] : [])
         ]);
 
@@ -268,24 +254,29 @@ export function createDriveUnifiedSyncApplication(cfg) {
             });
         }
 
-        if (schedule && schedule?.name) {
-            const name = String(schedule.name).trim();
-            const record = await cfg.getDbFileRecord(name);
-            const prev = Number(record?.driveModifiedAt);
-            const next = Number(schedule?.driveModifiedAt);
-            const hasPrev = Number.isFinite(prev) && prev > 0;
-            const hasNext = Number.isFinite(next) && next > 0;
-            const isUpToDate = Boolean(record && hasPrev && hasNext && prev === next);
+        const validScheduleFiles = Array.isArray(scheduleFiles) ? scheduleFiles : [];
+        if (validScheduleFiles.length > 0) {
+            for (const scheduleFile of validScheduleFiles) {
+                const name = String(scheduleFile?.name || '').trim();
+                if (!name) continue;
 
-            if (!isUpToDate) {
-                const meta = schedule?._scheduleMeta || (typeof cfg.parseScheduleMetaStrictXlsx === 'function' ? cfg.parseScheduleMetaStrictXlsx(name) : null);
+                const record = await cfg.getDbFileRecord(name);
+                const prev = Number(record?.driveModifiedAt);
+                const next = Number(scheduleFile?.driveModifiedAt);
+                const hasPrev = Number.isFinite(prev) && prev > 0;
+                const hasNext = Number.isFinite(next) && next > 0;
+                const isUpToDate = Boolean(record && hasPrev && hasNext && prev === next);
+
+                if (isUpToDate) continue;
+
+                const meta = scheduleFile?._scheduleMeta || (typeof cfg.parseScheduleMetaStrictXlsx === 'function' ? cfg.parseScheduleMetaStrictXlsx(name) : null);
                 const label = meta ? formatMonthYearLabel(meta) : '';
                 const reason = label ? `Zmiany w grafiku na ${label}` : 'Zmiany w grafiku';
                 changed.push({
-                    ...schedule,
+                    ...scheduleFile,
                     changeReason: reason,
                     previousDriveModifiedAt: hasPrev ? prev : null,
-                    isNewInDb: false,
+                    isNewInDb: !record,
                     qeKind: 'schedule'
                 });
             }

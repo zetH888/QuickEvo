@@ -103,7 +103,7 @@
                             <span id="qe-ghost-prefix" class="qe-ghost-prefix"></span><span id="qe-ghost-suffix" class="qe-ghost-suffix"></span>
                         </div>
                         <button id="qe-ghost-hint" class="qe-ghost-hint" type="button" aria-label="Pokaż następną podpowiedź" title="Następna podpowiedź" tabindex="-1">↑↓</button>
-                        <input type="text" id="search-input" placeholder="Przeszukaj trasy (min. 3 znaki)..." autocomplete="off">
+                        <input type="text" id="search-input" placeholder="Szukaj..." autocomplete="off">
                         <div class="search-sort-switch" aria-label="Tryb sortowania wyników wyszukiwania">
                             <span class="search-sort-switch-label" aria-hidden="true">A‑Z</span>
                             <label class="switch">
@@ -164,17 +164,55 @@
             </div>
 
             <div id="schedule-view" class="view-transition view-hidden">
-                <div class="schedule-bar">
-                    <button id="back-to-search-from-schedule" class="btn-secondary" type="button">← Powrót</button>
-                    <div class="schedule-controls" role="group" aria-label="Sterowanie grafikiem">
-                        <button id="schedule-prev-month" class="schedule-nav-btn" type="button" aria-label="Poprzedni dzień">←</button>
-                        <select id="schedule-month-select" class="schedule-month-select" aria-label="Wybierz miesiąc grafiku"></select>
-                        <button id="schedule-next-month" class="schedule-nav-btn" type="button" aria-label="Następny dzień">→</button>
-                        <button id="schedule-today" class="schedule-nav-btn schedule-nav-btn--primary" type="button">Dziś</button>
+                <div class="schedule-toolbar" aria-label="Pasek narzędzi grafiku">
+                    <div class="schedule-toolbar-section schedule-toolbar-section--nav">
+                        <button id="back-to-search-from-schedule" class="btn-secondary schedule-back-btn" type="button">← Powrót</button>
+                        <div class="schedule-toolbar-group" role="group" aria-label="Wybór miesiąca i dnia">
+                            <div class="schedule-toolbar-select-row">
+                                <select id="schedule-month-select" class="schedule-month-select" aria-label="Wybierz plik grafiku"></select>
+                            </div>
+                            <div class="schedule-toolbar-nav-row">
+                                <button id="schedule-prev-month" class="schedule-nav-btn" type="button" aria-label="Poprzedni dzień">←</button>
+                                <button id="schedule-today" class="schedule-nav-btn schedule-nav-btn--primary" type="button">Dziś</button>
+                                <button id="schedule-next-month" class="schedule-nav-btn" type="button" aria-label="Następny dzień">→</button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="schedule-meta" aria-live="polite">
+                    <div class="schedule-toolbar-section schedule-toolbar-section--status" aria-live="polite">
                         <div id="schedule-title" class="schedule-title">Grafik</div>
-                        <div id="schedule-subtitle" class="schedule-subtitle">Wybierz dzień, aby go wyróżnić.</div>
+                        <div id="schedule-selected-day" class="schedule-selected-day">Wybrano: brak</div>
+                        <div id="schedule-subtitle" class="schedule-subtitle">Wybierz dzień lub kierowcę, aby wyróżnić grafik.</div>
+                    </div>
+                    <div class="schedule-toolbar-section schedule-toolbar-section--filters">
+                        <label class="schedule-filter-field" for="schedule-driver-filter">
+                            <span class="schedule-filter-label">Kierowca</span>
+                            <input
+                                id="schedule-driver-filter"
+                                class="schedule-filter-input"
+                                type="search"
+                                inputmode="search"
+                                autocomplete="off"
+                                placeholder="Szukaj kierowcy"
+                                aria-label="Filtruj po kierowcy"
+                            />
+                        </label>
+                        <label class="schedule-filter-field" for="schedule-route-filter">
+                            <span class="schedule-filter-label">Trasa / symbol</span>
+                            <input
+                                id="schedule-route-filter"
+                                class="schedule-filter-input"
+                                type="search"
+                                inputmode="search"
+                                autocomplete="off"
+                                list="schedule-route-filter-options"
+                                placeholder="Szukaj trasy lub symbolu"
+                                aria-label="Filtruj po trasie lub symbolu"
+                            />
+                            <datalist id="schedule-route-filter-options"></datalist>
+                        </label>
+                        <button id="schedule-clear-filters" class="schedule-nav-btn schedule-nav-btn--ghost" type="button" aria-label="Wyczyść filtry grafiku">
+                            Wyczyść filtry
+                        </button>
                     </div>
                 </div>
                 <div class="schedule-table-container" id="schedule-table-container">

@@ -117,10 +117,10 @@ export const LOADING_TITLE_MESSAGES = Object.freeze({
  * Mapowanie jest celowo konfigurowalne, aby można je było aktualizować bez zmian w logice parsowania.
  */
 export const SCHEDULE_MARKER_MEANINGS = Object.freeze({
-    Z: 'Urlop',
+    'Z': 'Urlop',
     'UŻ': 'Urlop na żądanie',
-    UZ: 'Urlop na żądanie',
-    DK: 'Sobotni dyżur koordynatora',
+    'UZ': 'Urlop na żądanie',
+    'Dk': 'Sobotni dyżur koordynatora',
     '*D': 'Dyżur poranny',
     '*P': 'Dyżur popołudniowy'
 });
