@@ -5,7 +5,7 @@
  */
 let xlsxDiffViewInstanceId = 0;
 
-export function renderXlsxDiffLoading() {
+function renderXlsxDiffLoading() {
     return `<div class="qe-xlsx-diff">
         <div class="qe-xlsx-diff-loading">
             <div class="qe-spinner" aria-hidden="true"></div>
@@ -19,7 +19,7 @@ export function renderXlsxDiffLoading() {
  *
  * @returns {string}
  */
-export function renderXlsxDiffError() {
+function renderXlsxDiffError() {
     return `<div class="qe-xlsx-diff">
         <div class="qe-xlsx-diff-message qe-xlsx-diff-message--error">
             Nie udało się wygenerować podglądu różnic. Nadal możesz nadpisać plik z głównego okna synchronizacji.
@@ -39,7 +39,7 @@ export function renderXlsxDiffError() {
  * @param {{ escapeHtml?: ((value: unknown) => string) | null }} [options]
  * @returns {string}
  */
-export function renderXlsxDiff(diff, options = {}) {
+function renderXlsxDiff(diff, options = {}) {
     const escapeHtml = typeof options?.escapeHtml === 'function'
         ? options.escapeHtml
         : (value) => String(value ?? '')

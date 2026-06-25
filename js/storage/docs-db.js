@@ -19,15 +19,6 @@ const docsDbConfig = {
     }
 };
 
-export function configureDocsDb(partialCfg = {}) {
-    if (!partialCfg || typeof partialCfg !== 'object') return;
-    if (typeof partialCfg.dbName === 'string' && partialCfg.dbName.trim()) docsDbConfig.dbName = partialCfg.dbName.trim();
-    if (Number.isFinite(Number(partialCfg.dbVersion)) && Number(partialCfg.dbVersion) > 0) docsDbConfig.dbVersion = Number(partialCfg.dbVersion);
-    if (typeof partialCfg.storeName === 'string' && partialCfg.storeName.trim()) docsDbConfig.storeName = partialCfg.storeName.trim();
-    if (Number.isFinite(Number(partialCfg.openTimeoutMs)) && Number(partialCfg.openTimeoutMs) > 0) docsDbConfig.openTimeoutMs = Number(partialCfg.openTimeoutMs);
-    if (typeof partialCfg.onBlocked === 'function') docsDbConfig.onBlocked = partialCfg.onBlocked;
-}
-
 /**
  * Otwiera połączenie z IndexedDB.
  */
@@ -70,17 +61,6 @@ export async function docsListFiles() {
             topLevelFolderName: String(r?.topLevelFolderName ?? '').trim()
         })).filter(r => r.name));
         req.onerror = () => reject(req.error);
-    });
-}
-
-/**
- * Sprawdza, czy plik istnieje w bazie.
- */
-export async function docsFileExists(fileName) {
-    const db = await openDocsDb();
-    return await new Promise((resolve) => {
-        const req = db.transaction(docsDbConfig.storeName, 'readonly').objectStore(docsDbConfig.storeName).get(fileName);
-        req.onsuccess = () => resolve(!!req.result); req.onerror = () => resolve(false);
     });
 }
 

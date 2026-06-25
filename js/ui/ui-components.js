@@ -15,7 +15,7 @@ export { createModalController } from './preview/modal-controller.js';
 export { createPreviewController } from './preview/preview-controller.js';
 export { highlightLabsInPreviewTableDom } from './preview/preview-labs-highlight.js';
 
-export { createScheduleController, createScheduleGrid } from './schedule-controller.js';
+export { createScheduleController } from './schedule-controller.js';
 
 export { createResultsCategoryController } from './results/results-category-controller.js';
 export { createResultsRenderer } from './results/results-renderer.js';

@@ -8,10 +8,7 @@
  *
  * @publicznyInterfejs
  * - buildQuickEvoLogoSvg
- * - startLogoOrbit
  * - startLogoOrbitInContainer
- * - getLogoOrbitConfig
- * - getLogoPalette
  */
  
 import { parseCssNumber } from '../../core/utils.js';
@@ -572,7 +569,7 @@ function polarToCartesian(cx, cy, radius, angleDeg) {
  * @param {SVGElement | null} svg
  * @param {'header' | 'welcome'} size
  */
-export function startLogoOrbit(svg, size) {
+function startLogoOrbit(svg, size) {
     if (!svg || logoOrbitControllers.has(svg) || prefersReducedMotion()) return;
     const orbitGroup = svg.querySelector('g[data-qe-orbit="1"]'); if (!orbitGroup) return;
     const dotA = orbitGroup.querySelector('[data-qe-orbit-dot="a"]'), dotB = orbitGroup.querySelector('[data-qe-orbit-dot="b"]');
@@ -605,7 +602,7 @@ export function startLogoOrbitInContainer(container, size) {
  * @param {'header' | 'welcome'} size
  * @returns {{ radius: number, period: number, dir: 1 | -1 }}
  */
-export function getLogoOrbitConfig(size) {
+function getLogoOrbitConfig(size) {
     const rootStyle = getComputedStyle(document.documentElement);
     const radius = parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-radius-${size}`), 52);
     const period = Math.max(0.2, parseCssNumber(rootStyle.getPropertyValue(`--qe-orbit-period-${size}`), size === 'header' ? 4.8 : 3.2));
@@ -639,7 +636,7 @@ export function getLogoOrbitConfig(size) {
  *   lineGhost: string
  * }}
  */
-export function getLogoPalette() {
+function getLogoPalette() {
     const bodyStyle = getComputedStyle(document.body);
     const primary = bodyStyle.getPropertyValue('--primary-color').trim() || '#0066CC';
     const isMatrix = document.body.classList.contains('matrix-theme') || Boolean(window.isMatrixThemeActive);

@@ -198,7 +198,8 @@ QuickEvo/
 │   └── style.css        # Style główne
 ├── js/
 │   ├── entry/           # Entrypointy ładowane w index.html
-│   │   └── app.js       # Główny bootstrap aplikacji
+│   │   ├── app.js       # Główny bootstrap aplikacji
+│   │   └── dev-flags.js # Warunkowe doładowanie narzędzi developerskich
 │   ├── app/             # Warstwa aplikacyjna (orchestracja use-case)
 │   │   ├── search-application.js
 │   │   ├── preview-application.js
@@ -300,7 +301,7 @@ Moduł `qe-debugger.js` udostępnia:
 - Debugger jest dostępny wyłącznie na desktopie (viewport >= 769px)
 - Funkcja `window.logAction(action, payload, level)` do logowania zdarzeń
 - Obiekt `window.QE_Debugger` z metodami: `open()`, `close()`, `toggle()`, `clear()`, `log()`, `benchmark()`
-- Wbudowane testy automatyczne uruchamiane przez parametr URL (`?test=1` lub `?test=true`)
+- Wbudowane testy automatyczne są doładowywane warunkowo przez `js/entry/dev-flags.js` i uruchamiane przez parametr URL (`?test=1` lub `?test=true`)
 
 ***
 

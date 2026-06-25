@@ -142,7 +142,7 @@ function isCurrentMonthKey(ym) {
  * @param {(routeCode: string) => boolean} cfg.isRouteAvailable
  * @param {(opts: { routeCode: string, isoDate: string }) => void} cfg.onOpenRoute
  */
-export function createScheduleGrid(cfg = {}) {
+function createScheduleGrid(cfg = {}) {
     const scheduleView = cfg?.scheduleView || null;
     const tableContainer = cfg?.tableContainer || null;
     const tableHeaderRow = cfg?.tableHeaderRow || null;

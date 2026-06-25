@@ -21,7 +21,7 @@ export const SEARCH_RESULTS_SORT_MODE_TIME = 'time';
  * @param {number} nowMinutes
  * @returns {number}
  */
-export function computeNextOccurrenceDeltaMinutes(targetMinutes, nowMinutes) {
+function computeNextOccurrenceDeltaMinutes(targetMinutes, nowMinutes) {
     const target = Number(targetMinutes);
     const now = Number(nowMinutes);
     if (!Number.isFinite(target) || !Number.isFinite(now)) return Number.POSITIVE_INFINITY;
@@ -36,7 +36,7 @@ export function computeNextOccurrenceDeltaMinutes(targetMinutes, nowMinutes) {
  * @param {unknown} value
  * @returns {number|null}
  */
-export function parseTimeToMinutes(value) {
+function parseTimeToMinutes(value) {
     const raw = String(value ?? '').trim();
     if (!raw) return null;
     const m = raw.match(/(\d{1,2})\s*[:.]\s*(\d{2})/);
@@ -54,7 +54,7 @@ export function parseTimeToMinutes(value) {
  * @param {any} item
  * @returns {number|null}
  */
-export function extractItemTimeMinutes(item) {
+function extractItemTimeMinutes(item) {
     if (item?.isComplete && item?.headerMap && Array.isArray(item?.cells)) {
         const idx = Number(item.headerMap.GODZ);
         if (Number.isInteger(idx) && idx >= 0 && idx < item.cells.length) {
@@ -81,7 +81,7 @@ export function extractItemTimeMinutes(item) {
  * @param {Date} now
  * @returns {{ key: number, hitMinutes: number|null }}
  */
-export function computeGroupClosestTimeHit(group, now) {
+function computeGroupClosestTimeHit(group, now) {
     const items = Array.isArray(group?.items) ? group.items : [];
     const nowMinutes = (Number(now?.getHours?.()) || 0) * 60 + (Number(now?.getMinutes?.()) || 0);
 
@@ -109,7 +109,7 @@ export function computeGroupClosestTimeHit(group, now) {
  * @param {Date} now
  * @returns {Array<any>}
  */
-export function sortGroupItemsByNextTime(items, now) {
+function sortGroupItemsByNextTime(items, now) {
     const list = Array.isArray(items) ? items.slice() : [];
     if (list.length <= 1) return list;
     const nowMinutes = (Number(now?.getHours?.()) || 0) * 60 + (Number(now?.getMinutes?.()) || 0);

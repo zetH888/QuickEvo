@@ -1122,9 +1122,18 @@ if (shouldAutoRunTests()) {
     window.addEventListener('error', (e) => { errors.push({ type: 'error', message: String(e?.message || ''), source: String(e?.filename || ''), line: Number(e?.lineno || 0), col: Number(e?.colno || 0) }); });
     window.addEventListener('unhandledrejection', (e) => { errors.push({ type: 'unhandledrejection', message: String(e?.reason?.message || e?.reason || ''), source: '' }); });
 
-    window.addEventListener('load', () => {
+    /**
+     * Uruchamia suitę testów po gotowości strony.
+     *
+     * Dzięki temu testy działają zarówno przy klasycznym ładowaniu skryptu,
+     * jak i po warunkowym doładowaniu przez loader developerski.
+     */
+    const runSuite = () => {
         QuickEvoTests.run().catch((err) => console.error('[QuickEvoTests] Błąd uruchomienia testów:', err));
         if (errors.length > 0) console.error('[QuickEvoTests] Wykryto błędy w trakcie uruchomienia testów:', errors);
         else console.log('%c[QuickEvoTests] Brak błędów w konsoli podczas uruchomienia testów.', 'color: green; font-weight: bold;');
-    });
+    };
+
+    if (document.readyState === 'complete') runSuite();
+    else window.addEventListener('load', runSuite, { once: true });
 }
