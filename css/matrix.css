@@ -99,7 +99,6 @@
 .matrix-theme .result-row,
 .matrix-theme .table-container,
 .matrix-theme .preview-meta,
-.matrix-theme .icon-button,
 .matrix-theme .btn-secondary {
     transition: transform 300ms ease, background-color 300ms ease, border-color 300ms ease, color 300ms ease, box-shadow 300ms ease, text-shadow 300ms ease, filter 300ms ease;
 }
@@ -141,7 +140,6 @@
     filter: drop-shadow(0 0 14px rgba(0, 255, 65, 0.36)) brightness(1.05);
 }
 
-.matrix-theme header p,
 .matrix-theme #welcome-text,
 .matrix-theme #loading-status-text,
 .matrix-theme .loading-subtitle {
@@ -223,7 +221,6 @@
 }
 
 .matrix-theme .btn-secondary:hover,
-.matrix-theme .icon-button:hover,
 .matrix-theme .result-group:hover {
     animation: qeMatrixFlicker 850ms linear both;
 }
@@ -247,11 +244,6 @@
 .matrix-theme .theme-switch-container.matrix-theme-locked .slider,
 .matrix-theme .theme-switch-container.matrix-theme-locked #theme-icon {
     cursor: not-allowed !important;
-}
-
-@keyframes qeMatrixLines {
-    0% { transform: translateX(-24px); }
-    100% { transform: translateX(24px); }
 }
 
 @keyframes qeMatrixScan {

@@ -93,7 +93,7 @@ Ten dokument jest **specyfikacją wykonania** dla agenta trae.ai. Musisz traktow
 - Widoki `routes`, `drivers`, `schedule` nadal są renderowane bezpośrednio w `entry/app.js`.
 - `drive-changes-modal.js` jest nadal duży i nadal żyje obok starego `simple-xlsx-diff.js`, zamiast czystego modułu `drive-diff.js`.
 - Niespójna struktura `ui/` nadal występuje (`schedule-controller.js` leży płasko w `ui/`).
-- Martwy kod nadal istnieje: `js/app/drive-sync-application.js` i zmienna `driveSyncApplication`.
+- Cleanup martwego kodu wokół synchronizacji Drive został już wykonany: usunięto `js/app/drive-sync-application.js` oraz zbędną zmienną `driveSyncApplication`.
 
 **Mocne strony istniejącej architektury (zachowaj!):**
 - Czysty `core/` (brak DOM).
@@ -294,13 +294,13 @@ Zakres:
    - małe helpery typu `countNonEmpty`, `isEmptyCell` (jeśli pasują semantycznie)
 2. Dopnij przepływ „plik -> parser -> store -> indeks wyszukiwania”, tak aby `entry/app.js` nie przetwarzał już bezpośrednio danych arkuszy.
 3. Uprość `ui/drive/drive-changes-modal.js` do lekkiego modułu UI i wynieś logikę diff do dedykowanego modułu (`core/drive-diff.js` albo zachowaj `simple-xlsx-diff.js` jako warstwę przejściową, ale bez dokładania logiki do UI).
-4. Usuń martwy kod i duplikaty wokół synchronizacji Drive (`drive-sync-application.js`, zbędne wrappery, nieużywane zmienne).
+4. Zweryfikuj, czy po cleanupie synchronizacji Drive nie zostały jeszcze lokalne duplikaty lub pomocnicze wrappery do dalszego uproszczenia.
 5. Jeżeli w trakcie wyjdzie potrzeba, przenieś małe czyste helpery do `core/utils.js`, ale tylko te bezpieczne i rzeczywiście współdzielone.
 
 Success criteria:
 - `entry/app.js` nie zawiera już głównej logiki parsowania arkuszy.
 - `drive-changes-modal.js` jest lżejszy i nie staje się miejscem dla logiki domenowej.
-- Stary mechanizm `drive-sync-application.js` znika z aktywnej architektury.
+- Stary mechanizm `drive-sync-application.js` został już usunięty z aktywnej architektury.
 
 ---
 
@@ -447,7 +447,7 @@ Podobny szablon dla core/ (patrz utils.js i search-engine.js).
 - `addTableRows` (1346)
 - `createNormalizedRow` (1364)
 - `getRowDisplayText` (1383)
-- `countNonEmpty` (2565), `isEmptyCell` (2572)
+- `isEmptyCell` (2572)
 - Wrappery schedule processing: `processScheduleFile` (1069), `parseScheduleSpreadsheet` (1065), `loadScheduleFiles` (1077), `invalidateScheduleFile` (1073)
 
 **Do UI Google Drive:**

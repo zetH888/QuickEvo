@@ -148,7 +148,6 @@ let searchOrchestrator = null;
 let navigationService = null;
 let searchApplication = null;
 let previewApplication = null;
-let driveSyncApplication = null;
 let driveUnifiedSyncApplication = null;
 let navigationApplication = null;
 let loadingApplication = null;
@@ -3525,17 +3524,6 @@ function escapeHtml(value) {
     return qeGetUtils().escapeHtml(value);
 }
 
-
-/**
- * Formatuje zawartość komórki zgodnie z jej typem.
- */
-function formatCellContent(cell, idx, headerMap) {
-    if (idx === headerMap['NR_POL']) { const val = parseInt(cell); return isNaN(val) ? '' : val; }
-    const formatted = formatCellValue(cell);
-    if (idx === headerMap['GODZ']) return (formatted === '' || formatted === '-') ? '-' : formatted;
-    return formatted;
-}
-
 //////////////////////////////////////////////////
 // EVENT LISTENERY
 //////////////////////////////////////////////////
@@ -3726,13 +3714,6 @@ try {
     Object.defineProperty(window, 'QE_DevTools', { value: api, writable: false, configurable: false });
 } catch {
     window.QE_DevTools = { clearFilesStore: qeDevClearDbFilesStore, clearRandomFiles: qeDevClearRandomFiles };
-}
-
-/**
- * Liczy niepuste komórki w wierszu.
- */
-function countNonEmpty(row) {
-    if (!Array.isArray(row)) return 0; let n = 0; for (const cell of row) if (!isEmptyCell(cell)) n += 1; return n;
 }
 
 /**

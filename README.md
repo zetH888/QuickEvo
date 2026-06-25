@@ -30,6 +30,7 @@ QuickEvo to aplikacja webowa działająca w całości po stronie klienta w przeg
 - **Modułowa struktura** — warstwowy podział `js/` (entry/app/core/services/ui/storage/features/config) oraz dalsza dekompozycja `js/entry/app.js` do wyspecjalizowanych modułów
 - **ESM (bez bundlera)** — logika aplikacji jest ładowana jako moduły (`<script type="module">`); SheetJS/XLSX jest importowany jako ESM z `https://esm.sh/`
 - **Shadow DOM** — debugger korzysta z izolowanego Shadow DOM, co zapobiega konfliktom stylów
+- **Uproszczona ścieżka synchronizacji Drive** — aktywny runtime korzysta wyłącznie z `js/app/drive-unified-sync-application.js`; historyczny wrapper `drive-sync-application.js` został usunięty w ramach cleanupu repozytorium
 
 ***
 
@@ -201,7 +202,6 @@ QuickEvo/
 │   ├── app/             # Warstwa aplikacyjna (orchestracja use-case)
 │   │   ├── search-application.js
 │   │   ├── preview-application.js
-│   │   ├── drive-sync-application.js
 │   │   ├── drive-unified-sync-application.js
 │   │   ├── navigation-application.js
 │   │   └── loading-application.js
