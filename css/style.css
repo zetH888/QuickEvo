@@ -2056,6 +2056,8 @@ tbody tr:nth-child(even) td:nth-child(even) {
 
 #schedule-view .schedule-toolbar {
     position: relative;
+    z-index: 40;
+    isolation: isolate;
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.85fr) minmax(280px, 1fr);
     gap: 14px;
@@ -2084,6 +2086,8 @@ tbody tr:nth-child(even) td:nth-child(even) {
 
 #schedule-view .schedule-toolbar-section--filters {
     justify-content: flex-end;
+    position: relative;
+    z-index: 45;
 }
 
 #schedule-view .schedule-toolbar-group {
@@ -2099,6 +2103,10 @@ tbody tr:nth-child(even) td:nth-child(even) {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+#schedule-view .schedule-toolbar-select-row {
+    width: 100%;
 }
 
 #schedule-view .schedule-toolbar-nav-row {
@@ -2146,7 +2154,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 #schedule-view .schedule-nav-btn,
-#schedule-view .schedule-month-select,
+#schedule-view .schedule-filter-select-trigger,
 #schedule-view .schedule-filter-input {
     min-height: 40px;
     border-radius: 12px;
@@ -2192,34 +2200,12 @@ tbody tr:nth-child(even) td:nth-child(even) {
     background: color-mix(in srgb, var(--schedule-bg) 84%, transparent);
 }
 
-#schedule-view .schedule-month-select {
-    appearance: none;
-    padding: 0 12px;
-    font-weight: 800;
-    min-width: 100%;
-    width: 100%;
-    color-scheme: dark;
-    background-image:
-        linear-gradient(45deg, transparent 50%, var(--schedule-muted) 50%),
-        linear-gradient(135deg, var(--schedule-muted) 50%, transparent 50%);
-    background-position:
-        calc(100% - 18px) calc(50% - 2px),
-        calc(100% - 12px) calc(50% - 2px);
-    background-size: 6px 6px, 6px 6px;
-    background-repeat: no-repeat;
-    padding-right: 34px;
-}
-
-#schedule-view .schedule-month-select option {
-    color: var(--schedule-text);
-    background: color-mix(in srgb, var(--card-bg) 96%, #0f121a 4%);
-}
-
 #schedule-view .schedule-filter-field {
     display: flex;
     flex-direction: column;
     gap: 6px;
     min-width: 170px;
+    position: relative;
 }
 
 #schedule-view .schedule-filter-label {
@@ -2230,8 +2216,267 @@ tbody tr:nth-child(even) td:nth-child(even) {
     text-transform: uppercase;
 }
 
-#schedule-view .schedule-filter-input {
+#schedule-view .schedule-filter-dropdown {
+    position: relative;
+}
+
+#schedule-view .schedule-filter-control {
+    /* Wspolna obwodka focusa ma obejmowac jednoczesnie input i przycisk dropdownu. */
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    border-radius: 12px;
+    width: 100%;
+    isolation: isolate;
+}
+
+#schedule-view .schedule-filter-control:focus-within {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--schedule-accent) 18%, transparent);
+}
+
+#schedule-view .schedule-filter-select-trigger {
+    appearance: none;
+    flex: 1 1 auto;
+    min-width: 0;
+    width: 100%;
     padding: 0 12px;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right: 0;
+    background: color-mix(in srgb, var(--schedule-bg) 90%, transparent);
+    color: var(--schedule-text);
+    font-weight: 800;
+    text-align: left;
+    cursor: pointer;
+}
+
+#schedule-view .schedule-filter-select-trigger:hover {
+    background: color-mix(in srgb, var(--schedule-accent) 7%, var(--schedule-bg));
+}
+
+#schedule-view .schedule-filter-select-trigger-label {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-input,
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-select-trigger,
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-toggle {
+    border-color: color-mix(in srgb, var(--schedule-accent) 48%, var(--schedule-border));
+}
+
+#schedule-view .schedule-filter-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0 12px;
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+    border-right: 0;
+}
+
+#schedule-view .schedule-filter-toggle {
+    width: 42px;
+    min-width: 42px;
+    padding: 0;
+    border: 1px solid var(--schedule-border);
+    border-left: 0;
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
+    background: color-mix(in srgb, var(--schedule-bg) 90%, transparent);
+    color: var(--schedule-text);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        border-color 0.22s ease,
+        background 0.22s ease,
+        box-shadow 0.22s ease,
+        transform 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#schedule-view .schedule-filter-toggle:hover {
+    background: color-mix(in srgb, var(--schedule-accent) 8%, var(--schedule-bg));
+}
+
+#schedule-view .schedule-filter-toggle--static {
+    cursor: default;
+    pointer-events: none;
+}
+
+#schedule-view .schedule-filter-toggle-icon {
+    position: relative;
+    width: 14px;
+    height: 14px;
+    display: inline-block;
+    opacity: 0.84;
+    transform: translateY(1px) scale(1);
+    transition:
+        transform 0.26s cubic-bezier(0.22, 1, 0.36, 1),
+        opacity 0.22s ease;
+}
+
+#schedule-view .schedule-filter-toggle-icon::before,
+#schedule-view .schedule-filter-toggle-icon::after {
+    content: "";
+    position: absolute;
+    top: 6px;
+    width: 8px;
+    height: 2px;
+    border-radius: 999px;
+    background: currentColor;
+    transform-origin: center;
+    transition:
+        transform 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+        width 0.22s ease,
+        opacity 0.22s ease;
+}
+
+#schedule-view .schedule-filter-toggle-icon::before {
+    left: 0;
+    transform: rotate(42deg);
+}
+
+#schedule-view .schedule-filter-toggle-icon::after {
+    right: 0;
+    transform: rotate(-42deg);
+}
+
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-toggle {
+    background: color-mix(in srgb, var(--schedule-accent) 10%, var(--schedule-bg));
+}
+
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-toggle-icon {
+    transform: translateY(-1px) scale(1.04);
+    opacity: 1;
+}
+
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-toggle-icon::before {
+    transform: translateX(1px) rotate(-42deg);
+}
+
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-toggle-icon::after {
+    transform: translateX(-1px) rotate(42deg);
+}
+
+#schedule-view .schedule-filter-dropdown.is-open .schedule-filter-toggle:hover .schedule-filter-toggle-icon,
+#schedule-view .schedule-filter-toggle:hover .schedule-filter-toggle-icon {
+    opacity: 1;
+}
+
+#schedule-view .schedule-filter-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    z-index: 60;
+    padding: 10px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--schedule-border-strong) 82%, transparent);
+    background: color-mix(in srgb, var(--schedule-panel) 94%, rgba(8, 11, 18, 0.96));
+    backdrop-filter: blur(18px) saturate(130%);
+    box-shadow: 0 18px 34px rgba(0, 0, 0, 0.26);
+}
+
+#schedule-view .schedule-filter-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: min(46vh, 360px);
+    overflow: auto;
+    scrollbar-width: thin;
+}
+
+#schedule-view .schedule-filter-list--sections {
+    gap: 10px;
+}
+
+#schedule-view .schedule-filter-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#schedule-view .schedule-filter-section-title {
+    color: var(--schedule-muted);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0 2px;
+}
+
+#schedule-view .schedule-filter-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+#schedule-view .schedule-filter-option {
+    appearance: none;
+    width: 100%;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--schedule-bg) 58%, transparent);
+    color: var(--schedule-text);
+    border-radius: 12px;
+    padding: 8px 10px;
+    text-align: left;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background 0.18s ease, transform 0.12s ease;
+}
+
+#schedule-view .schedule-filter-option:hover {
+    border-color: color-mix(in srgb, var(--schedule-accent) 34%, transparent);
+    background: color-mix(in srgb, var(--schedule-accent) 9%, var(--schedule-bg));
+}
+
+#schedule-view .schedule-filter-option[aria-selected="true"] {
+    border-color: color-mix(in srgb, var(--schedule-accent) 52%, var(--schedule-border));
+    background: color-mix(in srgb, var(--schedule-accent) 14%, var(--schedule-bg));
+}
+
+#schedule-view .schedule-filter-option--route {
+    width: auto;
+    min-width: 0;
+}
+
+#schedule-view .schedule-filter-option--month {
+    justify-content: space-between;
+}
+
+#schedule-view .schedule-filter-option--driver {
+    justify-content: flex-start;
+}
+
+#schedule-view .schedule-filter-option-text {
+    min-width: 0;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#schedule-view .schedule-filter-option-meta {
+    min-width: 0;
+    color: var(--schedule-muted);
+    font-size: 0.76rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#schedule-view .schedule-filter-empty {
+    color: var(--schedule-muted);
+    font-size: 0.84rem;
+    text-align: center;
+    padding: 12px 8px;
 }
 
 #schedule-view .schedule-filter-input::placeholder {
@@ -2240,14 +2485,26 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 #schedule-view .schedule-nav-btn:focus-visible,
-#schedule-view .schedule-month-select:focus-visible,
-#schedule-view .schedule-filter-input:focus-visible,
+#schedule-view .schedule-filter-select-trigger:focus-visible,
+#schedule-view .schedule-filter-option:focus-visible,
 #schedule-view .schedule-day-header-btn:focus-visible,
 #schedule-view .driver-cell:focus-visible,
 #schedule-view .route-badge:focus-visible {
     outline: none;
     border-color: color-mix(in srgb, var(--schedule-accent) 60%, var(--schedule-border));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--schedule-accent) 18%, transparent);
+}
+
+#schedule-view .schedule-filter-select-trigger:focus-visible,
+#schedule-view .schedule-filter-input:focus-visible,
+#schedule-view .schedule-filter-toggle:focus-visible {
+    outline: none;
+    border-color: color-mix(in srgb, var(--schedule-accent) 60%, var(--schedule-border));
+    box-shadow: none;
+}
+
+#schedule-view .schedule-month-select--native {
+    display: none;
 }
 
 #schedule-view .schedule-table-container {
@@ -2548,6 +2805,17 @@ tbody tr:nth-child(even) td:nth-child(even) {
     flex: 0 0 42px;
 }
 
+#schedule-view .schedule-filter-menu .route-badge {
+    width: 34px;
+    min-width: 34px;
+    max-width: 34px;
+    flex-basis: 34px;
+    height: 24px;
+    padding: 0 5px;
+    font-size: 10px;
+    border-radius: 7px;
+}
+
 #schedule-view .route-badge.is-unavailable {
     cursor: default;
 }
@@ -2633,6 +2901,10 @@ tbody tr:nth-child(even) td:nth-child(even) {
         min-width: min(100%, 220px);
     }
 
+    #schedule-view .schedule-filter-menu {
+        padding: 9px;
+    }
+
     #schedule-view .schedule-table th,
     #schedule-view .schedule-table td {
         padding: 9px 8px;
@@ -2647,6 +2919,15 @@ tbody tr:nth-child(even) td:nth-child(even) {
         font-size: 11px;
         padding: 0 6px;
     }
+
+    #schedule-view .schedule-filter-menu .route-badge {
+        width: 32px;
+        min-width: 32px;
+        max-width: 32px;
+        flex-basis: 32px;
+        height: 22px;
+        font-size: 10px;
+    }
 }
 
 @media (max-width: 560px) {
@@ -2658,6 +2939,15 @@ tbody tr:nth-child(even) td:nth-child(even) {
     #schedule-view .schedule-toolbar-section,
     #schedule-view .schedule-toolbar-nav-row {
         justify-content: flex-start;
+    }
+
+    #schedule-view .schedule-filter-field {
+        min-width: 100%;
+    }
+
+    #schedule-view .schedule-filter-menu {
+        left: 0;
+        right: 0;
     }
 
     #schedule-view .schedule-selected-day {

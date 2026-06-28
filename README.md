@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.34.45-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.34.58-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,6 +47,33 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.34.58
+
+- Wybór miesiąca w `GRAFIK` działa teraz jako pełny custom dropdown na tej samej architekturze i w tym samym stylu listy co filtr kierowców, zamiast pozostawać pół-krokiem opartym o natywny `select`.
+- Wszystkie trzy kontrolki dropdownów w `GRAFIK` otrzymały subtelniej animowane strzałki typu chevron morph, dzięki czemu otwieranie i zamykanie wygląda płynniej niż prosty obrót o `180deg`.
+- Poświata focusa dla wyboru grafiku znów obejmuje całe pole razem z prawym segmentem przycisku strzałki, a sam trigger miesiąca korzysta z tego samego wrappera focus/hover/open co filtry.
+
+### Zmiany w wersji 2.34.57
+
+- Pole wyboru miesiąca w `GRAFIK` zostało wizualnie ujednolicone z dropdownami filtrów: korzysta z tego samego podziału na główną część kontrolki i prawy segment ze strzałką oraz z tej samej wspólnej poświaty focusa dla całego wrappera.
+
+### Zmiany w wersji 2.34.56
+
+- Filtr `TRASA / SYMBOL` w `GRAFIK` rozróżnia teraz dwa tryby dopasowania: ręczne wpisywanie w polu działa jako `zawiera`, natomiast wybór badge z custom dropdownu przełącza filtr na dopasowanie dokładne `1:1`.
+- Dzięki temu wpisanie `K` nadal może wyszukiwać fragmenty tekstu, ale kliknięcie badge `K` w dropdownie nie podświetla już kodów takich jak `Dk`, które zawierają tylko część tego znaku.
+
+### Zmiany w wersji 2.34.55
+
+- Usunięto regresję po wdrożeniu custom dropdownów w `GRAFIK`: `app.js` ponownie pobiera komplet nowych referencji DOM potrzebnych do inicjalizacji kontrolera grafiku, dzięki czemu widok nie zatrzymuje się już na `Ładowanie grafiku...`.
+- Usunięto regresję w widoku `TRASY`: kafelki tras nie przechodzą już przez deduplikację przeznaczoną wyłącznie dla modeli kierowców, więc pełna lista wraca i pozostaje klikalna.
+- Dropdowny filtrów w `GRAFIK` dostały mocniejszą warstwę `z-index` i izolację toolbaru, dzięki czemu rozwijane menu nie chowa się już pod sticky tabelą grafiku.
+
+### Zmiany w wersji 2.34.54
+
+- Naprawiono styl komórki na przecięciu zaznaczonego wiersza i zaznaczonej kolumny w `GRAFIK`: akcent przecięcia ma teraz własny, wyraźniejszy fill i nie jest już gaszony przez mocniejsze selektory zwykłych zaznaczeń.
+- Filtry kierowców i tras w `GRAFIK` zostały przebudowane z natywnych pól/datalist do własnych custom dropdownów z przyciskiem rozwijania, absolutnie pozycjonowanym menu i możliwością zarówno ręcznego wpisywania tekstu, jak i wyboru gotowej opcji.
+- Dropdown trasy/symbolu renderuje sekcje `Standard`, `Wieczorki`, `Soboty`, `Niedziele` i `Kody specjalne`, wykorzystując mniejsze badge'e wizualnie spójne z samym grafikiem; dropdown kierowców pokazuje aktualnie dostępnych kierowców dla bieżącego widoku.
 
 ### Zmiany w wersji 2.34.45
 

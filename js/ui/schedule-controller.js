@@ -123,8 +123,15 @@ function isCurrentMonthKey(ym) {
  * @param {HTMLTableRowElement|null} cfg.tableHeaderRow
  * @param {HTMLTableSectionElement|null} cfg.tableBody
  * @param {HTMLSelectElement|null} cfg.monthSelect
+ * @param {HTMLButtonElement|null} cfg.monthTriggerBtn
+ * @param {HTMLElement|null} cfg.monthTriggerLabelEl
+ * @param {HTMLButtonElement|null} cfg.monthToggleBtn
+ * @param {HTMLElement|null} cfg.monthOptionsEl
  * @param {HTMLInputElement|null} cfg.driverFilterInput
+ * @param {HTMLButtonElement|null} cfg.driverFilterToggleBtn
+ * @param {HTMLElement|null} cfg.driverFilterOptionsEl
  * @param {HTMLInputElement|null} cfg.routeFilterInput
+ * @param {HTMLButtonElement|null} cfg.routeFilterToggleBtn
  * @param {HTMLElement|null} cfg.routeFilterOptionsEl
  * @param {HTMLElement|null} cfg.selectedDayEl
  * @param {HTMLElement|null} cfg.subtitleEl
@@ -148,8 +155,15 @@ function createScheduleGrid(cfg = {}) {
     const tableHeaderRow = cfg?.tableHeaderRow || null;
     const tableBody = cfg?.tableBody || null;
     const monthSelect = cfg?.monthSelect || null;
+    const monthTriggerBtn = cfg?.monthTriggerBtn || null;
+    const monthTriggerLabelEl = cfg?.monthTriggerLabelEl || null;
+    const monthToggleBtn = cfg?.monthToggleBtn || null;
+    const monthOptionsEl = cfg?.monthOptionsEl || null;
     const driverFilterInput = cfg?.driverFilterInput || null;
+    const driverFilterToggleBtn = cfg?.driverFilterToggleBtn || null;
+    const driverFilterOptionsEl = cfg?.driverFilterOptionsEl || null;
     const routeFilterInput = cfg?.routeFilterInput || null;
+    const routeFilterToggleBtn = cfg?.routeFilterToggleBtn || null;
     const routeFilterOptionsEl = cfg?.routeFilterOptionsEl || null;
     const selectedDayEl = cfg?.selectedDayEl || null;
     const subtitleEl = cfg?.subtitleEl || null;
@@ -175,6 +189,8 @@ function createScheduleGrid(cfg = {}) {
         selectedScheduleFile: '',
         driverFilter: '',
         routeFilter: '',
+        routeFilterMode: 'contains',
+        openDropdown: '',
         monthTable: null,
         viewModel: null
     };
@@ -206,6 +222,439 @@ function createScheduleGrid(cfg = {}) {
         if (routeFilterInput && routeFilterInput.value !== state.routeFilter) {
             routeFilterInput.value = state.routeFilter;
         }
+    }
+
+    /**
+     * Zwraca wspolne elementy wybranego dropdownu toolbaru.
+     *
+     * @param {'month'|'driver'|'route'} type
+     * @returns {{ triggerEl: HTMLElement|null, toggleBtn: HTMLButtonElement|null, menuEl: HTMLElement|null, containerEl: HTMLElement|null }}
+     */
+    function getDropdownParts(type) {
+        if (type === 'month') {
+            return {
+                triggerEl: monthTriggerBtn,
+                toggleBtn: monthToggleBtn,
+                menuEl: monthOptionsEl,
+                containerEl: getFilterDropdownContainer(monthTriggerBtn)
+            };
+        }
+        if (type === 'driver') {
+            return {
+                triggerEl: driverFilterInput,
+                toggleBtn: driverFilterToggleBtn,
+                menuEl: driverFilterOptionsEl,
+                containerEl: getFilterDropdownContainer(driverFilterInput)
+            };
+        }
+        return {
+            triggerEl: routeFilterInput,
+            toggleBtn: routeFilterToggleBtn,
+            menuEl: routeFilterOptionsEl,
+            containerEl: getFilterDropdownContainer(routeFilterInput)
+        };
+    }
+
+    /**
+     * Zwraca kontener dropdownu skojarzony z polem filtra.
+     *
+     * @param {HTMLElement|null} inputEl
+     * @returns {HTMLElement|null}
+     */
+    function getFilterDropdownContainer(inputEl) {
+        return inputEl instanceof HTMLElement ? inputEl.closest('.schedule-filter-dropdown') : null;
+    }
+
+    /**
+     * Ustawia stan otwarcia dla wybranego dropdownu filtra.
+     *
+     * @param {'month'|'driver'|'route'} type
+     * @param {boolean} isOpen
+     */
+    function setFilterDropdownExpandedState(type, isOpen) {
+        const safeIsOpen = Boolean(isOpen);
+        const { triggerEl, toggleBtn, menuEl, containerEl } = getDropdownParts(type);
+        if (triggerEl) triggerEl.setAttribute('aria-expanded', String(safeIsOpen));
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', String(safeIsOpen));
+        if (menuEl instanceof HTMLElement) {
+            menuEl.hidden = !safeIsOpen;
+            menuEl.classList.toggle('is-open', safeIsOpen);
+        }
+        if (containerEl) {
+            containerEl.classList.toggle('is-open', safeIsOpen);
+        }
+    }
+
+    /**
+     * Zamyka wszystkie dropdowny filtrów.
+     */
+    function closeFilterDropdowns() {
+        state.openDropdown = '';
+        setFilterDropdownExpandedState('month', false);
+        setFilterDropdownExpandedState('driver', false);
+        setFilterDropdownExpandedState('route', false);
+    }
+
+    /**
+     * Otwiera wybrany dropdown i zamyka pozostałe.
+     *
+     * @param {'month'|'driver'|'route'} type
+     * @param {boolean} [forceOpen]
+     */
+    function toggleFilterDropdown(type, forceOpen) {
+        const nextValue = typeof forceOpen === 'boolean'
+            ? (forceOpen ? type : '')
+            : (state.openDropdown === type ? '' : type);
+        state.openDropdown = nextValue;
+        setFilterDropdownExpandedState('month', nextValue === 'month');
+        setFilterDropdownExpandedState('driver', nextValue === 'driver');
+        setFilterDropdownExpandedState('route', nextValue === 'route');
+    }
+
+    /**
+     * Zwraca etykietę sekcji dla kategorii trasy lub kodu specjalnego.
+     *
+     * @param {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'|'MARKER'} category
+     * @returns {string}
+     */
+    function getFilterSectionLabel(category) {
+        switch (category) {
+            case 'WIECZOREK':
+                return 'Wieczorki';
+            case 'SOBOTA':
+                return 'Soboty';
+            case 'NIEDZIELA':
+                return 'Niedziele';
+            case 'MARKER':
+                return 'Kody specjalne';
+            case 'STANDARD':
+            default:
+                return 'Standard';
+        }
+    }
+
+    /**
+     * Porządkuje kody tras/symboli w menu w sposób przyjazny dla operatora.
+     *
+     * @param {string} left
+     * @param {string} right
+     * @returns {number}
+     */
+    function compareFilterCodes(left, right) {
+        return String(left || '').localeCompare(String(right || ''), 'pl', {
+            numeric: true,
+            sensitivity: 'base'
+        });
+    }
+
+    /**
+     * Sprawdza, czy kod z komórki spełnia aktywny warunek filtra trasy.
+     *
+     * Tryb:
+     * - `contains` jest używany podczas ręcznego wpisywania tekstu,
+     * - `exact` jest używany po wyborze gotowego badge z dropdownu.
+     *
+     * @param {string} code
+     * @param {string} routeNeedle
+     * @returns {boolean}
+     */
+    function matchesRouteFilter(code, routeNeedle) {
+        const normalizedCode = normalizeFilterValue(code);
+        if (!routeNeedle) return true;
+        if (state.routeFilterMode === 'exact') return normalizedCode === routeNeedle;
+        return normalizedCode.includes(routeNeedle);
+    }
+
+    /**
+     * Buduje sekcje dla dropdownu tras i kodów specjalnych na podstawie aktualnego modelu widoku.
+     *
+     * @returns {Array<{ key: string, label: string, items: Array<{ kind: 'route'|'marker', code: string, category: string, meaning: string }> }>}
+     */
+    function buildRouteDropdownSections() {
+        const rows = Array.isArray(state?.viewModel?.rows) ? state.viewModel.rows : [];
+        const routeNeedle = normalizeFilterValue(state.routeFilter);
+        const grouped = new Map([
+            ['STANDARD', []],
+            ['WIECZOREK', []],
+            ['SOBOTA', []],
+            ['NIEDZIELA', []],
+            ['MARKER', []]
+        ]);
+        const seen = new Set();
+
+        for (const row of rows) {
+            const cells = Array.isArray(row?.cells) ? row.cells : [];
+            for (const cell of cells) {
+                const tokens = Array.isArray(cell?.tokens) ? cell.tokens : [];
+                for (const token of tokens) {
+                    const kind = token?.kind === 'marker' ? 'marker' : 'route';
+                    const code = String(token?.code ?? '').trim();
+                    if (!code) continue;
+                    const meaning = kind === 'marker'
+                        ? String(
+                            markerMeanings?.[code]
+                            ?? markerMeanings?.[String(code || '').toUpperCase()]
+                            ?? markerMeanings?.[String(code || '').toLowerCase()]
+                            ?? markerMeanings?.[`${String(code || '').slice(0, 1).toUpperCase()}${String(code || '').slice(1).toLowerCase()}`]
+                            ?? ''
+                        ).trim()
+                        : '';
+                    const haystack = `${code} ${meaning}`.trim();
+                    if (routeNeedle && !normalizeFilterValue(haystack).includes(routeNeedle)) continue;
+                    const normalizedKey = `${kind}:${normalizeFilterValue(code)}`;
+                    if (seen.has(normalizedKey)) continue;
+                    seen.add(normalizedKey);
+
+                    if (kind === 'marker') {
+                        grouped.get('MARKER')?.push({
+                            kind,
+                            code,
+                            category: 'MARKER',
+                            meaning
+                        });
+                        continue;
+                    }
+
+                    const category = String(token?.category || 'STANDARD').trim() || 'STANDARD';
+                    if (!grouped.has(category)) grouped.set(category, []);
+                    grouped.get(category)?.push({
+                        kind,
+                        code,
+                        category,
+                        meaning: ''
+                    });
+                }
+            }
+        }
+
+        const order = ['STANDARD', 'WIECZOREK', 'SOBOTA', 'NIEDZIELA', 'MARKER'];
+        return order
+            .map((category) => {
+                const items = Array.isArray(grouped.get(category)) ? grouped.get(category) : [];
+                items.sort((left, right) => compareFilterCodes(left.code, right.code));
+                return {
+                    key: category,
+                    label: getFilterSectionLabel(/** @type {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'|'MARKER'} */ (category)),
+                    items
+                };
+            })
+            .filter(section => section.items.length > 0);
+    }
+
+    /**
+     * Buduje listę kierowców widocznych dla aktualnego kontekstu filtrów.
+     *
+     * @returns {Array<{ driverId: string, driverName: string }>}
+     */
+    function buildDriverDropdownItems() {
+        const rows = Array.isArray(state?.viewModel?.rows) ? state.viewModel.rows : [];
+        const needle = normalizeFilterValue(state.driverFilter);
+        const out = [];
+        const seen = new Set();
+
+        for (const row of rows) {
+            const driverName = String(row?.driverName ?? '').trim();
+            const driverId = String(row?.driverId ?? '').trim() || buildDriverId(driverName);
+            if (!driverName || seen.has(driverId)) continue;
+            if (needle && !normalizeFilterValue(driverName).includes(needle)) continue;
+            seen.add(driverId);
+            out.push({ driverId, driverName });
+        }
+
+        out.sort((left, right) => left.driverName.localeCompare(right.driverName, 'pl', { sensitivity: 'base' }));
+        return out;
+    }
+
+    /**
+     * Zwraca dane aktualnie wybranego miesiąca, jeśli istnieją na liście opcji.
+     *
+     * @returns {{ key: string, label: string } | null}
+     */
+    function getCurrentMonthItem() {
+        return state.availableMonths.find(item => String(item?.key || '') === state.current.key) || null;
+    }
+
+    /**
+     * Synchronizuje etykietę widoczną na triggerze wyboru miesiąca.
+     */
+    function syncMonthTriggerLabel() {
+        if (!(monthTriggerLabelEl instanceof HTMLElement)) return;
+        const currentMonth = getCurrentMonthItem();
+        monthTriggerLabelEl.textContent = String(
+            currentMonth?.label
+            || state.selectedScheduleFile
+            || 'Wybierz miesiąc'
+        ).trim();
+    }
+
+    /**
+     * Renderuje menu wyboru miesięcy grafiku w tym samym stylu co pozostałe dropdowny.
+     */
+    function renderMonthFilterDropdown() {
+        if (!(monthOptionsEl instanceof HTMLElement)) return;
+        monthOptionsEl.replaceChildren();
+
+        if (state.availableMonths.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'schedule-filter-empty';
+            empty.textContent = 'Brak dostępnych grafików.';
+            monthOptionsEl.appendChild(empty);
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'schedule-filter-list';
+        list.setAttribute('role', 'listbox');
+        list.setAttribute('aria-label', 'Dostępne miesiące grafiku');
+
+        for (const item of state.availableMonths) {
+            const key = String(item?.key || '').trim();
+            const labelText = String(item?.label || key).trim() || key;
+            if (!key) continue;
+
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'schedule-filter-option schedule-filter-option--month';
+            option.dataset.filterType = 'month';
+            option.dataset.value = key;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', String(key === state.current.key));
+
+            const label = document.createElement('span');
+            label.className = 'schedule-filter-option-text';
+            label.textContent = labelText;
+            option.appendChild(label);
+
+            const meta = document.createElement('span');
+            meta.className = 'schedule-filter-option-meta';
+            meta.textContent = key;
+            option.appendChild(meta);
+
+            list.appendChild(option);
+        }
+
+        monthOptionsEl.appendChild(list);
+    }
+
+    /**
+     * Renderuje menu wyboru kierowców pod polem filtra.
+     */
+    function renderDriverFilterDropdown() {
+        if (!(driverFilterOptionsEl instanceof HTMLElement)) return;
+        driverFilterOptionsEl.replaceChildren();
+
+        const items = buildDriverDropdownItems();
+        if (items.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'schedule-filter-empty';
+            empty.textContent = 'Brak kierowców do wyświetlenia.';
+            driverFilterOptionsEl.appendChild(empty);
+            return;
+        }
+
+        const list = document.createElement('div');
+        list.className = 'schedule-filter-list';
+        list.setAttribute('role', 'listbox');
+        list.setAttribute('aria-label', 'Dostępni kierowcy');
+
+        for (const item of items) {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'schedule-filter-option schedule-filter-option--driver';
+            option.dataset.filterType = 'driver';
+            option.dataset.value = item.driverName;
+            option.dataset.driverId = item.driverId;
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', String(normalizeFilterValue(state.driverFilter) === normalizeFilterValue(item.driverName)));
+
+            const label = document.createElement('span');
+            label.className = 'schedule-filter-option-text';
+            label.textContent = item.driverName;
+            option.appendChild(label);
+            list.appendChild(option);
+        }
+
+        driverFilterOptionsEl.appendChild(list);
+    }
+
+    /**
+     * Renderuje menu wyboru tras i kodów specjalnych.
+     */
+    function renderRouteFilterDropdown() {
+        if (!(routeFilterOptionsEl instanceof HTMLElement)) return;
+        routeFilterOptionsEl.replaceChildren();
+
+        const sections = buildRouteDropdownSections();
+        if (sections.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'schedule-filter-empty';
+            empty.textContent = 'Brak tras lub kodów dla bieżącego widoku.';
+            routeFilterOptionsEl.appendChild(empty);
+            return;
+        }
+
+        const menu = document.createElement('div');
+        menu.className = 'schedule-filter-list schedule-filter-list--sections';
+        menu.setAttribute('role', 'listbox');
+        menu.setAttribute('aria-label', 'Trasy i kody specjalne');
+
+        for (const section of sections) {
+            const sectionEl = document.createElement('section');
+            sectionEl.className = 'schedule-filter-section';
+
+            const title = document.createElement('div');
+            title.className = 'schedule-filter-section-title';
+            title.textContent = section.label;
+            sectionEl.appendChild(title);
+
+            const itemsWrap = document.createElement('div');
+            itemsWrap.className = 'schedule-filter-badges';
+
+            for (const item of section.items) {
+                const option = document.createElement('button');
+                option.type = 'button';
+                option.className = 'schedule-filter-option schedule-filter-option--route';
+                option.dataset.filterType = 'route';
+                option.dataset.value = item.code;
+                option.setAttribute('role', 'option');
+                option.setAttribute('aria-selected', String(normalizeFilterValue(state.routeFilter) === normalizeFilterValue(item.code)));
+
+                const badge = document.createElement('span');
+                badge.className = item.kind === 'marker'
+                    ? 'route-badge route-badge--marker'
+                    : ['route-badge', item.category ? `route-badge--${item.category}` : ''].filter(Boolean).join(' ');
+                badge.textContent = item.code;
+                option.title = item.kind === 'marker' && item.meaning ? `${item.code}: ${item.meaning}` : item.code;
+                option.appendChild(badge);
+
+                if (item.kind === 'marker' && item.meaning) {
+                    const meta = document.createElement('span');
+                    meta.className = 'schedule-filter-option-meta';
+                    meta.textContent = item.meaning;
+                    option.appendChild(meta);
+                }
+
+                itemsWrap.appendChild(option);
+            }
+
+            sectionEl.appendChild(itemsWrap);
+            menu.appendChild(sectionEl);
+        }
+
+        routeFilterOptionsEl.appendChild(menu);
+    }
+
+    /**
+     * Synchronizuje zawartość i stan obu custom dropdownów.
+     */
+    function renderFilterDropdowns() {
+        syncMonthTriggerLabel();
+        renderMonthFilterDropdown();
+        renderDriverFilterDropdown();
+        renderRouteFilterDropdown();
+        setFilterDropdownExpandedState('month', state.openDropdown === 'month');
+        setFilterDropdownExpandedState('driver', state.openDropdown === 'driver');
+        setFilterDropdownExpandedState('route', state.openDropdown === 'route');
     }
 
     /**
@@ -281,36 +730,8 @@ function createScheduleGrid(cfg = {}) {
             opt.selected = meta.key === state.current.key;
             monthSelect.appendChild(opt);
         }
-    }
 
-    /**
-     * Aktualizuje listę podpowiedzi dla filtra trasy/symbolu.
-     */
-    function updateRouteFilterOptions() {
-        if (!routeFilterOptionsEl) return;
-        routeFilterOptionsEl.replaceChildren();
-
-        const uniqueCodes = new Set();
-        const rows = Array.isArray(state?.monthTable?.rows) ? state.monthTable.rows : [];
-        for (const row of rows) {
-            const cells = Array.isArray(row?.cells) ? row.cells : [];
-            for (const cell of cells) {
-                const tokens = Array.isArray(cell?.tokens) ? cell.tokens : [];
-                for (const token of tokens) {
-                    const code = String(token?.code ?? '').trim();
-                    if (code) uniqueCodes.add(code);
-                }
-            }
-        }
-
-        const sortedCodes = Array.from(uniqueCodes);
-        sortedCodes.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-
-        for (const code of sortedCodes) {
-            const opt = document.createElement('option');
-            opt.value = code;
-            routeFilterOptionsEl.appendChild(opt);
-        }
+        syncMonthTriggerLabel();
     }
 
     /**
@@ -370,7 +791,7 @@ function createScheduleGrid(cfg = {}) {
                 const isoDate = String(cell?.isoDate || days[index]?.isoDate || '');
                 const tokens = Array.isArray(cell?.tokens) ? cell.tokens.filter(Boolean) : [];
                 const tokenCodes = tokens.map(token => String(token?.code ?? '').trim()).filter(Boolean);
-                const routeMatch = !routeNeedle || tokenCodes.some(code => normalizeFilterValue(code).includes(routeNeedle));
+                const routeMatch = !routeNeedle || tokenCodes.some(code => matchesRouteFilter(code, routeNeedle));
                 const title = tokenCodes.join(' / ');
                 const isSelectedDay = state.selectedIsoDate === isoDate;
                 const isSelectedDriver = state.selectedDriverId && state.selectedDriverId === driverId;
@@ -434,6 +855,7 @@ function createScheduleGrid(cfg = {}) {
      */
     function renderScheduleToolbar() {
         syncFilterInputs();
+        renderFilterDropdowns();
         updateDayNavButtons();
 
         const parts = formatDayHeaderParts(dtfWeekday, state.selectedIsoDate || '');
@@ -755,6 +1177,8 @@ function createScheduleGrid(cfg = {}) {
     function clearScheduleFilters() {
         state.driverFilter = '';
         state.routeFilter = '';
+        state.routeFilterMode = 'contains';
+        closeFilterDropdowns();
         refreshView({ scrollToDay: false });
     }
 
@@ -768,6 +1192,8 @@ function createScheduleGrid(cfg = {}) {
         state.selectedDriverName = '';
         state.driverFilter = '';
         state.routeFilter = '';
+        state.routeFilterMode = 'contains';
+        closeFilterDropdowns();
         syncFilterInputs();
         if (tableContainer instanceof HTMLElement) {
             tableContainer.scrollLeft = 0;
@@ -785,6 +1211,7 @@ function createScheduleGrid(cfg = {}) {
      *   selectedDriverName: string,
      *   driverFilter: string,
      *   routeFilter: string,
+     *   routeFilterMode: 'contains'|'exact',
      *   scrollLeft: number,
      *   scrollTop: number
      * }}
@@ -797,6 +1224,7 @@ function createScheduleGrid(cfg = {}) {
             selectedDriverName: String(state.selectedDriverName || ''),
             driverFilter: String(state.driverFilter || ''),
             routeFilter: String(state.routeFilter || ''),
+            routeFilterMode: state.routeFilterMode === 'exact' ? 'exact' : 'contains',
             scrollLeft: tableContainer instanceof HTMLElement ? Math.max(0, Number(tableContainer.scrollLeft) || 0) : 0,
             scrollTop: tableContainer instanceof HTMLElement ? Math.max(0, Number(tableContainer.scrollTop) || 0) : 0
         });
@@ -818,8 +1246,10 @@ function createScheduleGrid(cfg = {}) {
 
         state.driverFilter = String(safeSnapshot?.driverFilter || '').trim();
         state.routeFilter = String(safeSnapshot?.routeFilter || '').trim();
+        state.routeFilterMode = safeSnapshot?.routeFilterMode === 'exact' ? 'exact' : 'contains';
         state.selectedDriverId = String(safeSnapshot?.selectedDriverId || '').trim();
         state.selectedDriverName = String(safeSnapshot?.selectedDriverName || '').trim();
+        closeFilterDropdowns();
         syncFilterInputs();
 
         if (targetMonthKey) {
@@ -871,8 +1301,6 @@ function createScheduleGrid(cfg = {}) {
         state.monthTable = getMonthScheduleTable(meta.year, meta.month);
         state.selectedScheduleFile = String(state?.monthTable?.fileName || meta.key);
         buildMonthSelectOptions();
-        updateRouteFilterOptions();
-
         if (!state.monthTable) {
             state.selectedIsoDate = null;
             state.selectedDayIndex = -1;
@@ -1009,6 +1437,86 @@ function createScheduleGrid(cfg = {}) {
     }
 
     /**
+     * Obsługuje wybór opcji z custom dropdownów filtrów.
+     *
+     * @param {MouseEvent} event
+     */
+    function handleFilterOptionClick(event) {
+        const target = event?.target;
+        if (!(target instanceof Element)) return;
+        const option = target.closest('.schedule-filter-option');
+        if (!(option instanceof HTMLButtonElement)) return;
+
+        const filterType = String(option.dataset.filterType || '').trim();
+        const value = String(option.dataset.value || '').trim();
+        if (!value) return;
+
+        event.preventDefault();
+        closeFilterDropdowns();
+
+        if (filterType === 'driver') {
+            state.driverFilter = value;
+            refreshView({ scrollToDay: false });
+            return;
+        }
+
+        if (filterType === 'month') {
+            setMonthByKey(value);
+            return;
+        }
+
+        if (filterType === 'route') {
+            state.routeFilter = value;
+            state.routeFilterMode = 'exact';
+            refreshView({ scrollToDay: false });
+        }
+    }
+
+    /**
+     * Otwiera dropdown filtra po wejściu w pole lub po kliknięciu toggle.
+     *
+     * @param {'month'|'driver'|'route'} type
+     */
+    function openFilterDropdown(type) {
+        toggleFilterDropdown(type, true);
+    }
+
+    /**
+     * Obsługuje klawiaturę dla pól filtrów z custom dropdownami.
+     *
+     * @param {'driver'|'route'} type
+     * @param {KeyboardEvent} event
+     */
+    function handleFilterInputKeydown(type, event) {
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            openFilterDropdown(type);
+            return;
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeFilterDropdowns();
+        }
+    }
+
+    /**
+     * Obsługuje klawiaturę dla niestandardowego dropdownu miesiąca.
+     *
+     * @param {KeyboardEvent} event
+     */
+    function handleMonthTriggerKeydown(event) {
+        if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openFilterDropdown('month');
+            return;
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            closeFilterDropdowns();
+        }
+    }
+
+    /**
      * Podpina wszystkie handlery UI.
      */
     function attach() {
@@ -1018,7 +1526,30 @@ function createScheduleGrid(cfg = {}) {
 
         monthSelect?.addEventListener?.('change', () => {
             const key = String(monthSelect.value || '').trim();
-            if (key) setMonthByKey(key);
+            if (key) {
+                closeFilterDropdowns();
+                setMonthByKey(key);
+            }
+        });
+
+        monthTriggerBtn?.addEventListener?.('click', () => {
+            const shouldOpen = state.openDropdown !== 'month';
+            toggleFilterDropdown('month');
+            if (shouldOpen) monthTriggerBtn.focus();
+        });
+
+        monthTriggerBtn?.addEventListener?.('keydown', (event) => {
+            handleMonthTriggerKeydown(event);
+        });
+
+        monthToggleBtn?.addEventListener?.('click', () => {
+            const shouldOpen = state.openDropdown !== 'month';
+            toggleFilterDropdown('month');
+            if (shouldOpen) monthTriggerBtn?.focus();
+        });
+
+        monthToggleBtn?.addEventListener?.('keydown', (event) => {
+            handleMonthTriggerKeydown(event);
         });
 
         prevDayBtn?.addEventListener?.('click', () => {
@@ -1037,16 +1568,69 @@ function createScheduleGrid(cfg = {}) {
 
         driverFilterInput?.addEventListener?.('input', () => {
             state.driverFilter = String(driverFilterInput.value || '').trim();
+            openFilterDropdown('driver');
             refreshView({ scrollToDay: false });
+        });
+
+        driverFilterInput?.addEventListener?.('focus', () => {
+            openFilterDropdown('driver');
+        });
+
+        driverFilterInput?.addEventListener?.('click', () => {
+            openFilterDropdown('driver');
+        });
+
+        driverFilterInput?.addEventListener?.('keydown', (event) => {
+            handleFilterInputKeydown('driver', event);
+        });
+
+        driverFilterToggleBtn?.addEventListener?.('click', () => {
+            const shouldOpen = state.openDropdown !== 'driver';
+            toggleFilterDropdown('driver');
+            if (shouldOpen) driverFilterInput?.focus();
         });
 
         routeFilterInput?.addEventListener?.('input', () => {
             state.routeFilter = String(routeFilterInput.value || '').trim();
+            state.routeFilterMode = 'contains';
+            openFilterDropdown('route');
             refreshView({ scrollToDay: false });
         });
 
+        routeFilterInput?.addEventListener?.('focus', () => {
+            openFilterDropdown('route');
+        });
+
+        routeFilterInput?.addEventListener?.('click', () => {
+            openFilterDropdown('route');
+        });
+
+        routeFilterInput?.addEventListener?.('keydown', (event) => {
+            handleFilterInputKeydown('route', event);
+        });
+
+        routeFilterToggleBtn?.addEventListener?.('click', () => {
+            const shouldOpen = state.openDropdown !== 'route';
+            toggleFilterDropdown('route');
+            if (shouldOpen) routeFilterInput?.focus();
+        });
+
+        monthOptionsEl?.addEventListener?.('click', handleFilterOptionClick);
+        driverFilterOptionsEl?.addEventListener?.('click', handleFilterOptionClick);
+        routeFilterOptionsEl?.addEventListener?.('click', handleFilterOptionClick);
+
         clearFiltersBtn?.addEventListener?.('click', () => {
             clearScheduleFilters();
+        });
+
+        document.addEventListener('pointerdown', (event) => {
+            const target = event?.target;
+            if (!(target instanceof Element)) return;
+            const insideMonth = target.closest('#schedule-month-dropdown');
+            const insideDriver = target.closest('#schedule-driver-filter-dropdown');
+            const insideRoute = target.closest('#schedule-route-filter-dropdown');
+            if (insideMonth || insideDriver || insideRoute) return;
+            closeFilterDropdowns();
         });
     }
 

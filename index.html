@@ -169,7 +169,34 @@
                         <button id="back-to-search-from-schedule" class="btn-secondary schedule-back-btn" type="button">← Powrót</button>
                         <div class="schedule-toolbar-group" role="group" aria-label="Wybór miesiąca i dnia">
                             <div class="schedule-toolbar-select-row">
-                                <select id="schedule-month-select" class="schedule-month-select" aria-label="Wybierz plik grafiku"></select>
+                                <div class="schedule-filter-dropdown schedule-filter-dropdown--month" id="schedule-month-dropdown">
+                                    <div class="schedule-filter-control schedule-filter-control--select">
+                                        <button
+                                            id="schedule-month-trigger"
+                                            class="schedule-filter-select-trigger"
+                                            type="button"
+                                            aria-label="Wybierz plik grafiku"
+                                            aria-haspopup="listbox"
+                                            aria-expanded="false"
+                                            aria-controls="schedule-month-options"
+                                        >
+                                            <span id="schedule-month-trigger-label" class="schedule-filter-select-trigger-label">Wybierz miesiąc</span>
+                                        </button>
+                                        <button
+                                            id="schedule-month-toggle"
+                                            class="schedule-filter-toggle"
+                                            type="button"
+                                            aria-label="Pokaż listę miesięcy grafiku"
+                                            aria-haspopup="listbox"
+                                            aria-expanded="false"
+                                            aria-controls="schedule-month-options"
+                                        >
+                                            <span class="schedule-filter-toggle-icon" aria-hidden="true"></span>
+                                        </button>
+                                    </div>
+                                    <div id="schedule-month-options" class="schedule-filter-menu" hidden></div>
+                                    <select id="schedule-month-select" class="schedule-month-select schedule-month-select--native" aria-label="Wybierz plik grafiku"></select>
+                                </div>
                             </div>
                             <div class="schedule-toolbar-nav-row">
                                 <button id="schedule-prev-month" class="schedule-nav-btn" type="button" aria-label="Poprzedni dzień">←</button>
@@ -186,29 +213,65 @@
                     <div class="schedule-toolbar-section schedule-toolbar-section--filters">
                         <label class="schedule-filter-field" for="schedule-driver-filter">
                             <span class="schedule-filter-label">Kierowca</span>
-                            <input
-                                id="schedule-driver-filter"
-                                class="schedule-filter-input"
-                                type="search"
-                                inputmode="search"
-                                autocomplete="off"
-                                placeholder="Szukaj kierowcy"
-                                aria-label="Filtruj po kierowcy"
-                            />
+                            <div class="schedule-filter-dropdown" id="schedule-driver-filter-dropdown">
+                                <div class="schedule-filter-control">
+                                    <input
+                                        id="schedule-driver-filter"
+                                        class="schedule-filter-input"
+                                        type="search"
+                                        inputmode="search"
+                                        autocomplete="off"
+                                        placeholder="Szukaj kierowcy"
+                                        aria-label="Filtruj po kierowcy"
+                                        aria-haspopup="listbox"
+                                        aria-expanded="false"
+                                        aria-controls="schedule-driver-filter-options"
+                                    />
+                                    <button
+                                        id="schedule-driver-filter-toggle"
+                                        class="schedule-filter-toggle"
+                                        type="button"
+                                        aria-label="Pokaż listę kierowców"
+                                        aria-haspopup="listbox"
+                                        aria-expanded="false"
+                                        aria-controls="schedule-driver-filter-options"
+                                    >
+                                        <span class="schedule-filter-toggle-icon" aria-hidden="true"></span>
+                                    </button>
+                                </div>
+                                <div id="schedule-driver-filter-options" class="schedule-filter-menu" hidden></div>
+                            </div>
                         </label>
                         <label class="schedule-filter-field" for="schedule-route-filter">
                             <span class="schedule-filter-label">Trasa / symbol</span>
-                            <input
-                                id="schedule-route-filter"
-                                class="schedule-filter-input"
-                                type="search"
-                                inputmode="search"
-                                autocomplete="off"
-                                list="schedule-route-filter-options"
-                                placeholder="Szukaj trasy lub symbolu"
-                                aria-label="Filtruj po trasie lub symbolu"
-                            />
-                            <datalist id="schedule-route-filter-options"></datalist>
+                            <div class="schedule-filter-dropdown" id="schedule-route-filter-dropdown">
+                                <div class="schedule-filter-control">
+                                    <input
+                                        id="schedule-route-filter"
+                                        class="schedule-filter-input"
+                                        type="search"
+                                        inputmode="search"
+                                        autocomplete="off"
+                                        placeholder="Szukaj trasy lub symbolu"
+                                        aria-label="Filtruj po trasie lub symbolu"
+                                        aria-haspopup="listbox"
+                                        aria-expanded="false"
+                                        aria-controls="schedule-route-filter-options"
+                                    />
+                                    <button
+                                        id="schedule-route-filter-toggle"
+                                        class="schedule-filter-toggle"
+                                        type="button"
+                                        aria-label="Pokaż listę tras i kodów"
+                                        aria-haspopup="listbox"
+                                        aria-expanded="false"
+                                        aria-controls="schedule-route-filter-options"
+                                    >
+                                        <span class="schedule-filter-toggle-icon" aria-hidden="true"></span>
+                                    </button>
+                                </div>
+                                <div id="schedule-route-filter-options" class="schedule-filter-menu" hidden></div>
+                            </div>
                         </label>
                         <button id="schedule-clear-filters" class="schedule-nav-btn schedule-nav-btn--ghost" type="button" aria-label="Wyczyść filtry grafiku">
                             Wyczyść filtry

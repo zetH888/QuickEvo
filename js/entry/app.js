@@ -221,13 +221,20 @@ const {
     scheduleTableHeader,
     scheduleTableBody,
     scheduleMonthSelect,
+    scheduleMonthTrigger,
+    scheduleMonthTriggerLabel,
+    scheduleMonthToggle,
+    scheduleMonthOptions,
     schedulePrevMonthBtn,
     scheduleNextMonthBtn,
     scheduleTodayBtn,
     scheduleSelectedDay,
     scheduleSubtitle,
     scheduleDriverFilter,
+    scheduleDriverFilterToggle,
+    scheduleDriverFilterOptions,
     scheduleRouteFilter,
+    scheduleRouteFilterToggle,
     scheduleRouteFilterOptions,
     scheduleClearFiltersBtn,
     previewMeta,
@@ -2334,13 +2341,20 @@ function ensureScheduleController() {
         tableHeaderRow: scheduleTableHeader,
         tableBody: scheduleTableBody,
         monthSelect: scheduleMonthSelect,
+        monthTriggerBtn: scheduleMonthTrigger,
+        monthTriggerLabelEl: scheduleMonthTriggerLabel,
+        monthToggleBtn: scheduleMonthToggle,
+        monthOptionsEl: scheduleMonthOptions,
         selectedDayEl: scheduleSelectedDay,
         subtitleEl: scheduleSubtitle,
         prevMonthBtn: schedulePrevMonthBtn,
         nextMonthBtn: scheduleNextMonthBtn,
         todayBtn: scheduleTodayBtn,
         driverFilterInput: scheduleDriverFilter,
+        driverFilterToggleBtn: scheduleDriverFilterToggle,
+        driverFilterOptionsEl: scheduleDriverFilterOptions,
         routeFilterInput: scheduleRouteFilter,
+        routeFilterToggleBtn: scheduleRouteFilterToggle,
         routeFilterOptionsEl: scheduleRouteFilterOptions,
         clearFiltersBtn: scheduleClearFiltersBtn,
         getMonthScheduleTable: (year, month) => ensureScheduleService().getMonthScheduleTable(year, month),
@@ -2701,7 +2715,7 @@ function renderTileGrid(containerEl, items, { emptyText = 'Brak danych.', passiv
     if (!containerEl) return;
     clearElement(containerEl);
 
-    const list = dedupeDriverTileModels(items);
+    const list = Array.isArray(items) ? items : [];
     if (list.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'status status--hint';
