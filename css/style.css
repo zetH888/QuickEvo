@@ -2055,9 +2055,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 #schedule-view .schedule-toolbar {
-    position: sticky;
-    top: 12px;
-    z-index: 40;
+    position: relative;
     display: grid;
     grid-template-columns: minmax(0, 1.15fr) minmax(220px, 0.85fr) minmax(280px, 1fr);
     gap: 14px;
@@ -2122,18 +2120,23 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 #schedule-view .schedule-selected-day {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     justify-content: center;
     min-height: 34px;
     padding: 0 12px;
     width: 100%;
+    max-width: 100%;
     border-radius: 999px;
     border: 1px solid color-mix(in srgb, var(--schedule-accent) 35%, var(--schedule-border));
     background: color-mix(in srgb, var(--schedule-accent) 12%, transparent);
     color: var(--schedule-text);
     font-size: 0.88rem;
     font-weight: 800;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
 #schedule-view .schedule-subtitle {
@@ -2361,11 +2364,14 @@ tbody tr:nth-child(even) td:nth-child(even) {
 
 #schedule-view .schedule-day-header {
     text-align: center;
+    padding-left: 0;
+    padding-right: 0;
 }
 
 #schedule-view .schedule-day-header-btn {
     appearance: none;
     width: 100%;
+    min-height: 100%;
     position: relative;
     display: inline-flex;
     flex-direction: column;
@@ -2417,33 +2423,50 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 #schedule-view .schedule-cell.is-selected-day {
-    background: rgba(45, 145, 255, 0.055);
+    background: rgba(45, 145, 255, 0.06);
     box-shadow:
         inset 1px 0 0 rgba(45, 145, 255, 0.55),
         inset -1px 0 0 rgba(45, 145, 255, 0.55);
 }
 
+#schedule-view .schedule-row:nth-child(even) .schedule-cell.is-selected-day,
+#schedule-view .schedule-row:nth-child(odd) .schedule-cell.is-selected-day {
+    background: rgba(45, 145, 255, 0.06);
+}
+
 #schedule-view .schedule-day-header.is-selected-day {
-    background: rgba(45, 145, 255, 0.16);
-    outline: 1px solid rgba(45, 145, 255, 0.65);
-    outline-offset: -1px;
+    background: rgba(45, 145, 255, 0.12);
+    box-shadow:
+        inset 1px 0 0 rgba(45, 145, 255, 0.55),
+        inset -1px 0 0 rgba(45, 145, 255, 0.55);
 }
 
 #schedule-view .schedule-row.is-selected-driver .schedule-cell,
 #schedule-view .schedule-row.is-selected-driver .driver-cell {
-    background: color-mix(in srgb, var(--schedule-accent) 7%, var(--schedule-bg));
-}
-
-#schedule-view .schedule-row.is-selected-driver .driver-cell {
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--schedule-accent) 35%, transparent);
-}
-
-#schedule-view .schedule-cell.is-selection-intersection {
-    background: rgba(45, 145, 255, 0.095);
+    background: rgba(45, 145, 255, 0.06);
     box-shadow:
-        inset 1px 0 0 rgba(45, 145, 255, 0.6),
-        inset -1px 0 0 rgba(45, 145, 255, 0.6),
-        inset 0 0 0 1px rgba(45, 145, 255, 0.22);
+        inset 0 1px 0 rgba(45, 145, 255, 0.55),
+        inset 0 -1px 0 rgba(45, 145, 255, 0.55);
+}
+
+#schedule-view .schedule-row:nth-child(even).is-selected-driver .schedule-cell,
+#schedule-view .schedule-row:nth-child(odd).is-selected-driver .schedule-cell,
+#schedule-view .schedule-row:nth-child(even).is-selected-driver .driver-cell,
+#schedule-view .schedule-row:nth-child(odd).is-selected-driver .driver-cell {
+    background: rgba(45, 145, 255, 0.06);
+}
+
+#schedule-view .schedule-cell.is-selection-intersection,
+#schedule-view .schedule-row.is-selected-driver .schedule-cell.is-selected-day,
+#schedule-view .schedule-row.is-selected-driver .schedule-cell.is-selection-intersection {
+    background:
+        radial-gradient(
+            circle at center,
+            rgba(45, 145, 255, 0.16) 0%,
+            rgba(45, 145, 255, 0.125) 52%,
+            rgba(45, 145, 255, 0.1) 100%
+        );
+    box-shadow: none;
 }
 
 #schedule-view .schedule-day-header.is-today:not(.is-selected-day) {
@@ -2474,7 +2497,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
     pointer-events: none;
 }
 
-#schedule-view .schedule-cell.is-today:not(.is-selected-day) {
+#schedule-view .schedule-cell.is-today:not(.is-selected-day):not(.is-selected-driver) {
     box-shadow: none;
 }
 
@@ -2485,16 +2508,17 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 #schedule-view .schedule-cell-inner {
-    display: inline-flex;
+    display: flex;
     align-items: center;
-    gap: 6px;
+    justify-content: center;
+    gap: 5px;
     flex-wrap: wrap;
+    width: 100%;
+    min-height: 30px;
 }
 
 #schedule-view .schedule-token-separator {
-    color: var(--schedule-muted);
-    font-weight: 900;
-    opacity: 0.82;
+    display: none;
 }
 
 #schedule-view .route-badge {
@@ -2502,9 +2526,11 @@ tbody tr:nth-child(even) td:nth-child(even) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 32px;
-    height: 24px;
-    padding: 0 9px;
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    height: 28px;
+    padding: 0 8px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.18);
     background: rgba(255, 255, 255, 0.09);
@@ -2514,10 +2540,15 @@ tbody tr:nth-child(even) td:nth-child(even) {
     font-weight: 700;
     line-height: 1;
     cursor: pointer;
+    box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    text-align: center;
+    flex: 0 0 42px;
 }
 
-#schedule-view .route-badge:disabled {
-    opacity: 0.58;
+#schedule-view .route-badge.is-unavailable {
     cursor: default;
 }
 
@@ -2543,13 +2574,22 @@ tbody tr:nth-child(even) td:nth-child(even) {
 
 #schedule-view .route-badge--marker {
     cursor: default;
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(121, 72, 191, 0.24);
+    border-color: rgba(160, 112, 235, 0.34);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 0 1px rgba(103, 63, 168, 0.12);
 }
 
 #schedule-view .schedule-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 30px;
     color: var(--schedule-muted);
     font-weight: 700;
+    text-align: center;
 }
 
 #schedule-view .schedule-empty-state {
@@ -2599,10 +2639,13 @@ tbody tr:nth-child(even) td:nth-child(even) {
     }
 
     #schedule-view .route-badge {
-        min-width: 28px;
-        height: 22px;
+        width: 38px;
+        min-width: 38px;
+        max-width: 38px;
+        flex-basis: 38px;
+        height: 26px;
         font-size: 11px;
-        padding: 0 7px;
+        padding: 0 6px;
     }
 }
 

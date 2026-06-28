@@ -1,4 +1,4 @@
-import { fuzzyNormalizeText } from '../core/utils.js';
+import { buildNormalizedDriverLookupKey, fuzzyNormalizeText, normalizeDriverDisplayName } from '../core/utils.js';
 
 /**
  * @module driver-contacts-service
@@ -52,16 +52,6 @@ export function createDriverContactsService(cfg = {}) {
     let loadedDriverContactFiles = new Set();
 
     /**
-     * Normalizuje widoczną nazwę kierowcy do bezpiecznej postaci prezentacyjnej.
-     *
-     * @param {unknown} value
-     * @returns {string}
-     */
-    function normalizeDriverDisplayName(value) {
-        return String(value ?? '').replace(/\s+/g, ' ').trim();
-    }
-
-    /**
      * Buduje klucz porównawczy kierowcy odporny na diakrytyki, wielkość liter
      * oraz niestandardowe separatory.
      *
@@ -69,10 +59,7 @@ export function createDriverContactsService(cfg = {}) {
      * @returns {string}
      */
     function buildDriverLookupKey(value) {
-        return fuzzyNormalizeText(value)
-            .replace(/[^a-z0-9]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
+        return buildNormalizedDriverLookupKey(value);
     }
 
     /**

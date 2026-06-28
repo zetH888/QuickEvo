@@ -64,7 +64,7 @@
     ]);
 
     const QE_DAY_MARKERS = Object.freeze([
-        'Z', 'UŻ', 'UZ', 'U', 'DK', '*D', '*P'
+        'Z', 'UŻ', 'Dk', '*D', '*P'
     ]);
 
     window.QE_RouteScheduleConfig = Object.freeze({
@@ -77,4 +77,3 @@
         normalizeScheduleToken: qeNormalizeScheduleToken
     });
 })();
-

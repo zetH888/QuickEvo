@@ -193,23 +193,28 @@ const QuickEvoTests = {
             if (typeof createScheduleService !== 'function') return;
 
             const matrix = [
-                ['IMIE I NAZWISKO', 1, 2, 3],
-                ['Jan Kowalski', '12/H', 'Z', 'S - 5'],
-                ['Anna Nowak', '12', '', '']
+                ['IMIE I NAZWISKO', 1, 2, 3, 4],
+                [' jan---kowalski (-2) ', '12/H', 'Z', 'S - 5', 'H Z'],
+                ['Anna Nowak', '12 / *P', 'REN', 'Dk', '']
             ];
 
             const service = createScheduleService({
                 fuzzyNormalizeText: (t) => String(t ?? '').toLowerCase(),
                 getRouteScheduleConfig: () => ({
                     monthsPl: { MAJ: 5 },
-                    dayMarkers: ['D'],
+                    standard: ['12', 'REN'],
+                    wieczorek: ['H'],
+                    sobota: ['S-5'],
+                    niedziela: ['N-2'],
+                    dayMarkers: ['Z', 'UŻ', 'Dk', '*D', '*P'],
                     normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
                 }),
                 getRouteCatalog: async () => new Map([
                     ['12', { code: '12', category: 'STANDARD' }],
                     ['H', { code: 'H', category: 'WIECZOREK' }],
-                    ['S-5', { code: 'S-5', category: 'SOBOTA' }],
-                    ['N-2', { code: 'N-2', category: 'NIEDZIELA' }]
+                    ['S-5', { code: 'S-5', category: 'SOBOTA' }]
+                    // `REN` celowo nie ma pliku w katalogu tras.
+                    // Nadal powinien być widoczny i brać udział w przypisaniach.
                 ]),
                 readWorkbook: async () => ({ SheetNames: ['S1'], Sheets: { S1: { __matrix: matrix } } }),
                 sheetToMatrix: (ws) => ws.__matrix,
@@ -244,15 +249,23 @@ const QuickEvoTests = {
             const s5 = service.getDriverNamesForRouteOnDate('S-5', new Date(2026, 4, 3));
             this.assert(Array.isArray(s5) && s5.length === 1 && s5[0] === 'Jan Kowalski', "Obsługuje sobotę S-5 (3 maja)");
 
+            const ren = service.getDriverNamesForRouteOnIsoDate('REN', '2026-05-02');
+            this.assert(Array.isArray(ren) && ren.length === 1 && ren[0] === 'Anna Nowak', 'Trasa bez pliku na dysku nadal bierze udział w przypisaniu kierowcy');
+
+            const zOnly = service.getDriverNamesForRouteOnIsoDate('Z', '2026-05-02');
+            this.assert(zOnly === null, 'Kod informacyjny Z nie tworzy przypisania trasy');
+
             // API przeglądania grafiku miesiąca (bez zależności od Date/stref czasowych)
             const monthRoutes = service.listMonthRoutes(2026, 5);
-            this.assert(Array.isArray(monthRoutes) && monthRoutes.join(',') === '12,H,S-5', "listMonthRoutes zwraca posortowaną listę tras dla miesiąca");
+            this.assert(Array.isArray(monthRoutes) && monthRoutes.join(',') === '12,H,REN,S-5', "listMonthRoutes zwraca posortowaną listę tras dla miesiąca, także bez pliku na dysku");
 
             const daysNonEmpty = service.listMonthDays(2026, 5, { includeEmptyDays: false });
-            this.assert(Array.isArray(daysNonEmpty) && daysNonEmpty.length === 2, "listMonthDays (bez pustych) zwraca tylko dni z przypisaniami");
-            if (Array.isArray(daysNonEmpty) && daysNonEmpty.length === 2) {
+            this.assert(Array.isArray(daysNonEmpty) && daysNonEmpty.length === 4, "listMonthDays (bez pustych) zwraca tylko dni z przypisaniami tras");
+            if (Array.isArray(daysNonEmpty) && daysNonEmpty.length === 4) {
                 this.assert(daysNonEmpty[0].isoDate === '2026-05-01' && daysNonEmpty[0].routes.join(',') === '12,H', "listMonthDays zwraca trasy dla 2026-05-01");
-                this.assert(daysNonEmpty[1].isoDate === '2026-05-03' && daysNonEmpty[1].routes.join(',') === 'S-5', "listMonthDays zwraca trasy dla 2026-05-03");
+                this.assert(daysNonEmpty[1].isoDate === '2026-05-02' && daysNonEmpty[1].routes.join(',') === 'REN', "listMonthDays zwraca trasę bez pliku dla 2026-05-02");
+                this.assert(daysNonEmpty[2].isoDate === '2026-05-03' && daysNonEmpty[2].routes.join(',') === 'S-5', "listMonthDays zwraca trasy dla 2026-05-03");
+                this.assert(daysNonEmpty[3].isoDate === '2026-05-04' && daysNonEmpty[3].routes.join(',') === 'H', "listMonthDays ignoruje kod informacyjny w komórce mieszanej i zachowuje trasę");
             }
 
             const day1Routes = service.listDayRoutes('2026-05-01');
@@ -265,6 +278,18 @@ const QuickEvoTests = {
                 this.assert(day1Assignments[1].routeCode === 'H' && day1Assignments[1].driverNames.join(',') === 'Jan Kowalski', "listDayAssignments zwraca kierowców dla trasy H (YYYY-MM-DD)");
             }
 
+            const day2Assignments = service.listDayAssignments('2026-05-02');
+            this.assert(Array.isArray(day2Assignments) && day2Assignments.length === 1, "listDayAssignments pomija komórki z samym kodem informacyjnym");
+            if (Array.isArray(day2Assignments) && day2Assignments.length === 1) {
+                this.assert(day2Assignments[0].routeCode === 'REN' && day2Assignments[0].driverNames.join(',') === 'Anna Nowak', "listDayAssignments zachowuje trasę bez pliku na dysku");
+            }
+
+            const day4Assignments = service.listDayAssignments('2026-05-04');
+            this.assert(Array.isArray(day4Assignments) && day4Assignments.length === 1, "listDayAssignments obsługuje komórkę mieszaną trasa + kod informacyjny");
+            if (Array.isArray(day4Assignments) && day4Assignments.length === 1) {
+                this.assert(day4Assignments[0].routeCode === 'H' && day4Assignments[0].driverNames.join(',') === 'Jan Kowalski', "listDayAssignments w komórce mieszanej liczy wyłącznie prawdziwą trasę");
+            }
+
             const d1Iso = service.getDriverNamesForRouteOnIsoDate('12', '2026-05-01');
             this.assert(Array.isArray(d1Iso) && d1Iso.join(',') === 'Anna Nowak,Jan Kowalski', "getDriverNamesForRouteOnIsoDate zwraca kierowców dla trasy i daty ISO");
 
@@ -275,7 +300,18 @@ const QuickEvoTests = {
                 const cell = monthTable.rows[0]?.cells?.[1];
                 const tokens = Array.isArray(cell?.tokens) ? cell.tokens : [];
                 const markerZ = tokens.find(t => t?.kind === 'marker' && t?.code === 'Z');
-                this.assert(Boolean(markerZ), "getMonthScheduleTable zachowuje markery z grafiku (np. Z) w komórkach");
+                this.assert(Boolean(markerZ), "getMonthScheduleTable zachowuje kody informacyjne z grafiku (np. Z) w komórkach");
+
+                const mixedCell = monthTable.rows[0]?.cells?.[3];
+                const mixedTokens = Array.isArray(mixedCell?.tokens) ? mixedCell.tokens : [];
+                const mixedRoute = mixedTokens.find(t => t?.kind === 'route' && t?.code === 'H');
+                const mixedMarker = mixedTokens.find(t => t?.kind === 'marker' && t?.code === 'Z');
+                this.assert(Boolean(mixedRoute) && Boolean(mixedMarker), "getMonthScheduleTable zachowuje jednocześnie trasę i kod informacyjny w komórce mieszanej");
+
+                const renCell = monthTable.rows[1]?.cells?.[1];
+                const renTokens = Array.isArray(renCell?.tokens) ? renCell.tokens : [];
+                const renToken = renTokens.find(t => t?.kind === 'route' && t?.code === 'REN');
+                this.assert(Boolean(renToken), "getMonthScheduleTable zachowuje trasę bez pliku na dysku");
             }
         } catch (e) {
             this.assert(false, "Nie udało się przetestować schedule-service");
@@ -292,7 +328,7 @@ const QuickEvoTests = {
 
             const matrix = [
                 ['', 'PRACOWNIK', 'NR TELEFONU'],
-                ['', 'Marek Klimczak', '668-166-321', 'kierownik transportu'],
+                ['', ' Marek---Klimczak (-2) ', '668-166-321', 'kierownik transportu'],
                 ['', 'Karolak Cezary', '516-539-711', 'koordynator'],
                 ['', 'Cezary Karolak', '600-111-222', 'koordynator floty'],
                 ['', '  Grzegorz   Robert ', '668-026-300', 'dyspozytor'],
@@ -314,6 +350,9 @@ const QuickEvoTests = {
             const c1 = service.getContactForDriverName('marek klimczak');
             this.assert(Array.isArray(c1?.phones) && String(c1?.phones?.[0]?.phoneDisplay || '') === '668-166-321', 'Dopasowuje kontakt kierowcy po znormalizowanej nazwie');
             this.assert(String(c1?.roleCategory || '') === 'kierownik', 'Rozpoznaje rolę kierownika z trzeciej kolumny');
+
+            const c1b = service.getContactForDriverName('Marek Klimczak (-2)');
+            this.assert(Array.isArray(c1b?.phones) && String(c1b?.phones?.[0]?.phoneDisplay || '') === '668-166-321', 'Ignoruje dopiski w nawiasach podczas dopasowania kontaktu');
 
             const c2 = service.getContactForDriverName('Grzegorz Robert');
             this.assert(Array.isArray(c2?.phones) && String(c2?.phones?.[0]?.phoneDisplay || '') === '668-026-300', 'Ignoruje nadmiarowe spacje podczas dopasowania kontaktu');

@@ -513,13 +513,6 @@ function createScheduleGrid(cfg = {}) {
             const code = String(token?.code ?? '').trim();
             if (!code) continue;
 
-            if (index > 0) {
-                const separator = document.createElement('span');
-                separator.className = 'schedule-token-separator';
-                separator.textContent = '/';
-                wrap.appendChild(separator);
-            }
-
             if (kind === 'marker') {
                 const marker = document.createElement('span');
                 marker.className = 'route-badge route-badge--marker';
@@ -531,7 +524,7 @@ function createScheduleGrid(cfg = {}) {
                     ?? markerMeanings?.[`${String(code || '').slice(0, 1).toUpperCase()}${String(code || '').slice(1).toLowerCase()}`]
                     ?? ''
                 ).trim();
-                marker.title = meaning || code;
+                marker.title = meaning ? `${code}: ${meaning}` : code;
                 marker.setAttribute('aria-label', meaning ? `${code}: ${meaning}` : code);
                 wrap.appendChild(marker);
                 continue;
@@ -541,13 +534,18 @@ function createScheduleGrid(cfg = {}) {
             const badge = document.createElement('button');
             const category = String(token?.category ?? '').trim();
             badge.type = 'button';
-            badge.className = ['route-badge', category ? `route-badge--${category}` : ''].filter(Boolean).join(' ');
+            badge.className = [
+                'route-badge',
+                category ? `route-badge--${category}` : '',
+                !routeAvailable ? 'is-unavailable' : ''
+            ].filter(Boolean).join(' ');
             badge.textContent = code;
-            badge.title = cellTitle || code;
+            badge.title = routeAvailable ? code : `${code} (brak pliku trasy)`;
             badge.dataset.action = 'open-route';
             badge.dataset.isoDate = isoDate;
             badge.dataset.routeCode = code;
-            badge.disabled = !routeAvailable;
+            badge.dataset.routeAvailable = routeAvailable ? 'true' : 'false';
+            badge.setAttribute('aria-disabled', routeAvailable ? 'false' : 'true');
             badge.setAttribute(
                 'aria-label',
                 routeAvailable
@@ -680,15 +678,29 @@ function createScheduleGrid(cfg = {}) {
     /**
      * Renderuje cały widok grafiku na podstawie aktualnego stanu.
      *
-     * @param {{ scrollToDay?: boolean, scrollBehavior?: ScrollBehavior }} [options]
+     * @param {{ scrollToDay?: boolean, scrollBehavior?: ScrollBehavior, preserveScroll?: boolean }} [options]
      */
     function refreshView(options = {}) {
+        const shouldPreserveScroll = Boolean(options.preserveScroll);
+        const preservedScrollLeft = shouldPreserveScroll && tableContainer instanceof HTMLElement
+            ? Math.max(0, Number(tableContainer.scrollLeft) || 0)
+            : 0;
+        const preservedScrollTop = shouldPreserveScroll && tableContainer instanceof HTMLElement
+            ? Math.max(0, Number(tableContainer.scrollTop) || 0)
+            : 0;
         state.viewModel = applyScheduleFilters();
         syncSelectionState();
         state.viewModel = applyScheduleFilters();
         syncSelectionState();
         renderScheduleToolbar();
         renderScheduleGrid();
+
+        if (shouldPreserveScroll && tableContainer instanceof HTMLElement) {
+            window.requestAnimationFrame(() => {
+                tableContainer.scrollLeft = preservedScrollLeft;
+                tableContainer.scrollTop = preservedScrollTop;
+            });
+        }
 
         if (options.scrollToDay) {
             scrollToSelectedDay(options.scrollBehavior || 'smooth');
@@ -721,20 +733,20 @@ function createScheduleGrid(cfg = {}) {
         if (!nextId) {
             state.selectedDriverId = '';
             state.selectedDriverName = '';
-            refreshView({ scrollToDay: false });
+            refreshView({ scrollToDay: false, preserveScroll: true });
             return;
         }
 
         if (state.selectedDriverId === nextId) {
             state.selectedDriverId = '';
             state.selectedDriverName = '';
-            refreshView({ scrollToDay: false });
+            refreshView({ scrollToDay: false, preserveScroll: true });
             return;
         }
 
         state.selectedDriverId = nextId;
         state.selectedDriverName = String(driverName || '').trim();
-        refreshView({ scrollToDay: false });
+        refreshView({ scrollToDay: false, preserveScroll: true });
     }
 
     /**
@@ -950,6 +962,8 @@ function createScheduleGrid(cfg = {}) {
                 event.stopPropagation();
                 const routeCode = String(actionEl.dataset.routeCode || '').trim();
                 const isoDate = String(actionEl.dataset.isoDate || '').trim();
+                const routeAvailable = String(actionEl.dataset.routeAvailable || '').trim() !== 'false';
+                if (!routeAvailable) return;
                 if (!routeCode || !isoDate) return;
                 onOpenRoute({ routeCode, isoDate });
                 return;

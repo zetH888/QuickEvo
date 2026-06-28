@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.34.8-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.34.45-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,6 +47,30 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.34.45
+
+- Badge'e tras bez pliku źródłowego w `GRAFIK` zachowują teraz dokładnie ten sam styling wizualny co zwykłe badge'e tras; pozostają nieaktywne wyłącznie logicznie, bez natywnego efektu wyszarzania przeglądarki.
+- Badge'e kodów specjalnych w grafiku zostały delikatnie wyróżnione śliwkowym tłem i borderem, aby lepiej odróżniać statusy od tras bez zaburzania spójności dark/light theme.
+- Komórka na przecięciu zaznaczonego wiersza i kolumny korzysta teraz z mocniejszego tła bez dodatkowych krawędzi zaznaczenia, dzięki czemu przecięcie nie znosi akcentów i czytelniej odróżnia się od pojedynczego zaznaczenia.
+
+### Zmiany w wersji 2.34.36
+
+- UI widoku `GRAFIK` dostał dopracowanie komórek i badge'y: puste komórki z `—` są wyśrodkowane, wszystkie badge'e mają wspólny footprint, zostały lekko powiększone i nie pokazują już separatora `/` między tokenami.
+- Badge'e grafiku mają teraz stałą szerokość z obcinaniem `...` dla dłuższych kodów oraz pełnym tooltipem, a kody informacyjne korzystają z tego samego rozmiaru co zwykłe trasy.
+- Zaznaczenie wybranego kierowcy zostało wzmocnione do poziomu porównywalnego z zaznaczeniem kolumny dnia, usunięto nierówności wynikające z zebra-stripingu oraz wyrównano obrys zaznaczonego nagłówka dnia do szerokości reszty kolumny.
+- Pasek `Wybrano: ...` w toolbarze grafiku lepiej dopasowuje się do szerokości kontenera i nie powinien już wypychać układu na mobile.
+
+### Zmiany w wersji 2.34.27
+
+- Parser widoku `GRAFIK` rozróżnia teraz jawnie kody informacyjne `Z`, `UŻ`, `Dk`, `*D`, `*P` od prawdziwych tras: kody pozostają widoczne w komórkach jako informacja, ale nie tworzą przypisań trasa→kierowca i nie są klikalne.
+- Komórki mieszane, np. `12 / *P` lub `H Z`, zachowują jednocześnie aktywną trasę i pasywny kod informacyjny, dzięki czemu przypisania liczą tylko realne trasy, a kod specjalny nadal jest widoczny w grafiku.
+- Wpisy tras nieistniejących jeszcze jako plik na dysku, np. `REN`, są nadal pokazywane i biorą udział w przypisaniach kierowców w grafiku, ale pozostają nieklikalne do czasu pojawienia się odpowiadającego pliku źródłowego.
+
+### Zmiany w wersji 2.34.17
+
+- Widok `KIEROWCY` normalizuje teraz nazwy osób przed budową listy i kafelków, dzięki czemu warianty tego samego wpisu z różnych grafików, takie jak `Adam`, `adam`, `Adam (-2)` czy `Adam---`, są traktowane jako jedna osoba i renderowane jako pojedynczy kafelek z kanoniczną etykietą.
+- Wspólna normalizacja nazw kierowców została spięta między grafikiem, dopasowaniem kontaktów i renderowaniem kafelków: usuwa dopiski w nawiasach, znaki specjalne, cyfry, nadmiarowe separatory i różnice wielkości liter, pozostawiając spójną postać prezentacyjną.
 
 ### Zmiany w wersji 2.34.8
 
@@ -178,8 +202,8 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Responsywny design z obsługą urządzeń mobilnych
 - Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
 - Główna nawigacja `TRASY` / `KIEROWCY` / `GRAFIK` działa jak toggle sekcji: pierwsze kliknięcie otwiera widok, a ponowne kliknięcie aktywnego przycisku zamyka sekcję i wraca do ekranu wyszukiwania z paskiem inputu
-- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
-- Ekran `GRAFIK` do swobodnego przeglądania harmonogramu w formie nowoczesnego data-gridu z zachowaniem układu arkusza: sticky header dni, sticky kolumna kierowców, wybór dnia i kierowcy, filtrowanie po kierowcy i trasie/symbolu, akcja `Dziś`, subtelne weekendy oraz klikalne badge'e tras otwierające podgląd w kontekście wybranej daty
+- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; przed renderem działa wspólna normalizacja i deduplikacja nazw kierowców, więc warianty z nawiasami, znakami specjalnymi, nadmiarem spacji lub inną wielkością liter nie tworzą już wielu kafelków tej samej osoby; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
+- Ekran `GRAFIK` do swobodnego przeglądania harmonogramu w formie nowoczesnego data-gridu z zachowaniem układu arkusza: sticky header dni, sticky kolumna kierowców, wybór dnia i kierowcy, filtrowanie po kierowcy i trasie/symbolu, akcja `Dziś`, subtelne weekendy oraz klikalne badge'e tras otwierające podgląd w kontekście wybranej daty; kody informacyjne `Z`, `UŻ`, `Dk`, `*D`, `*P` pozostają widoczne, ale nie są traktowane jak trasy i nie są klikalne, a wpisy tras bez pliku źródłowego (np. `REN`) są renderowane jako nieaktywne badge'e
 - Ekran powitalny z efektem glassmorphism
 - Dwa warianty logotypu QuickEvo: lekki w headerze i rozbudowany, dekoracyjny w ekranie powitalnym
 - Ciemny motyw (domyślny)

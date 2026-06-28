@@ -1218,8 +1218,7 @@ function getDriverForRouteOnIsoDate(routeCode, isoDate) {
 }
 
 function normalizeDriverDisplayName(value) {
-    const raw = value === null || value === undefined ? '' : String(value);
-    return raw.replace(/\s+/g, ' ').trim();
+    return utils.normalizeDriverDisplayName(value);
 }
 
 /**
@@ -1312,7 +1311,7 @@ function cleanupDriverGridInteractions(rootEl) {
 
 function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '') {
     return {
-        label: String(label ?? '').trim(),
+        label: normalizeDriverDisplayName(label),
         phones: Array.isArray(phones)
             ? phones.map((phone) => ({
                 phoneDisplay: String(phone?.phoneDisplay ?? '').trim(),
@@ -1324,6 +1323,57 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
         roleCategory: String(roleCategory ?? '').trim(),
         roleNote: String(roleNote ?? '').trim()
     };
+}
+
+/**
+ * Scala zduplikowane modele kafelków kierowców po tej samej, znormalizowanej nazwie.
+ *
+ * Dzięki temu widok `KIEROWCY` pozostaje odporny na duplikaty pochodzące
+ * z różnych grafików lub wariantów zapisu tej samej osoby.
+ *
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, roleCategory?: string, roleNote?: string }>} items
+ * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, hasContact: boolean, roleCategory: string, roleNote: string }>}
+ */
+function dedupeDriverTileModels(items) {
+    const list = Array.isArray(items) ? items : [];
+    const mergedByLabel = new Map();
+
+    for (const item of list) {
+        const nextModel = buildDriverTileModel(
+            item?.label,
+            item?.phones,
+            item?.registration,
+            item?.roleCategory,
+            item?.roleNote
+        );
+        const label = String(nextModel?.label ?? '').trim();
+        if (!label) continue;
+
+        const currentModel = mergedByLabel.get(label);
+        if (!currentModel) {
+            mergedByLabel.set(label, nextModel);
+            continue;
+        }
+
+        const phonesByIdentity = new Map();
+        for (const phone of [...currentModel.phones, ...nextModel.phones]) {
+            const phoneDisplay = String(phone?.phoneDisplay ?? '').trim();
+            const phoneHref = String(phone?.phoneHref ?? '').trim();
+            const phoneIdentity = `${phoneDisplay}::${phoneHref}`;
+            if (!phoneDisplay || phonesByIdentity.has(phoneIdentity)) continue;
+            phonesByIdentity.set(phoneIdentity, { phoneDisplay, phoneHref });
+        }
+
+        mergedByLabel.set(label, buildDriverTileModel(
+            label,
+            Array.from(phonesByIdentity.values()),
+            currentModel.registration || nextModel.registration,
+            currentModel.roleCategory || nextModel.roleCategory,
+            currentModel.roleNote || nextModel.roleNote
+        ));
+    }
+
+    return Array.from(mergedByLabel.values());
 }
 
 /**
@@ -1352,7 +1402,7 @@ function splitDriverNameForTile(driverName) {
  * @returns {string}
  */
 function estimateDriverSectionTileWidth(items) {
-    const list = Array.isArray(items) ? items : [];
+    const list = dedupeDriverTileModels(items);
     let longestLineChars = 14;
 
     for (const item of list) {
@@ -2651,7 +2701,7 @@ function renderTileGrid(containerEl, items, { emptyText = 'Brak danych.', passiv
     if (!containerEl) return;
     clearElement(containerEl);
 
-    const list = Array.isArray(items) ? items : [];
+    const list = dedupeDriverTileModels(items);
     if (list.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'status status--hint';
@@ -3262,7 +3312,7 @@ async function renderDriversView() {
         const table = ensureScheduleService().getMonthScheduleTable(meta.year, meta.month);
         const rows = Array.isArray(table?.rows) ? table.rows : [];
         for (const r of rows) {
-            const dn = String(r?.driverName ?? '').trim();
+            const dn = normalizeDriverDisplayName(r?.driverName);
             if (dn) names.add(dn);
         }
     }

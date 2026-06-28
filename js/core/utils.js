@@ -109,6 +109,55 @@ export function normalizeText(text) {
 export function fuzzyNormalizeText(text) {
     return normalizeText(text).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l');
 }
+
+/**
+ * Formatuje pojedynczy człon nazwy własnej do postaci prezentacyjnej.
+ *
+ * @param {string} token
+ * @returns {string}
+ */
+function formatNameToken(token) {
+    const safeToken = String(token ?? '').trim();
+    if (!safeToken) return '';
+    const [firstChar = ''] = Array.from(safeToken);
+    const rest = safeToken.slice(firstChar.length);
+    return firstChar.toLocaleUpperCase('pl-PL') + rest.toLocaleLowerCase('pl-PL');
+}
+
+/**
+ * Normalizuje nazwę kierowcy do wspólnej postaci prezentacyjnej.
+ *
+ * Zasady:
+ * - usuwa dopiski w nawiasach, np. `Adam (-2)` -> `Adam`,
+ * - usuwa znaki specjalne i cyfry,
+ * - redukuje separatory do pojedynczych odstępów między członami nazwy,
+ * - ujednolica wielkość liter.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function normalizeDriverDisplayName(value) {
+    const raw = String(value ?? '')
+        .normalize('NFKC')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/\[[^\]]*]/g, ' ')
+        .replace(/\{[^}]*\}/g, ' ');
+    const tokens = raw.match(/\p{L}+/gu) ?? [];
+    if (tokens.length === 0) return '';
+    return tokens.map(formatNameToken).join(' ').trim();
+}
+
+/**
+ * Buduje znormalizowany klucz porównawczy dla nazwy kierowcy.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function buildNormalizedDriverLookupKey(value) {
+    return fuzzyNormalizeText(normalizeDriverDisplayName(value))
+        .replace(/\s+/g, ' ')
+        .trim();
+}
  
 /**
  * Uzupełnia liczbę do 2 cyfr.

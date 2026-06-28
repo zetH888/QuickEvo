@@ -1,7 +1,4 @@
-function normalizeDriverDisplayName(value) {
-    const raw = value === null || value === undefined ? '' : String(value);
-    return raw.replace(/\s+/g, ' ').trim();
-}
+import { normalizeDriverDisplayName } from '../core/utils.js';
 
 function scheduleMonthKey(year, month) {
     const y = Number(year);
@@ -56,6 +53,10 @@ function getDefaultRouteScheduleConfig() {
     if (cfg && typeof cfg === 'object') return cfg;
     return {
         monthsPl: {},
+        standard: [],
+        wieczorek: [],
+        sobota: [],
+        niedziela: [],
         dayMarkers: [],
         normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
     };
@@ -229,48 +230,130 @@ export function createScheduleService(cfg = {}) {
      * tras dostępnych w IndexedDB (zasilanego metadanymi folderów z Google Drive).
      *
      * @param {Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>} routeCatalog
-     * @returns {{ routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>, markersSet: Set<string> }}
+     * @returns {{
+     *   routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>,
+     *   markersSet: Set<string>,
+     *   markerDisplayCodes: Map<string, string>,
+     *   fallbackRouteCategories: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
+     * }}
      */
     function buildScheduleTokenSets(routeCatalog) {
         const c = getRouteScheduleConfig();
+        const markerDisplayCodes = new Map();
+        const markersSet = new Set();
+        for (const marker of (c.dayMarkers || [])) {
+            const normalizedMarker = normalizeScheduleRouteCode(marker);
+            if (!normalizedMarker) continue;
+            markersSet.add(normalizedMarker);
+            markerDisplayCodes.set(normalizedMarker, String(marker ?? '').trim() || normalizedMarker);
+        }
+
+        const fallbackRouteCategories = new Map();
+        const registerFallbackRoutes = (codes, category) => {
+            const list = Array.isArray(codes) ? codes : [];
+            const safeCategory = String(category || '').trim();
+            if (!safeCategory) return;
+            for (const code of list) {
+                const normalizedCode = normalizeScheduleRouteCodeForLookup(code);
+                if (!normalizedCode || fallbackRouteCategories.has(normalizedCode)) continue;
+                fallbackRouteCategories.set(normalizedCode, /** @type {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'} */ (safeCategory));
+            }
+        };
+
+        registerFallbackRoutes(c.standard, 'STANDARD');
+        registerFallbackRoutes(c.wieczorek, 'WIECZOREK');
+        registerFallbackRoutes(c.sobota, 'SOBOTA');
+        registerFallbackRoutes(c.niedziela, 'NIEDZIELA');
+
         return {
             routeCatalog: routeCatalog instanceof Map ? routeCatalog : new Map(),
-            markersSet: new Set((c.dayMarkers || []).map(s => normalizeScheduleRouteCode(s)))
+            markersSet,
+            markerDisplayCodes,
+            fallbackRouteCategories
         };
+    }
+
+    /**
+     * Wyznacza kategorię zastępczą dla trasy, która nie ma pliku na dysku,
+     * ale nadal powinna być widoczna w grafiku i brać udział w przypisaniach.
+     *
+     * @param {string} token
+     * @param {{
+     *   fallbackRouteCategories?: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
+     * }} sets
+     * @returns {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'}
+     */
+    function inferFallbackRouteCategory(token, sets) {
+        const normalized = normalizeScheduleRouteCodeForLookup(token);
+        const fallbackRouteCategories = sets?.fallbackRouteCategories instanceof Map
+            ? sets.fallbackRouteCategories
+            : new Map();
+        const fromConfig = fallbackRouteCategories.get(normalized);
+        if (fromConfig) return fromConfig;
+        if (/^S-\d+$/i.test(normalized)) return 'SOBOTA';
+        if (/^N-\d+$/i.test(normalized)) return 'NIEDZIELA';
+        return 'STANDARD';
     }
 
     /**
      * Klasyfikuje pojedynczy token z grafiku (trasa lub marker).
      *
      * @param {string} token
-     * @param {{ routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>, markersSet: Set<string> }} sets
+     * @param {{
+     *   routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>,
+     *   markersSet: Set<string>,
+     *   markerDisplayCodes?: Map<string, string>,
+     *   fallbackRouteCategories?: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
+     * }} sets
      * @returns {{ kind: 'route'|'marker', code: string, category?: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' } | null}
      */
     function classifyScheduleToken(token, sets) {
         const tok = String(token || '').trim();
         if (!tok) return null;
-        if (sets.markersSet.has(tok)) return { kind: 'marker', code: tok };
+        if (sets.markersSet.has(tok)) {
+            const markerCode = sets?.markerDisplayCodes?.get?.(tok) || tok;
+            return { kind: 'marker', code: markerCode };
+        }
         const routeMeta = sets.routeCatalog.get(normalizeScheduleRouteCodeForLookup(tok));
         if (routeMeta?.code && routeMeta?.category) {
             return { kind: 'route', code: routeMeta.code, category: routeMeta.category };
         }
-        return null;
+        return { kind: 'route', code: tok, category: inferFallbackRouteCategory(tok, sets) };
+    }
+
+    /**
+     * Wyciąga z komórki grafiku uporządkowaną listę kandydatów na tokeny.
+     *
+     * Parser toleruje typowe separatory (`/`, przecinki, średniki, spacje)
+     * oraz zachowuje kody specjalne typu `*P`, `*D`, `UŻ`, `Dk`.
+     *
+     * @param {unknown} cellValue
+     * @returns {string[]}
+     */
+    function extractScheduleCellCandidates(cellValue) {
+        const raw = cellValue === null || cellValue === undefined ? '' : String(cellValue);
+        const cleaned = normalizeScheduleRouteCode(raw);
+        if (!cleaned) return [];
+        return (cleaned.match(/\*[A-ZĄĆĘŁŃÓŚŹŻ]+|[A-ZĄĆĘŁŃÓŚŹŻ]+-\d+|[A-ZĄĆĘŁŃÓŚŹŻ]+|\d+/gu) || [])
+            .map((token) => normalizeScheduleRouteCode(token))
+            .filter(Boolean);
     }
 
     /**
      * Parsuje zawartość komórki grafiku do listy tokenów w zachowanej kolejności (trasy + markery).
      *
      * @param {unknown} cellValue
-     * @param {{ routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>, markersSet: Set<string> }} tokenSets
+     * @param {{
+     *   routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>,
+     *   markersSet: Set<string>,
+     *   markerDisplayCodes?: Map<string, string>,
+     *   fallbackRouteCategories?: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
+     * }} tokenSets
      * @returns {{ kind: 'route'|'marker', code: string, category?: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }[]}
      */
     function parseScheduleCellToTokens(cellValue, tokenSets) {
-        const raw = cellValue === null || cellValue === undefined ? '' : String(cellValue);
-        const cleaned = raw.trim();
-        if (!cleaned) return [];
-
         const sets = tokenSets && typeof tokenSets === 'object' ? tokenSets : buildScheduleTokenSets(new Map());
-        const parts = cleaned.split('/').map(s => String(s ?? ''));
+        const parts = extractScheduleCellCandidates(cellValue);
 
         const out = [];
         const seen = new Set();
@@ -294,33 +377,11 @@ export function createScheduleService(cfg = {}) {
     }
 
     function parseScheduleCellToRoutes(cellValue, tokenSets) {
-        const raw = cellValue === null || cellValue === undefined ? '' : String(cellValue);
-        const cleaned = raw.trim();
-        if (!cleaned) return [];
-
-        const sets = tokenSets && typeof tokenSets === 'object' ? tokenSets : buildScheduleTokenSets(new Map());
-        const routeCatalog = sets.routeCatalog instanceof Map ? sets.routeCatalog : new Map();
-        const markersSet = sets.markersSet;
-
-        const tokens = cleaned
-            .split('/')
-            .map(t => normalizeScheduleRouteCode(t))
-            .map(t => t.replace(/\s+/g, ''))
-            .map(t => t.replace(/[–—]/g, '-'))
-            .map(t => t.replace(/S-?(\d+)/i, 'S-$1'))
-            .map(t => t.replace(/N-?(\d+)/i, 'N-$1'))
+        const tokens = parseScheduleCellToTokens(cellValue, tokenSets);
+        const routes = tokens
+            .filter((token) => token?.kind === 'route')
+            .map((token) => String(token?.code ?? '').trim())
             .filter(Boolean);
-
-        const routes = [];
-        for (const tok of tokens) {
-            const routeMeta = routeCatalog.get(normalizeScheduleRouteCodeForLookup(tok));
-            if (routeMeta?.code) {
-                routes.push(routeMeta.code);
-                continue;
-            }
-            if (markersSet.has(tok)) continue;
-        }
-
         return Array.from(new Set(routes));
     }
 
