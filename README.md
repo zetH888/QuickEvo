@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.34.58-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.36.19-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,6 +47,76 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.36.19
+
+- Lekko poszerzono sam glyph ikony fullscreen w `GRAFIK`, aby premium wariant z narożnikami był odrobinę czytelniejszy bez zmiany rozmiaru przycisku.
+
+### Zmiany w wersji 2.36.18
+
+- Przywrocono pierwszy, bardziej abstrakcyjny wariant premium ikony fullscreen w `GRAFIK`, oparty na eleganckich naroznikach i subtelnym wewnetrznym detalu zamiast mini-ekranu playerowego.
+
+### Zmiany w wersji 2.36.17
+
+- Dodatkowo powiększono sam element `span.schedule-fullscreen-icon`, aby glyph niemal wypełniał przycisk fullscreen i był lepiej czytelny także w małym toolbarze.
+
+### Zmiany w wersji 2.36.16
+
+- Dopracowano finalny wygląd przycisku fullscreen w `GRAFIK`: ikony zostały dodatkowo powiększone, a wariant `Włącz pełny ekran` otrzymał strzałki skierowane na zewnątrz. W trybie pełnoekranowym ukrywany jest również przycisk `Powrót`, aby header był czystszy i spójny z overlayowym charakterem widoku.
+
+### Zmiany w wersji 2.36.15
+
+- Ujednolicono oba stany ikony fullscreen w `GRAFIK`: wariant `Włącz pełny ekran` korzysta teraz z tego samego stylu mini-ekranu co `Wyłącz pełny ekran`, ale ze strzałkami skierowanymi w przeciwną stronę. Dodatkowo sam glyph został istotnie powiększony, aby lepiej wypełniał przycisk.
+
+### Zmiany w wersji 2.36.14
+
+- Przebudowano ikonę fullscreen w `GRAFIK`, aby była bliższa estetyce nowoczesnych playerów wideo: przycisk pokazuje teraz mini-ekran z wyraźniejszym symbolem wejścia/wyjścia z pełnego ekranu zamiast abstrakcyjnych narożników.
+
+### Zmiany w wersji 2.36.13
+
+- Dopracowano ikonę przełącznika pełnego ekranu w `GRAFIK`, nadając jej bardziej premium wygląd inspirowany nowoczesnymi playerami wideo oraz czytelniejszy stan aktywny po wejściu w fullscreen.
+- Naprawiono mobilne odstępy boczne widoku `GRAFIK`: toolbar i kontener tabeli korzystają teraz z równego, minimalnego guttera po obu stronach, bez dziedziczenia desktopowego breakouta powodującego krzywe marginesy.
+
+### Zmiany w wersji 2.36.12
+
+- Zastąpiono tekstowy przycisk `Full-Screen` ikonowym przyciskiem z zachowaniem dostępności przez `aria-label`, `title` oraz wizualny stan aktywności po wejściu w pełny ekran.
+- Doprecyzowano zachowanie przycisku `Powrót` w widoku `GRAFIK`: przed przejściem wstecz aplikacja automatycznie opuszcza fullscreen, tak samo jak po naciśnięciu `Esc`.
+
+### Zmiany w wersji 2.36.11
+
+- Dodano przycisk `Full-Screen` w sekcji statusu widoku `GRAFIK`. Przycisk przełącza cały widok grafiku do natywnego trybu pełnego ekranu, obejmującego zarówno header, jak i tabelę, oraz synchronizuje swój stan po kliknięciu, `Esc` i ręcznym wyjściu z fullscreena.
+- Dopasowano style fullscreen dla `GRAFIK`: w trybie pełnoekranowym toolbar rozciąga się na całą szerokość widoku, a tabela przejmuje pozostałą wysokość bez dodatkowego breakouta względem viewportu.
+
+### Zmiany w wersji 2.36.10
+
+- Uproszczono strojenie desktopowego oddechu tabeli `GRAFIK`: boczny gutter został przeniesiony do jednej zmiennej CSS `--schedule-table-gutter`, która jednocześnie steruje szerokością breakouta i odsunięciem tabeli od lewej/prawej krawędzi viewportu.
+
+### Zmiany w wersji 2.36.9
+
+- Skorygowano sposób rozszerzania tabeli w `GRAFIK` na desktopie: kontener tabeli korzysta teraz z breakouta liczonego względem viewportu, dzięki czemu rozciąga się symetrycznie od lewej do prawej strony okna zamiast wizualnie „uciekać” tylko w jedną stronę.
+
+### Zmiany w wersji 2.36.8
+
+- Skorygowano finalny layout `GRAFIK`: przycisk `Powrót` znów pozostaje przy lewej krawędzi swojej sekcji, podczas gdy pozostałe elementy nawigacyjne zachowują wyśrodkowanie.
+- Desktopowy kontener samej tabeli został dodatkowo odblokowany szerokościowo względem wrappera widoku, dzięki czemu może realnie rozciągać się prawie na cały viewport z niewielkim bocznym marginesem.
+
+### Zmiany w wersji 2.36.6
+
+- Dopracowano układ `GRAFIK` zgodnie z finalnym pixel-polish: sam kontener tabeli rozciąga się teraz szerzej niż toolbar i podchodzi niemal pod krawędzie viewportu, zachowując tylko niewielki boczny oddech.
+- Wycentrowano etykiety filtrów oraz wskazane rzędy/sekcje toolbaru (`wybór miesiąca`, nawigacja dnia i grupy filtrów), aby układ był bardziej symetryczny na desktopie.
+- Na mobile przywrócono `Powrót` w postaci małej ikony w rogu, bez cofania wcześniejszego uproszczenia toolbaru.
+
+### Zmiany w wersji 2.36.0
+
+- Badge kierowcy w podglądzie trasy dla konkretnego dnia stał się interaktywny: kliknięcie przenosi teraz do widoku `KIEROWCY`, przewija do odpowiedniej osoby, otwiera jej panel szczegółów i chwilowo podświetla właściwy kafelek.
+- Desktopowy widok `GRAFIK` został ponownie zbalansowany pod szerokie ekrany: cały moduł jest centrowany w węższym kontenerze względem viewportu, tabela wykorzystuje maksymalnie dostępną szerokość tego obszaru, a toolbar ma czytelniejszy podział na trzy sekcje z szerszym środkiem i lepiej wyśrodkowaną akcją czyszczenia filtrów.
+- Mobilny widok `GRAFIK` został uproszczony pod małe ekrany: nazwy kierowców są skracane do formatu `Nazwisko I.`, komórki i badge'e mają mniejszy footprint, a górny toolbar ukrywa sekcję statusu oraz rząd nawigacji dnia, zostawiając tylko wybór miesiąca i filtry.
+
+### Zmiany w wersji 2.35.0
+
+- Widok `KIEROWCY` przestał używać testowych numerów rejestracyjnych: dane pojazdów są teraz pobierane z osobnego pliku Google Drive z rejestracjami, parser analizuje wyłącznie ostatni arkusz skoroszytu, a gdy komórka dla bieżącego dnia jest pusta, automatycznie przejmuje ostatnią wcześniejszą, znaną rejestrację tego samego kierowcy w danym miesiącu.
+- W kafelkach kierowców pojawił się mały badge z dzisiejszą trasą wyprowadzoną z `GRAFIK`; badge jest klikalny i otwiera bezpośrednio podgląd odpowiadającej trasy, jeśli plik źródłowy istnieje lokalnie po synchronizacji.
+- Wspólna synchronizacja Google Drive została rozszerzona o trzeci pojedynczy plik pomocniczy obok kontaktów kierowców: aplikacja wykrywa zmiany oraz lokalne usunięcia także dla pliku rejestracji pojazdów i odświeża jego cache tym samym torem co grafik oraz kontakty.
 
 ### Zmiany w wersji 2.34.58
 
@@ -213,8 +283,9 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Kategorie tras są wyznaczane z folderu pierwszego poziomu pod `ROUTES_FOLDER_ID`: `Baltic Medica`, `Dostawy`, `Dzika`, `Wilanów`, `Wołomin` -> `STANDARD`; `Wieczorki` -> `WIECZOREK`; `Soboty` -> `SOBOTA`; `Niedziele` -> `NIEDZIELA`
 - Obsługa grafiku kierowców: plik o nazwie „MIASTO MIESIĄC ROK.(xlsx/xls/csv)” jest parsowany do przypisań trasa→kierowca (bez indeksowania w wyszukiwarce)
 - Obsługa osobnego pliku kontaktów kierowców z Google Drive: parser wykorzystuje kolumny `B=PRACOWNIK`, `C=NR TELEFONU` oraz opcjonalnie `D=dopisek roli`, normalizuje nazwy, sprawdza bezpieczne warianty kolejności członów (`Imię Nazwisko` / `Nazwisko Imię`), potrafi zwrócić wiele numerów dla jednego kierowcy i klasyfikuje role specjalne (`szef`, `kierownik`, `koordynator`, `dyspozytor`)
+- Obsługa osobnego pliku rejestracji kierowców z Google Drive: parser czyta wyłącznie ostatni arkusz skoroszytu, zakłada układ identyczny jak w grafiku (`A=IMIE I NAZWISKO`, kolejne kolumny = dni miesiąca), dobiera rejestrację po znormalizowanej nazwie kierowcy i dla pustego bieżącego dnia cofa się do ostatniej wcześniejszej, znanej rejestracji w tym samym miesiącu
 - API `schedule-service` umożliwia wydajne przeglądanie grafiku miesiąca (lista dni, lista tras, kierowcy per trasa/dzień) na podstawie cache `byIsoDate`, dat ISO (YYYY-MM-DD) oraz dynamicznego katalogu tras zbudowanego z plików zsynchronizowanych z Google Drive
-- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik) z jednym modalem zmian, listą nieaktualnych plików i powodami zmian; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
+- Wspólny mechanizm synchronizacji Google Drive (trasy + grafik + kontakty kierowców + rejestracje kierowców) z jednym modalem zmian, listą nieaktualnych plików i powodami zmian; wykrywa także pliki usunięte z Google Drive, oznacza je jako wymagające lokalnego skasowania i przed wykonaniem pokazuje dodatkowe potwierdzenie; synchronizacja uruchamiana ręcznie; kolejne kliknięcie podczas trwającej synchronizacji jest kolejkowane i uruchamiane automatycznie po zakończeniu bieżącej sesji
 - Rozwijalne kafelki zmian w oknie synchronizacji Google Drive + szybkie „Rozwiń/Zwiń wszystko”
 - Lazy podgląd różnic XLSX dla zmodyfikowanych plików: przycisk `Pokaż różnicę` otwiera drugi modal 80vw/80vh nad głównym oknem synchronizacji, porównuje lokalny `Blob` z IndexedDB z nowym `ArrayBuffer` z Google Drive i pokazuje grupowany diff komórek z przełączanymi widokami `Lista` / `Side by side`, bez nadpisywania danych
 - Niestandardowy pasek przewijania w oknie zmian Google Drive (premium overlay, pełna funkcjonalność przewijania)
@@ -229,7 +300,8 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Responsywny design z obsługą urządzeń mobilnych
 - Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
 - Główna nawigacja `TRASY` / `KIEROWCY` / `GRAFIK` działa jak toggle sekcji: pierwsze kliknięcie otwiera widok, a ponowne kliknięcie aktywnego przycisku zamyka sekcję i wraca do ekranu wyszukiwania z paskiem inputu
-- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; przed renderem działa wspólna normalizacja i deduplikacja nazw kierowców, więc warianty z nawiasami, znakami specjalnymi, nadmiarem spacji lub inną wielkością liter nie tworzą już wielu kafelków tej samej osoby; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, a ponowny klik w aktywny kafelek zwija panel z animacją
+- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; przed renderem działa wspólna normalizacja i deduplikacja nazw kierowców, więc warianty z nawiasami, znakami specjalnymi, nadmiarem spacji lub inną wielkością liter nie tworzą już wielu kafelków tej samej osoby; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; w prawym górnym rogu mogą pokazywać mały badge z dzisiejszą trasą, który otwiera od razu podgląd tej trasy, a badge kierowcy w podglądzie trasy potrafi wykonać nawigację zwrotną do konkretnego kafelka; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, którego wartość pochodzi już z osobnego pliku rejestracji Google Drive z fallbackiem do ostatniej znanej rejestracji w miesiącu, a ponowny klik w aktywny kafelek zwija panel z animacją
+- Widok `GRAFIK` ma dwa wyraźnie różne profile responsywne: na desktopie działa w centrowanym, bardziej premium kontenerze z szerszym środkiem toolbaru, a na mobile upraszcza nazwiska, ogranicza rozmiary komórek i ukrywa wtórne elementy toolbaru, aby maksymalnie oddać miejsce samej tabeli.
 - Ekran `GRAFIK` do swobodnego przeglądania harmonogramu w formie nowoczesnego data-gridu z zachowaniem układu arkusza: sticky header dni, sticky kolumna kierowców, wybór dnia i kierowcy, filtrowanie po kierowcy i trasie/symbolu, akcja `Dziś`, subtelne weekendy oraz klikalne badge'e tras otwierające podgląd w kontekście wybranej daty; kody informacyjne `Z`, `UŻ`, `Dk`, `*D`, `*P` pozostają widoczne, ale nie są traktowane jak trasy i nie są klikalne, a wpisy tras bez pliku źródłowego (np. `REN`) są renderowane jako nieaktywne badge'e
 - Ekran powitalny z efektem glassmorphism
 - Dwa warianty logotypu QuickEvo: lekki w headerze i rozbudowany, dekoracyjny w ekranie powitalnym

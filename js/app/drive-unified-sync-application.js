@@ -169,7 +169,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
         try { cfg.initChangesModal?.(list, token); } catch { }
     }
 
-    async function collectDriveFiles(folderIdRoutes, folderIdSchedule, driverContactsFileId, token, { signal } = {}) {
+    async function collectDriveFiles(folderIdRoutes, folderIdSchedule, driverContactsFileId, driverRegistrationsFileId, token, { signal } = {}) {
         const api = cfg.getApi();
         const routesPromise = api.crawlFolder(folderIdRoutes, token, { signal });
         const scheduleAllPromise = api.listFolderFilesShallow(folderIdSchedule, token, { signal });
@@ -185,17 +185,30 @@ export function createDriveUnifiedSyncApplication(cfg) {
                 return null;
             })
             : Promise.resolve(null);
+        const driverRegistrationsPromise = String(driverRegistrationsFileId || '').trim()
+            ? api.getFileMetadata(driverRegistrationsFileId, token, { signal }).catch((err) => {
+                try {
+                    cfg.logAction?.('sync', {
+                        phase: 'driver_registrations_metadata_failed',
+                        fileId: String(driverRegistrationsFileId || ''),
+                        message: err?.message ? String(err.message) : 'Błąd pobierania metadanych pliku rejestracji'
+                    }, 'WARN');
+                } catch { }
+                return null;
+            })
+            : Promise.resolve(null);
 
-        const [routes, scheduleAll, driverContacts] = await Promise.all([
+        const [routes, scheduleAll, driverContacts, driverRegistrations] = await Promise.all([
             routesPromise,
             scheduleAllPromise,
-            driverContactsPromise
+            driverContactsPromise,
+            driverRegistrationsPromise
         ]);
         const scheduleFiles = listScheduleDriveFiles(scheduleAll);
-        return { routes, scheduleFiles, scheduleAll, driverContacts };
+        return { routes, scheduleFiles, scheduleAll, driverContacts, driverRegistrations };
     }
 
-    async function computeChanges({ routes, scheduleFiles, scheduleAll, driverContacts }) {
+    async function computeChanges({ routes, scheduleFiles, scheduleAll, driverContacts, driverRegistrations }) {
         const dbListRaw = await cfg.listDbFiles();
         const listDb = Array.isArray(dbListRaw) ? dbListRaw : [];
         const dbNames = new Set(listDb.map(r => String(r?.name ?? '').trim()).filter(Boolean));
@@ -204,10 +217,12 @@ export function createDriveUnifiedSyncApplication(cfg) {
         const routeFiles = Array.isArray(routes) ? routes : [];
         const scheduleDriveFiles = Array.isArray(scheduleAll) ? scheduleAll : [];
         const driverContactsName = String(driverContacts?.name || '').trim();
+        const driverRegistrationsName = String(driverRegistrations?.name || '').trim();
         const driveNames = new Set([
             ...routeFiles.map((file) => String(file?.name || '').trim()).filter(Boolean),
             ...scheduleDriveFiles.map((file) => String(file?.name || '').trim()).filter(Boolean),
-            ...(driverContactsName ? [driverContactsName] : [])
+            ...(driverContactsName ? [driverContactsName] : []),
+            ...(driverRegistrationsName ? [driverRegistrationsName] : [])
         ]);
 
         await cfg.runWithConcurrency(routeFiles, 8, async (file) => {
@@ -240,11 +255,14 @@ export function createDriveUnifiedSyncApplication(cfg) {
 
             const sourceKind = String(record?.sourceKind ?? '').trim();
             const isDriverContacts = sourceKind === 'driver_contacts';
+            const isDriverRegistrations = sourceKind === 'driver_registrations';
             const isSchedule = sourceKind === 'schedule' || Boolean(cfg.isScheduleFileName?.(name));
             changed.push({
                 name,
                 id: '',
-                qeKind: isDriverContacts ? 'driver_contacts' : (isSchedule ? 'schedule' : 'route'),
+                qeKind: isDriverContacts
+                    ? 'driver_contacts'
+                    : (isDriverRegistrations ? 'driver_registrations' : (isSchedule ? 'schedule' : 'route')),
                 qeAction: 'delete_local',
                 isDeletedOnDrive: true,
                 isNewInDb: false,
@@ -307,6 +325,25 @@ export function createDriveUnifiedSyncApplication(cfg) {
                     previousDriveModifiedAt: hasPrev ? prev : null,
                     isNewInDb: !record,
                     qeKind: 'driver_contacts'
+                });
+            }
+        }
+
+        if (driverRegistrationsName) {
+            const record = await cfg.getDbFileRecord(driverRegistrationsName);
+            const prev = Number(record?.driveModifiedAt);
+            const next = Number(driverRegistrations?.driveModifiedAt);
+            const hasPrev = Number.isFinite(prev) && prev > 0;
+            const hasNext = Number.isFinite(next) && next > 0;
+            const isUpToDate = Boolean(record && hasPrev && hasNext && prev === next);
+
+            if (!isUpToDate) {
+                changed.push({
+                    ...driverRegistrations,
+                    changeReason: 'Zmiany w rejestracjach kierowców',
+                    previousDriveModifiedAt: hasPrev ? prev : null,
+                    isNewInDb: !record,
+                    qeKind: 'driver_registrations'
                 });
             }
         }
@@ -395,6 +432,8 @@ export function createDriveUnifiedSyncApplication(cfg) {
 
                         if (String(file?.qeKind || '') === 'driver_contacts') {
                             cfg.invalidateDriverContactsFile(name);
+                        } else if (String(file?.qeKind || '') === 'driver_registrations') {
+                            cfg.invalidateDriverRegistrationsFile?.(name);
                         } else if (String(file?.qeKind || '') === 'schedule' || cfg.isScheduleFileName(name)) {
                             cfg.invalidateScheduleFile(name);
                         } else {
@@ -428,6 +467,9 @@ export function createDriveUnifiedSyncApplication(cfg) {
                     if (kind === 'driver_contacts') {
                         cfg.invalidateDriverContactsFile(name);
                         await cfg.processDriverContactsFile(name);
+                    } else if (kind === 'driver_registrations') {
+                        cfg.invalidateDriverRegistrationsFile?.(name);
+                        await cfg.processDriverRegistrationsFile?.(name);
                     } else if (kind === 'schedule') {
                         cfg.invalidateScheduleFile(name);
                         await cfg.processScheduleFile(name);
@@ -519,6 +561,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
         const folderIdRoutes = String(cfg.getFolderIdRoutes() || '').trim();
         const folderIdSchedule = String(cfg.getFolderIdSchedule() || '').trim();
         const driverContactsFileId = String(cfg.getDriverContactsFileId?.() || '').trim();
+        const driverRegistrationsFileId = String(cfg.getDriverRegistrationsFileId?.() || '').trim();
         if (!folderIdRoutes) throw new Error('drive-unified-sync-application: brak folderIdRoutes');
         if (!folderIdSchedule) throw new Error('drive-unified-sync-application: brak folderIdSchedule');
 
@@ -538,7 +581,17 @@ export function createDriveUnifiedSyncApplication(cfg) {
         };
         connectSession = session;
 
-        try { cfg.logAction?.('sync', { phase: 'start', folderIdRoutes, folderIdSchedule, driverContactsFileId, source: source || 'unknown', mode: 'manual' }); } catch { }
+        try {
+            cfg.logAction?.('sync', {
+                phase: 'start',
+                folderIdRoutes,
+                folderIdSchedule,
+                driverContactsFileId,
+                driverRegistrationsFileId,
+                source: source || 'unknown',
+                mode: 'manual'
+            });
+        } catch { }
 
         try {
             cfg.showModal('Google Drive', cfg.buildConnectingModalHtml('Łączenie z Google Drive...'), [
@@ -554,7 +607,14 @@ export function createDriveUnifiedSyncApplication(cfg) {
             ]);
             cfg.setLoadingStatusText('Przeszukiwanie folderów...');
 
-            const allFiles = await collectDriveFiles(folderIdRoutes, folderIdSchedule, driverContactsFileId, token, { signal: abortController.signal });
+            const allFiles = await collectDriveFiles(
+                folderIdRoutes,
+                folderIdSchedule,
+                driverContactsFileId,
+                driverRegistrationsFileId,
+                token,
+                { signal: abortController.signal }
+            );
             if (session.cancelled) return;
 
             const changed = await computeChanges(allFiles);

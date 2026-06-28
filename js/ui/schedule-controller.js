@@ -76,6 +76,38 @@ function buildDriverId(driverName) {
 }
 
 /**
+ * Sprawdza, czy aktywny jest kompaktowy układ mobilny grafiku.
+ *
+ * @returns {boolean}
+ */
+function isCompactScheduleLayout() {
+    try {
+        return Boolean(globalThis.matchMedia?.('(max-width: 768px)')?.matches);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Skraca nazwę kierowcy do formatu mobilnego `Nazwisko I.`.
+ *
+ * @param {unknown} driverName
+ * @returns {string}
+ */
+function formatCompactDriverName(driverName) {
+    const safeName = String(driverName ?? '').replace(/\s+/g, ' ').trim();
+    if (!safeName) return '';
+
+    const tokens = safeName.split(' ').filter(Boolean);
+    if (tokens.length <= 1) return safeName;
+
+    const surname = String(tokens[0] || '').trim();
+    const firstGiven = String(tokens[1] || '').trim();
+    if (!surname || !firstGiven) return safeName;
+    return `${surname} ${firstGiven.charAt(0).toLocaleUpperCase('pl-PL')}.`;
+}
+
+/**
  * Formatuje label dnia do headera i statusu toolbaru.
  *
  * @param {Intl.DateTimeFormat} dtfWeekday
@@ -138,6 +170,7 @@ function isCurrentMonthKey(ym) {
  * @param {HTMLButtonElement|null} cfg.prevMonthBtn
  * @param {HTMLButtonElement|null} cfg.nextMonthBtn
  * @param {HTMLButtonElement|null} cfg.todayBtn
+ * @param {HTMLButtonElement|null} cfg.fullscreenBtn
  * @param {HTMLButtonElement|null} cfg.clearFiltersBtn
  * @param {(year: number, month: number) => ({
  *   year: number,
@@ -170,6 +203,7 @@ function createScheduleGrid(cfg = {}) {
     const prevDayBtn = cfg?.prevMonthBtn || null;
     const nextDayBtn = cfg?.nextMonthBtn || null;
     const todayBtn = cfg?.todayBtn || null;
+    const fullscreenBtn = cfg?.fullscreenBtn || null;
     const clearFiltersBtn = cfg?.clearFiltersBtn || null;
 
     const getMonthScheduleTable = typeof cfg?.getMonthScheduleTable === 'function' ? cfg.getMonthScheduleTable : (() => null);
@@ -178,6 +212,7 @@ function createScheduleGrid(cfg = {}) {
     const onOpenRoute = typeof cfg?.onOpenRoute === 'function' ? cfg.onOpenRoute : (() => { });
 
     const dtfWeekday = new Intl.DateTimeFormat('pl-PL', { weekday: 'short' });
+    let lastCompactLayout = isCompactScheduleLayout();
 
     const state = {
         current: { year: 0, month: 0, key: '' },
@@ -210,6 +245,102 @@ function createScheduleGrid(cfg = {}) {
      */
     function isVisible() {
         return Boolean(scheduleView && !scheduleView.classList.contains('view-hidden'));
+    }
+
+    /**
+     * Zwraca aktualny element będący w trybie pełnego ekranu.
+     *
+     * @returns {Element|null}
+     */
+    function getActiveFullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
+    }
+
+    /**
+     * Sprawdza, czy bieżąca przeglądarka obsługuje fullscreen dla widoku grafiku.
+     *
+     * @returns {boolean}
+     */
+    function isFullscreenSupported() {
+        return Boolean(
+            scheduleView
+            && (
+                typeof scheduleView.requestFullscreen === 'function'
+                || typeof scheduleView.webkitRequestFullscreen === 'function'
+            )
+            && (
+                typeof document.exitFullscreen === 'function'
+                || typeof document.webkitExitFullscreen === 'function'
+            )
+        );
+    }
+
+    /**
+     * Sprawdza, czy to właśnie widok grafiku jest w trybie pełnego ekranu.
+     *
+     * @returns {boolean}
+     */
+    function isScheduleFullscreenActive() {
+        return getActiveFullscreenElement() === scheduleView;
+    }
+
+    /**
+     * Synchronizuje label i atrybuty przycisku pełnego ekranu.
+     */
+    function syncFullscreenButtonState() {
+        if (!fullscreenBtn) return;
+        const supported = isFullscreenSupported();
+        const active = supported && isScheduleFullscreenActive();
+        fullscreenBtn.disabled = !supported;
+        fullscreenBtn.classList.toggle('is-active', active);
+        fullscreenBtn.setAttribute('aria-pressed', active ? 'true' : 'false');
+        fullscreenBtn.setAttribute(
+            'aria-label',
+            active ? 'Wyłącz pełny ekran grafiku' : 'Włącz pełny ekran grafiku'
+        );
+        fullscreenBtn.title = active ? 'Wyłącz pełny ekran grafiku' : 'Włącz pełny ekran grafiku';
+    }
+
+    /**
+     * Kończy tryb pełnego ekranu dla widoku grafiku, jeśli jest aktywny.
+     *
+     * @returns {Promise<void>}
+     */
+    async function exitScheduleFullscreen() {
+        if (!isScheduleFullscreenActive()) {
+            syncFullscreenButtonState();
+            return;
+        }
+
+        try {
+            if (typeof document.exitFullscreen === 'function') {
+                await document.exitFullscreen();
+            } else if (typeof document.webkitExitFullscreen === 'function') {
+                document.webkitExitFullscreen();
+            }
+        } catch {
+            syncFullscreenButtonState();
+        }
+    }
+
+    /**
+     * Przełącza pełny ekran dla całego widoku grafiku.
+     *
+     * @returns {Promise<void>}
+     */
+    async function toggleScheduleFullscreen() {
+        if (!scheduleView || !isFullscreenSupported()) return;
+        try {
+            if (isScheduleFullscreenActive()) {
+                await exitScheduleFullscreen();
+            } else if (typeof scheduleView.requestFullscreen === 'function') {
+                await scheduleView.requestFullscreen();
+            } else if (typeof scheduleView.webkitRequestFullscreen === 'function') {
+                scheduleView.webkitRequestFullscreen();
+            }
+        } catch {
+            syncFullscreenButtonState();
+        }
     }
 
     /**
@@ -1052,7 +1183,7 @@ function createScheduleGrid(cfg = {}) {
             driverCell.setAttribute('tabindex', '0');
             driverCell.setAttribute('aria-pressed', row.isSelectedDriver ? 'true' : 'false');
             driverCell.title = row.driverName;
-            driverCell.textContent = row.driverName;
+            driverCell.textContent = isCompactScheduleLayout() ? formatCompactDriverName(row.driverName) : row.driverName;
             tr.appendChild(driverCell);
 
             for (const cell of row.cells) {
@@ -1523,6 +1654,7 @@ function createScheduleGrid(cfg = {}) {
         tableHeaderRow?.addEventListener?.('click', handleTableClick);
         tableBody?.addEventListener?.('click', handleTableClick);
         tableBody?.addEventListener?.('keydown', handleDriverKeydown);
+        syncFullscreenButtonState();
 
         monthSelect?.addEventListener?.('change', () => {
             const key = String(monthSelect.value || '').trim();
@@ -1564,6 +1696,12 @@ function createScheduleGrid(cfg = {}) {
 
         todayBtn?.addEventListener?.('click', () => {
             goToday();
+        });
+
+        fullscreenBtn?.addEventListener?.('click', () => {
+            toggleScheduleFullscreen().catch(() => {
+                syncFullscreenButtonState();
+            });
         });
 
         driverFilterInput?.addEventListener?.('input', () => {
@@ -1632,6 +1770,21 @@ function createScheduleGrid(cfg = {}) {
             if (insideMonth || insideDriver || insideRoute) return;
             closeFilterDropdowns();
         });
+
+        document.addEventListener('fullscreenchange', () => {
+            syncFullscreenButtonState();
+        });
+
+        document.addEventListener('webkitfullscreenchange', () => {
+            syncFullscreenButtonState();
+        });
+
+        window.addEventListener('resize', () => {
+            const nextCompactLayout = isCompactScheduleLayout();
+            if (nextCompactLayout === lastCompactLayout) return;
+            lastCompactLayout = nextCompactLayout;
+            refreshView({ scrollToDay: false, preserveScroll: true });
+        });
     }
 
     attach();
@@ -1648,7 +1801,8 @@ function createScheduleGrid(cfg = {}) {
         setSelectedDay,
         setSelectedDriver,
         goToday,
-        scrollToSelectedDay
+        scrollToSelectedDay,
+        exitScheduleFullscreen
     });
 }
 

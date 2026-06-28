@@ -16,6 +16,7 @@ const QuickEvoTests = {
         await this.testSearchResultsSorting(ctx);
         await this.testScheduleService(ctx);
         await this.testDriverContactsService(ctx);
+        await this.testDriverRegistrationsService(ctx);
         await this.testPreviewDriverBadges(ctx);
         await this.testDriveService(ctx);
         await this.testSimpleXlsxDiff(ctx);
@@ -37,11 +38,12 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driverContactsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driverContactsService, driverRegistrationsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
             import('../services/driver-contacts-service.js'),
+            import('../services/driver-registrations-service.js'),
             import('../services/drive-service.js'),
             import('../ui/preview/preview-controller.js'),
             import('../app/drive-unified-sync-application.js'),
@@ -52,7 +54,7 @@ const QuickEvoTests = {
             import('../core/simple-xlsx-diff.js'),
             import('../ui/drive/drive-changes-modal.js')
         ]);
-        return { utils, searchEngine, scheduleService, driverContactsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
+        return { utils, searchEngine, scheduleService, driverContactsService, driverRegistrationsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
     },
 
     async testXlsxLoaded() {
@@ -376,6 +378,62 @@ const QuickEvoTests = {
             this.assert(c6 === null, 'Unieważnienie cache czyści indeks kontaktów kierowców');
         } catch (e) {
             this.assert(false, "Nie udało się przetestować driver-contacts-service");
+            console.error(e);
+        }
+    },
+
+    async testDriverRegistrationsService(ctx) {
+        console.log("\nTesting Rejestracje Kierowców — driver-registrations-service:");
+        try {
+            const createDriverRegistrationsService = ctx?.driverRegistrationsService?.createDriverRegistrationsService;
+            this.assert(typeof createDriverRegistrationsService === 'function', "driver-registrations-service jest dostępny przez import");
+            if (typeof createDriverRegistrationsService !== 'function') return;
+
+            const matrixOldSheet = [
+                ['IMIE I NAZWISKO', 1, 2, 3],
+                ['Jan Kowalski', 'OLD-111', '', '']
+            ];
+            const matrixCurrentSheet = [
+                ['IMIE I NAZWISKO', 1, 2, 3, 4],
+                [' Jan  Kowalski ', 'WX 1111A', 'WX 2222B', '', 'WX 4444D'],
+                ['Nowak Anna', '', 'WW 9876K', '', ''],
+                ['Anna   Nowak', '', '', 'WW 1234N', '']
+            ];
+
+            const service = createDriverRegistrationsService({
+                readWorkbook: async () => ({
+                    SheetNames: ['Maj 2026', 'Czerwiec 2026'],
+                    Sheets: {
+                        'Maj 2026': { __matrix: matrixOldSheet },
+                        'Czerwiec 2026': { __matrix: matrixCurrentSheet }
+                    }
+                }),
+                sheetToMatrix: (worksheet) => worksheet.__matrix,
+                getBlob: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }),
+                listFiles: async () => [{ name: 'rejestracje.xlsx', sourceKind: 'driver_registrations' }],
+                getNow: () => new Date('2026-06-03T12:00:00'),
+                logAction: () => { }
+            });
+
+            await service.loadDriverRegistrationsFiles({ fullReload: true });
+
+            const janCurrent = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-03');
+            this.assert(janCurrent === 'WX 2222B', 'Dla pustej komórki bieżącego dnia zwraca ostatnią wcześniejszą rejestrację z tego samego miesiąca');
+
+            const janExact = service.getRegistrationForDriverName('Jan Kowalski');
+            this.assert(janExact === 'WX 2222B', 'Pobieranie bez jawnej daty korzysta z bieżącego dnia');
+
+            const annaCurrent = service.getRegistrationForDriverNameOnIsoDate('Anna Nowak', '2026-06-04');
+            this.assert(annaCurrent === 'WW 1234N', 'Scala warianty tej samej osoby i znajduje rejestrację po odwróconej kolejności imienia i nazwiska');
+
+            const janOldIgnored = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-01');
+            this.assert(janOldIgnored === 'WX 1111A', 'Parsuje wyłącznie ostatni arkusz skoroszytu i ignoruje wcześniejsze arkusze');
+
+            service.invalidateDriverRegistrationsFile('rejestracje.xlsx');
+            const afterInvalidate = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-03');
+            this.assert(afterInvalidate === '', 'Unieważnienie cache czyści indeks rejestracji kierowców');
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować driver-registrations-service");
             console.error(e);
         }
     },
@@ -805,6 +863,8 @@ const QuickEvoTests = {
             root.appendChild(tableBody);
             document.body.appendChild(root);
 
+            const clickedDrivers = [];
+
             const ctrl = createPreviewController({
                 searchView,
                 filePreviewView,
@@ -816,10 +876,13 @@ const QuickEvoTests = {
                 getRouteCategoriesFromFileName: () => [],
                 extractRouteCodeFromFileName: () => '12',
                 getDriverForRouteOnDate: () => ['Jan Kowalski'],
-                buildDriverBadgesHtml: (names) => {
+                buildDriverBadgesHtml: (names, opts = {}) => {
                     const safe = Array.isArray(names) ? String(names[0] || '') : '';
-                    return safe ? `<span class="result-driver-badge">${safe}</span>` : '';
-                }
+                    if (!safe) return '';
+                    if (opts?.interactive) return `<button type="button" class="result-driver-badge" data-driver-name="${safe}">${safe}</button>`;
+                    return `<span class="result-driver-badge">${safe}</span>`;
+                },
+                onDriverBadgeClick: (driverName) => { clickedDrivers.push(String(driverName || '')); }
             });
 
             ctrl.showPreview({
@@ -831,6 +894,8 @@ const QuickEvoTests = {
             const badge = previewFileName.querySelector('.result-driver-badge');
             this.assert(Boolean(badge), "Wyświetla badge kierowcy w nagłówku podglądu");
             this.assert(String(badge?.textContent || '').trim() === 'Jan Kowalski', "Badge kierowcy zawiera poprawną nazwę");
+            if (badge instanceof HTMLElement) badge.click();
+            this.assert(clickedDrivers[0] === 'Jan Kowalski', "Kliknięcie badge'a kierowcy wywołuje nawigację do widoku kierowców");
 
             root.remove();
         } catch (e) {

@@ -21,6 +21,7 @@ import { createDriveUnifiedSyncApplication } from '../app/drive-unified-sync-app
 import { createNavigationApplication } from '../app/navigation-application.js';
 import { createLoadingApplication } from '../app/loading-application.js';
 import { createDriverContactsService } from '../services/driver-contacts-service.js';
+import { createDriverRegistrationsService } from '../services/driver-registrations-service.js';
 import { createScheduleService } from '../services/schedule-service.js';
 import { createSearchOrchestrator } from '../features/search/search-orchestrator.js';
 import { SEARCH_RESULTS_SORT_MODE_ALPHANUM, SEARCH_RESULTS_SORT_MODE_TIME, sortSearchResultGroups } from '../features/search/search-results-sort.js';
@@ -172,16 +173,19 @@ const DRIVE_SCHEDULE_FOLDER_ID = '10m4VzgbWqLy3U5V4lP_e-TN-vZVCyhGj';
 const DRIVE_DRIVER_CONTACTS_FILE_ID = '1Er4pGFK3_5_nsAPKO5xgyWfgO1UUoYws';
 
 /**
+ * Stały identyfikator pliku Google Drive z rejestracjami pojazdów kierowców.
+ */
+const DRIVE_DRIVER_REGISTRATIONS_FILE_ID = '100oLcUKgm4wKjUQnxVJmHVaF1vp8R6vb';
+
+/**
  * Typ źródła pliku kontaktów kierowców zapisywany w IndexedDB.
  */
 const DRIVER_CONTACTS_SOURCE_KIND = 'driver_contacts';
 
 /**
- * Testowe numery rejestracyjne wykorzystywane tymczasowo w UI kierowców.
- *
- * Docelowo pole zostanie podmienione na dane z osobnego pliku źródłowego.
+ * Typ źródła pliku rejestracji kierowców zapisywany w IndexedDB.
  */
-const DRIVER_TEST_REGISTRATIONS = Object.freeze(['WG T3ST', 'WND T3ST', 'WW T3ST', 'WB T3ST', 'WU T3ST']);
+const DRIVER_REGISTRATIONS_SOURCE_KIND = 'driver_registrations';
 
 
 //////////////////////////////////////////////////
@@ -228,6 +232,7 @@ const {
     schedulePrevMonthBtn,
     scheduleNextMonthBtn,
     scheduleTodayBtn,
+    scheduleFullscreenToggleBtn,
     scheduleSelectedDay,
     scheduleSubtitle,
     scheduleDriverFilter,
@@ -366,9 +371,11 @@ const loadedFiles = dataStore.getLoadedFiles();
 const fullFileData = dataStore.getFullFileData(); 
 let scheduleService = null;
 let driverContactsService = null;
+let driverRegistrationsService = null;
 const driverGridInteractionControllers = new WeakMap();
 let activeDriverDetailsTile = null;
 let activeDriverDetailsClose = null;
+let pendingDriverTileReveal = null;
 
 /**
  * Indeks tras zaimportowanych do bazy (kod trasy -> nazwa pliku).
@@ -1157,6 +1164,18 @@ function ensureDriverContactsService() {
     return driverContactsService;
 }
 
+function ensureDriverRegistrationsService() {
+    if (driverRegistrationsService) return driverRegistrationsService;
+    driverRegistrationsService = createDriverRegistrationsService({
+        listFiles: docsListFiles,
+        getBlob: docsGetBlob,
+        readWorkbook,
+        sheetToMatrix: (worksheet) => qeGetExcelProcessor().sheetToMatrix(worksheet),
+        logAction
+    });
+    return driverRegistrationsService;
+}
+
 function parseScheduleFileNameYearMonth(fileName) {
     return ensureScheduleService().parseScheduleFileNameYearMonth(fileName);
 }
@@ -1198,6 +1217,24 @@ async function loadDriverContactsFiles({ fullReload } = { fullReload: false }) {
     return await ensureDriverContactsService().loadDriverContactsFiles({
         fullReload: Boolean(fullReload)
     });
+}
+
+async function processDriverRegistrationsFile(fileName) {
+    return await ensureDriverRegistrationsService().processDriverRegistrationsFile(fileName);
+}
+
+function invalidateDriverRegistrationsFile(fileName) {
+    ensureDriverRegistrationsService().invalidateDriverRegistrationsFile(fileName);
+}
+
+async function loadDriverRegistrationsFiles({ fullReload } = { fullReload: false }) {
+    return await ensureDriverRegistrationsService().loadDriverRegistrationsFiles({
+        fullReload: Boolean(fullReload)
+    });
+}
+
+function getDriverRegistrationForNameOnIsoDate(driverName, isoDate) {
+    return ensureDriverRegistrationsService().getRegistrationForDriverNameOnIsoDate(driverName, isoDate);
 }
 
 function getDriverContactForName(driverName) {
@@ -1316,7 +1353,16 @@ function cleanupDriverGridInteractions(rootEl) {
     }
 }
 
-function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '') {
+function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '', currentRoute = null) {
+    const nextCurrentRoute = currentRoute && typeof currentRoute === 'object'
+        ? {
+            routeCode: String(currentRoute?.routeCode ?? '').trim(),
+            isoDate: String(currentRoute?.isoDate ?? '').trim(),
+            category: String(currentRoute?.category ?? '').trim().toUpperCase(),
+            isAvailable: currentRoute?.isAvailable !== false
+        }
+        : null;
+
     return {
         label: normalizeDriverDisplayName(label),
         phones: Array.isArray(phones)
@@ -1328,7 +1374,8 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
         registration: String(registration ?? '').trim(),
         hasContact: Array.isArray(phones) && phones.length > 0,
         roleCategory: String(roleCategory ?? '').trim(),
-        roleNote: String(roleNote ?? '').trim()
+        roleNote: String(roleNote ?? '').trim(),
+        currentRoute: nextCurrentRoute && nextCurrentRoute.routeCode && nextCurrentRoute.isoDate ? nextCurrentRoute : null
     };
 }
 
@@ -1338,8 +1385,8 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
  * Dzięki temu widok `KIEROWCY` pozostaje odporny na duplikaty pochodzące
  * z różnych grafików lub wariantów zapisu tej samej osoby.
  *
- * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, roleCategory?: string, roleNote?: string }>} items
- * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, hasContact: boolean, roleCategory: string, roleNote: string }>}
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, roleCategory?: string, roleNote?: string, currentRoute?: { routeCode?: string, isoDate?: string, category?: string, isAvailable?: boolean } | null }>} items
+ * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, hasContact: boolean, roleCategory: string, roleNote: string, currentRoute: ({ routeCode: string, isoDate: string, category: string, isAvailable: boolean } | null) }>}
  */
 function dedupeDriverTileModels(items) {
     const list = Array.isArray(items) ? items : [];
@@ -1351,7 +1398,8 @@ function dedupeDriverTileModels(items) {
             item?.phones,
             item?.registration,
             item?.roleCategory,
-            item?.roleNote
+            item?.roleNote,
+            item?.currentRoute
         );
         const label = String(nextModel?.label ?? '').trim();
         if (!label) continue;
@@ -1376,7 +1424,8 @@ function dedupeDriverTileModels(items) {
             Array.from(phonesByIdentity.values()),
             currentModel.registration || nextModel.registration,
             currentModel.roleCategory || nextModel.roleCategory,
-            currentModel.roleNote || nextModel.roleNote
+            currentModel.roleNote || nextModel.roleNote,
+            currentModel.currentRoute || nextModel.currentRoute
         ));
     }
 
@@ -1436,15 +1485,92 @@ function getDriverRoleBadgeLabel(roleCategory) {
     return String(title ?? '').trim();
 }
 
-function buildDriverBadgesHtml(driverNames) {
+function buildDriverBadgesHtml(driverNames, { interactive = false } = {}) {
     const names = Array.isArray(driverNames) ? driverNames.map(normalizeDriverDisplayName).filter(Boolean) : [];
     if (names.length === 0) return '';
     const parts = [];
     for (let i = 0; i < names.length; i++) {
         if (i > 0) parts.push('<span class="result-driver-sep">i/lub</span>');
-        parts.push(`<span class="result-driver-badge">${escapeHtml(names[i])}</span>`);
+        if (interactive) {
+            parts.push(
+                `<button type="button" class="result-driver-badge result-driver-badge--interactive" data-driver-name="${escapeHtml(names[i])}" aria-label="Otwórz kierowcę ${escapeHtml(names[i])}">` +
+                `${escapeHtml(names[i])}</button>`
+            );
+        } else {
+            parts.push(`<span class="result-driver-badge">${escapeHtml(names[i])}</span>`);
+        }
     }
     return parts.join('');
+}
+
+/**
+ * Zapamiętuje kierowcę, którego kafelek należy otworzyć po wyrenderowaniu widoku `KIEROWCY`.
+ *
+ * @param {string} driverName
+ * @returns {void}
+ */
+function queueDriverTileReveal(driverName) {
+    const normalizedName = normalizeDriverDisplayName(driverName);
+    const lookupKey = utils.buildNormalizedDriverLookupKey(normalizedName);
+    if (!normalizedName || !lookupKey) return;
+    pendingDriverTileReveal = {
+        driverName: normalizedName,
+        lookupKey,
+        requestedAt: Date.now()
+    };
+}
+
+/**
+ * Otwiera i chwilowo podświetla kafelek kierowcy po przejściu z podglądu trasy.
+ *
+ * @param {HTMLElement | null} rootEl
+ * @returns {boolean}
+ */
+function revealPendingDriverTile(rootEl) {
+    if (!(rootEl instanceof HTMLElement) || !pendingDriverTileReveal?.lookupKey) return false;
+    const lookupKey = String(pendingDriverTileReveal.lookupKey || '').trim();
+    if (!lookupKey) return false;
+
+    const driverTiles = rootEl.querySelectorAll('.qe-driver-tile[data-driver-lookup-key]');
+    let targetTile = null;
+    for (const tile of driverTiles) {
+        if (!(tile instanceof HTMLElement)) continue;
+        if (String(tile.dataset.driverLookupKey || '').trim() === lookupKey) {
+            targetTile = tile;
+            break;
+        }
+    }
+    if (!(targetTile instanceof HTMLElement)) return false;
+
+    const trigger = targetTile.querySelector('.qe-driver-tile__trigger');
+    targetTile.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+
+    window.setTimeout(() => {
+        if (trigger instanceof HTMLButtonElement && !targetTile.classList.contains('is-open')) {
+            trigger.click();
+        }
+        targetTile.classList.remove('qe-driver-tile--flash');
+        void targetTile.offsetWidth;
+        targetTile.classList.add('qe-driver-tile--flash');
+        try { trigger?.focus?.({ preventScroll: true }); } catch { }
+        window.setTimeout(() => targetTile?.classList.remove('qe-driver-tile--flash'), 1800);
+    }, 40);
+
+    pendingDriverTileReveal = null;
+    return true;
+}
+
+/**
+ * Otwiera widok kierowców na wskazanej osobie na podstawie kliknięcia badge'a w podglądzie trasy.
+ *
+ * @param {string} driverName
+ * @returns {Promise<void>}
+ */
+async function openDriverFromPreviewBadge(driverName) {
+    const normalizedName = normalizeDriverDisplayName(driverName);
+    if (!normalizedName) return;
+    queueDriverTileReveal(normalizedName);
+    await openDriversView({ source: 'preview_driver_badge', targetDriverName: normalizedName });
 }
 
 /**
@@ -1489,6 +1615,7 @@ function ensureDriveUnifiedSyncApplication() {
         getFolderIdRoutes: () => ROUTES_FOLDER_ID,
         getFolderIdSchedule: () => DRIVE_SCHEDULE_FOLDER_ID,
         getDriverContactsFileId: () => DRIVE_DRIVER_CONTACTS_FILE_ID,
+        getDriverRegistrationsFileId: () => DRIVE_DRIVER_REGISTRATIONS_FILE_ID,
         parseScheduleMetaStrictXlsx: (name) => ensureScheduleService().parseScheduleFileNameYearMonthStrictXlsx(name),
         toTitleCase,
         maxImportBytes: MAX_IMPORT_BYTES,
@@ -1507,6 +1634,8 @@ function ensureDriveUnifiedSyncApplication() {
         processScheduleFile,
         invalidateDriverContactsFile,
         processDriverContactsFile,
+        invalidateDriverRegistrationsFile,
+        processDriverRegistrationsFile,
         processFile,
         loadedFiles,
         getAllDataLength: () => allData.length,
@@ -1673,7 +1802,8 @@ async function getRouteFileRecords() {
             const isSpreadsheet = lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.csv');
             const sourceKind = String(f?.sourceKind ?? '').trim();
             const isDriverContacts = sourceKind === DRIVER_CONTACTS_SOURCE_KIND;
-            return Boolean(name) && isSpreadsheet && !isScheduleFileName(name) && !isDriverContacts;
+            const isDriverRegistrations = sourceKind === DRIVER_REGISTRATIONS_SOURCE_KIND;
+            return Boolean(name) && isSpreadsheet && !isScheduleFileName(name) && !isDriverContacts && !isDriverRegistrations;
         })
         : [];
     routeRecords.sort((a, b) => String(a?.name ?? '').localeCompare(String(b?.name ?? ''), 'pl', { sensitivity: 'base' }));
@@ -2328,7 +2458,10 @@ function ensurePreviewController() {
         extractRouteCodeFromFileName,
         getDriverForRouteOnDate,
         getDriverForRouteOnIsoDate,
-        buildDriverBadgesHtml
+        buildDriverBadgesHtml,
+        onDriverBadgeClick: (driverName) => {
+            openDriverFromPreviewBadge(driverName).catch(() => { });
+        }
     });
     return previewController;
 }
@@ -2350,6 +2483,7 @@ function ensureScheduleController() {
         prevMonthBtn: schedulePrevMonthBtn,
         nextMonthBtn: scheduleNextMonthBtn,
         todayBtn: scheduleTodayBtn,
+        fullscreenBtn: scheduleFullscreenToggleBtn,
         driverFilterInput: scheduleDriverFilter,
         driverFilterToggleBtn: scheduleDriverFilterToggle,
         driverFilterOptionsEl: scheduleDriverFilterOptions,
@@ -2793,23 +2927,59 @@ function normalizePhoneForClipboard(phoneDisplay) {
 }
 
 /**
- * Wyznacza deterministyczną testową rejestrację dla kierowcy.
+ * Buduje bieżącą datę w formacie ISO (`YYYY-MM-DD`) bez zależności od stref.
  *
- * Dzięki temu UI pozostaje stabilny między kolejnymi renderami, zanim
- * podłączymy docelowe źródło numerów rejestracyjnych.
- *
- * @param {string} driverName
+ * @param {Date} [date]
  * @returns {string}
  */
-function getDriverTestRegistration(driverName) {
-    const key = String(driverName ?? '').trim().toLowerCase();
-    if (!key) return DRIVER_TEST_REGISTRATIONS[0];
+function buildTodayIsoDate(date = new Date()) {
+    const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
+    return `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, '0')}-${String(safeDate.getDate()).padStart(2, '0')}`;
+}
 
-    let hash = 0;
-    for (let i = 0; i < key.length; i += 1) {
-        hash = ((hash * 31) + key.charCodeAt(i)) >>> 0;
+/**
+ * Buduje indeks dzisiejszych tras kierowców na podstawie aktywnego grafiku.
+ *
+ * Każdy kierowca otrzymuje najwyżej jeden badge reprezentujący pierwszą
+ * aktywną trasę z komórki dla wskazanego dnia.
+ *
+ * @param {string} isoDate
+ * @returns {Map<string, { routeCode: string, isoDate: string, category: string, isAvailable: boolean }>}
+ */
+function buildDriverCurrentRouteIndex(isoDate) {
+    const safeIsoDate = String(isoDate ?? '').trim();
+    const match = safeIsoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return new Map();
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const table = ensureScheduleService().getMonthScheduleTable(year, month);
+    const rows = Array.isArray(table?.rows) ? table.rows : [];
+    if (rows.length === 0) return new Map();
+
+    const routeIndex = new Map();
+    for (const row of rows) {
+        const driverName = normalizeDriverDisplayName(row?.driverName);
+        if (!driverName) continue;
+
+        const cells = Array.isArray(row?.cells) ? row.cells : [];
+        const targetCell = cells.find((cell) => String(cell?.isoDate ?? '').trim() === safeIsoDate);
+        const tokens = Array.isArray(targetCell?.tokens) ? targetCell.tokens : [];
+        const routeToken = tokens.find((token) => token?.kind === 'route' && String(token?.code ?? '').trim());
+        if (!routeToken) continue;
+
+        const routeCode = String(routeToken?.code ?? '').trim();
+        if (!routeCode) continue;
+
+        routeIndex.set(driverName, {
+            routeCode,
+            isoDate: safeIsoDate,
+            category: String(routeToken?.category ?? '').trim().toUpperCase(),
+            isAvailable: Boolean(routeFileIndexByCode.get(normalizeRouteCodeForLookup(routeCode)))
+        });
     }
-    return DRIVER_TEST_REGISTRATIONS[hash % DRIVER_TEST_REGISTRATIONS.length];
+
+    return routeIndex;
 }
 
 /**
@@ -2823,7 +2993,7 @@ function getDriverTestRegistration(driverName) {
  * na dane z osobnego pliku źródłowego bez przebudowy UI.
  *
  * @param {HTMLElement | null} containerEl
- * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, hasContact?: boolean }>} items
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, hasContact?: boolean, currentRoute?: { routeCode?: string, isoDate?: string, category?: string, isAvailable?: boolean } | null }>} items
  * @param {{ emptyText?: string, groupByLetter?: boolean }} [opts]
  * @returns {void}
  */
@@ -2929,10 +3099,19 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                 : [];
             const registration = String(item?.registration ?? '').trim();
             const hasContact = Boolean(item?.hasContact) && phones.length > 0;
+            const currentRoute = item?.currentRoute && typeof item.currentRoute === 'object'
+                ? {
+                    routeCode: String(item?.currentRoute?.routeCode ?? '').trim(),
+                    isoDate: String(item?.currentRoute?.isoDate ?? '').trim(),
+                    category: String(item?.currentRoute?.category ?? '').trim().toUpperCase(),
+                    isAvailable: item?.currentRoute?.isAvailable !== false
+                }
+                : null;
 
             const tile = document.createElement('div');
             tile.className = 'qe-driver-tile';
             tile.setAttribute('role', 'listitem');
+            tile.dataset.driverLookupKey = utils.buildNormalizedDriverLookupKey(label);
 
             const trigger = document.createElement('button');
             trigger.type = 'button';
@@ -2957,6 +3136,36 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                 title.appendChild(givenNamesLine);
             }
             trigger.appendChild(title);
+
+            let currentRouteBadgeEl = null;
+            if (currentRoute?.routeCode && currentRoute?.isoDate) {
+                const routeBadgeClasses = [
+                    'qe-driver-tile__route-badge',
+                    currentRoute.category ? `qe-driver-tile__route-badge--${currentRoute.category}` : '',
+                    currentRoute.isAvailable ? '' : 'is-unavailable'
+                ].filter(Boolean).join(' ');
+
+                if (currentRoute.isAvailable) {
+                    const routeBadgeButton = document.createElement('button');
+                    routeBadgeButton.type = 'button';
+                    routeBadgeButton.className = routeBadgeClasses;
+                    routeBadgeButton.textContent = currentRoute.routeCode;
+                    routeBadgeButton.title = `Otwórz dzisiejszą trasę: ${currentRoute.routeCode}`;
+                    routeBadgeButton.setAttribute('aria-label', `Otwórz dzisiejszą trasę kierowcy ${label}: ${currentRoute.routeCode}`);
+                    routeBadgeButton.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        openRouteFromSchedule(currentRoute.routeCode, currentRoute.isoDate);
+                    }, { signal });
+                    currentRouteBadgeEl = routeBadgeButton;
+                } else {
+                    const routeBadgeLabel = document.createElement('span');
+                    routeBadgeLabel.className = routeBadgeClasses;
+                    routeBadgeLabel.textContent = currentRoute.routeCode;
+                    routeBadgeLabel.title = `Dzisiejsza trasa: ${currentRoute.routeCode} (brak pliku źródłowego)`;
+                    currentRouteBadgeEl = routeBadgeLabel;
+                }
+            }
 
             const panel = document.createElement('div');
             panel.className = 'qe-driver-tile__panel';
@@ -3093,6 +3302,7 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             }, { signal });
 
             tile.appendChild(trigger);
+            if (currentRouteBadgeEl instanceof HTMLElement) tile.appendChild(currentRouteBadgeEl);
             tile.appendChild(panel);
             gridEl.appendChild(tile);
             tileCounter += 1;
@@ -3309,6 +3519,12 @@ async function renderRoutesView() {
 async function renderDriversView() {
     await loadScheduleFiles({ fullReload: false, showProgress: false });
     await loadDriverContactsFiles({ fullReload: false });
+    await loadDriverRegistrationsFiles({ fullReload: false });
+    const routeRecords = await getRouteFileRecords();
+    refreshRouteMetaIndex(routeRecords);
+    dataStore.rebuildRouteFileIndex(routeRecords);
+    const todayIsoDate = buildTodayIsoDate();
+    const currentRouteIndex = buildDriverCurrentRouteIndex(todayIsoDate);
     const roleSectionsContainer = ensureDriverRoleSectionsContainer();
     if (roleSectionsContainer) {
         cleanupDriverGridInteractions(roleSectionsContainer);
@@ -3368,9 +3584,10 @@ async function renderDriversView() {
             const roleTiles = roleContacts.map((contact) => buildDriverTileModel(
                 contact?.driverName,
                 contact?.phones,
-                getDriverTestRegistration(String(contact?.driverName ?? '')),
+                getDriverRegistrationForNameOnIsoDate(String(contact?.driverName ?? ''), todayIsoDate),
                 contact?.roleCategory,
-                contact?.roleNote
+                contact?.roleNote,
+                currentRouteIndex.get(normalizeDriverDisplayName(String(contact?.driverName ?? ''))) || null
             ));
 
             renderDriverTileGrid(roleGrid, roleTiles, { emptyText: '', groupByLetter: false });
@@ -3385,9 +3602,17 @@ async function renderDriversView() {
         })
         .map((driverName) => {
         const contact = getDriverContactForName(driverName);
-        return buildDriverTileModel(driverName, contact?.phones, getDriverTestRegistration(driverName), contact?.roleCategory, contact?.roleNote);
+        return buildDriverTileModel(
+            driverName,
+            contact?.phones,
+            getDriverRegistrationForNameOnIsoDate(driverName, todayIsoDate),
+            contact?.roleCategory,
+            contact?.roleNote,
+            currentRouteIndex.get(normalizeDriverDisplayName(driverName)) || null
+        );
     });
     renderDriverTileGrid(driversGrid, tiles, { emptyText: 'Brak kierowców w zaimportowanych plikach grafiku.' });
+    revealPendingDriverTile(driversView);
 }
 
 function showRoutesShell() {
@@ -3418,7 +3643,10 @@ async function openRoutesView({ skipPush = false, source = '', transitionToken =
     logClientEvent('navigate', { to: 'routes', source: String(source || '') });
 }
 
-async function openDriversView({ skipPush = false, source = '', transitionToken = 0 } = {}) {
+async function openDriversView({ skipPush = false, source = '', transitionToken = 0, targetDriverName = '' } = {}) {
+    if (String(targetDriverName || '').trim()) {
+        queueDriverTileReveal(String(targetDriverName || '').trim());
+    }
     showDriversShell();
     await renderDriversView();
     if (transitionToken && transitionToken !== primaryNavTransitionToken) return;
@@ -3525,9 +3753,12 @@ async function openScheduleView({ ym, selectedIsoDate, skipPush = false, source 
 
 /**
  * Obsługuje powrót z widoku grafiku do poprzedniego widoku.
- * Preferuje `history.back()`, aby zachować naturalny przebieg Back/Forward.
+ * Przed nawigacją kończy pełny ekran, aby zachowanie było spójne z klawiszem `Esc`.
  */
-function handleBackFromSchedule() {
+async function handleBackFromSchedule() {
+    try {
+        await ensureScheduleController()?.exitScheduleFullscreen?.();
+    } catch { }
     const st = history.state || {};
     if (st?.view === 'schedule') {
         try { history.back(); return; } catch { }

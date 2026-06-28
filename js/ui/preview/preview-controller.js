@@ -24,6 +24,9 @@ export function createPreviewController(cfg) {
     const buildDriverBadgesHtml = typeof cfg?.buildDriverBadgesHtml === 'function'
         ? cfg.buildDriverBadgesHtml
         : (() => '');
+    const onDriverBadgeClick = typeof cfg?.onDriverBadgeClick === 'function'
+        ? cfg.onDriverBadgeClick
+        : null;
 
     /**
      * Sprawdza, czy wartość wygląda jak data ISO w formacie `YYYY-MM-DD`.
@@ -42,6 +45,28 @@ export function createPreviewController(cfg) {
     function clearElement(el) {
         if (!el) return;
         el.replaceChildren();
+    }
+
+    /**
+     * Obsługuje kliknięcia w badge'e kierowców osadzone w nagłówku podglądu trasy.
+     *
+     * @param {MouseEvent} event
+     * @returns {void}
+     */
+    function handlePreviewFileNameClick(event) {
+        if (!onDriverBadgeClick || !previewFileName) return;
+        const target = event?.target;
+        if (!(target instanceof Element)) return;
+
+        const badgeEl = target.closest('.result-driver-badge[data-driver-name]');
+        if (!(badgeEl instanceof HTMLElement)) return;
+
+        const driverName = String(badgeEl.dataset.driverName || '').trim();
+        if (!driverName) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        onDriverBadgeClick(driverName);
     }
 
     function updateMeta(metaLines) {
@@ -88,7 +113,7 @@ export function createPreviewController(cfg) {
                 ? getDriverForRouteOnIsoDate(routeCode, contextIsoDate)
                 : getDriverForRouteOnDate(routeCode, new Date()))
             : null;
-        const driverBadgesHtml = buildDriverBadgesHtml(driverNames);
+        const driverBadgesHtml = buildDriverBadgesHtml(driverNames, { interactive: Boolean(onDriverBadgeClick) });
         if (driverBadgesHtml) {
             const driverEl = document.createElement('span');
             driverEl.className = 'result-driver';
@@ -162,6 +187,8 @@ export function createPreviewController(cfg) {
         renderHeader(tableModel?.headers);
         return renderBody(tableModel, highlightRowIndex);
     }
+
+    previewFileName?.addEventListener?.('click', handlePreviewFileNameClick);
 
     return { showSearch, showPreview, updateMeta, renderFileName };
 }
