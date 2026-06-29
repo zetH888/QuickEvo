@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.36.19-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.37.31-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,6 +47,36 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.37.31
+
+- Dopracowano finalną geometrię stref w kafelkach `KIEROWCY`: lewa sekcja z danymi ma teraz twardszy limit szerokości względem prawej kolumny, dzięki czemu separator nie nachodzi już na dłuższe nazwiska.
+- Prawa strefa badge'y otrzymała równiej policzone oddechy względem separatora, prawej krawędzi i pionowych offsetów kafelka, co porządkuje pozycjonowanie kodów także przy dłuższych nazwach kierowców.
+
+### Zmiany w wersji 2.37.26
+
+- Dopracowano geometrię kafelków `KIEROWCY`, aby tekst kierowcy, pionowy glow separator i prawa kolumna badge'y miały stabilny bufor przestrzeni i nie wchodziły już na siebie nawet przy dłuższych nazwach.
+- Kolor pionowego glow paska został przepięty na zmienne motywu: w ciemnym motywie korzysta teraz z niebieskiego akcentu zgodnego z aplikacją, a w jasnym z odpowiednio stonowanego wariantu dopasowanego do jego palety.
+
+### Zmiany w wersji 2.37.20
+
+- Widok kafelków `KIEROWCY` otrzymał subtelny, pionowy akcent typu glow pomiędzy strefą danych kierowcy a strefą badge'y, dzięki czemu prawa kolumna kodów jest czytelniej odseparowana bez ciężkiego wizualnie separatora.
+- Hover kafelków kierowców został dopracowany w bardziej premium kierunku: pojawia się delikatny wewnętrzny highlight, lżejsza poświata i spokojniejsze podbicie całej bryły, przy zachowaniu lekkiego charakteru interfejsu.
+
+### Zmiany w wersji 2.37.14
+
+- Poprawiono finalny pixel-polish badge'y w kafelkach `KIEROWCY`: pionowy slot po prawej stronie ma teraz bezpieczny zapas wysokości dla dwóch kodów tego samego dnia, dzięki czemu badge'e nie nachodzą już na siebie.
+- Zsynchronizowano animację hover kafelka kierowcy i jego badge'y: znaczniki kodów poruszają się teraz razem z kafelkiem jako jeden komponent, zamiast sprawiać wrażenie doklejonych osobno.
+
+### Zmiany w wersji 2.37.8
+
+- Dopracowano finalny układ badge'y w widoku `KIEROWCY`: kafelek pokazuje maksymalnie dwa dzisiejsze kody jak w `GRAFIKU`, osadzone wewnątrz po prawej stronie w stałych slotach narożnych (`prawy górny` i `prawy dolny`) zamiast w układzie zawijanym.
+- Kod specjalny `UŻ` otrzymał własny, stonowany bordowy wariant kolorystyczny, spójny między widokami `GRAFIK` i `KIEROWCY`, aby wyraźnie odróżniał się od pozostałych markerów bez agresywnej jaskrawości.
+
+### Zmiany w wersji 2.37.0
+
+- Widok `KIEROWCY` pokazuje teraz w kafelkach komplet dzisiejszych kodów z `GRAFIKU`, a nie tylko pojedynczą trasę: renderowane są zarówno realne trasy, jak i kody specjalne typu `Z`, `UŻ`, `Dk`, `*D`, `*P`, z zachowaniem kolejności z komórki grafiku.
+- Badge'e kodów w kafelkach kierowców zostały wizualnie ujednolicone z badge'ami z widoku `GRAFIK`: korzystają z tych samych kolorów kategorii tras oraz tego samego wariantu koloru dla markerów specjalnych; klik pozostaje aktywny tylko dla prawdziwych tras.
 
 ### Zmiany w wersji 2.36.19
 
@@ -300,7 +330,7 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Responsywny design z obsługą urządzeń mobilnych
 - Widoki aplikacji i nawigacja: TRASY, KIEROWCY, GRAFIK + ekran wyszukiwania/podglądu pliku
 - Główna nawigacja `TRASY` / `KIEROWCY` / `GRAFIK` działa jak toggle sekcji: pierwsze kliknięcie otwiera widok, a ponowne kliknięcie aktywnego przycisku zamyka sekcję i wraca do ekranu wyszukiwania z paskiem inputu
-- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; przed renderem działa wspólna normalizacja i deduplikacja nazw kierowców, więc warianty z nawiasami, znakami specjalnymi, nadmiarem spacji lub inną wielkością liter nie tworzą już wielu kafelków tej samej osoby; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; w prawym górnym rogu mogą pokazywać mały badge z dzisiejszą trasą, który otwiera od razu podgląd tej trasy, a badge kierowcy w podglądzie trasy potrafi wykonać nawigację zwrotną do konkretnego kafelka; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, którego wartość pochodzi już z osobnego pliku rejestracji Google Drive z fallbackiem do ostatniej znanej rejestracji w miesiącu, a ponowny klik w aktywny kafelek zwija panel z animacją
+- Ekran `KIEROWCY` z interaktywnymi kafelkami: nad główną sekcją kierowców pojawiają się segmenty ról specjalnych (`Szef`, `Kierownik`, `Koordynator`, `Dyspozytor`) bez podziału alfabetycznego, z kafelkami wyświetlanymi obok siebie; osoby przypisane do tych segmentów są wykluczane z głównej sekcji kierowców; lista zwykłych kierowców pozostaje sortowana alfabetycznie po nazwisku z grafiku i dzielona na sekcje literowe `A/B/C...`; przed renderem działa wspólna normalizacja i deduplikacja nazw kierowców, więc warianty z nawiasami, znakami specjalnymi, nadmiarem spacji lub inną wielkością liter nie tworzą już wielu kafelków tej samej osoby; kafelki mają lewostronne wyrównanie, rozbijają nazwę na osobne wiersze nazwisko/imiona i dobierają wspólną szerokość per sekcja bez łamania słów w środku; pod nazwą kierowcy pokazują komplet dzisiejszych kodów z `GRAFIKU` (trasy i kody specjalne) w tej samej kolorystyce co sam widok `GRAFIK`, a klik na prawdziwej trasie otwiera od razu jej podgląd; badge kierowcy w podglądzie trasy potrafi wykonać nawigację zwrotną do konkretnego kafelka; panel szczegółów otwiera się wyłącznie po kliknięciu kafelka, obsługuje wiele numerów telefonu z ikonami akcji, skrócony badge roli specjalnej i pole `POJAZD`, którego wartość pochodzi już z osobnego pliku rejestracji Google Drive z fallbackiem do ostatniej znanej rejestracji w miesiącu, a ponowny klik w aktywny kafelek zwija panel z animacją
 - Widok `GRAFIK` ma dwa wyraźnie różne profile responsywne: na desktopie działa w centrowanym, bardziej premium kontenerze z szerszym środkiem toolbaru, a na mobile upraszcza nazwiska, ogranicza rozmiary komórek i ukrywa wtórne elementy toolbaru, aby maksymalnie oddać miejsce samej tabeli.
 - Ekran `GRAFIK` do swobodnego przeglądania harmonogramu w formie nowoczesnego data-gridu z zachowaniem układu arkusza: sticky header dni, sticky kolumna kierowców, wybór dnia i kierowcy, filtrowanie po kierowcy i trasie/symbolu, akcja `Dziś`, subtelne weekendy oraz klikalne badge'e tras otwierające podgląd w kontekście wybranej daty; kody informacyjne `Z`, `UŻ`, `Dk`, `*D`, `*P` pozostają widoczne, ale nie są traktowane jak trasy i nie są klikalne, a wpisy tras bez pliku źródłowego (np. `REN`) są renderowane jako nieaktywne badge'e
 - Ekran powitalny z efektem glassmorphism

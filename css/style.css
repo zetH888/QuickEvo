@@ -99,6 +99,9 @@ html::-webkit-scrollbar {
     --qe-lab-badge-bg: transparent;
     --qe-lab-badge-text: rgba(255, 255, 255, 0.92);
     --qe-lab-badge-border: rgba(255, 255, 255, 0.32);
+    --qe-driver-separator-core: rgba(66, 156, 255, 0.94);
+    --qe-driver-separator-glow: rgba(66, 156, 255, 0.24);
+    --qe-driver-separator-edge: rgba(153, 211, 255, 0.16);
 }
 
 body.light-theme {
@@ -178,6 +181,9 @@ body.light-theme {
     --qe-lab-badge-bg: transparent;
     --qe-lab-badge-text: #2C2C2C;
     --qe-lab-badge-border: rgba(44, 44, 44, 0.20);
+    --qe-driver-separator-core: rgba(102, 138, 201, 0.9);
+    --qe-driver-separator-glow: rgba(102, 138, 201, 0.22);
+    --qe-driver-separator-edge: rgba(164, 190, 230, 0.22);
 }
 
 body {
@@ -1721,6 +1727,9 @@ tbody tr:nth-child(even) td:nth-child(even) {
 
 .qe-driver-tile {
     position: relative;
+    display: grid;
+    gap: 8px;
+    align-content: start;
     min-width: 0;
 }
 
@@ -1805,24 +1814,73 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 .qe-driver-tile__trigger {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     width: 100%;
-    min-height: 72px;
+    min-height: 78px;
     align-items: flex-start;
     justify-content: flex-start;
     text-align: left;
-    padding-right: 3.9rem;
+    padding-right: var(--qe-driver-content-right-gap, 5rem);
+    transition:
+        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 0.28s ease,
+        background 0.32s ease,
+        box-shadow 0.32s ease,
+        filter 0.32s ease;
+}
+
+.qe-driver-tile__trigger::before,
+.qe-driver-tile__trigger::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.24s ease, transform 0.24s ease, filter 0.24s ease;
+}
+
+.qe-driver-tile__trigger::before {
+    inset: 1px;
+    border-radius: inherit;
+    background:
+        radial-gradient(120px 42px at 14% 8%, rgba(255, 255, 255, 0.08), transparent 72%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
+    transform: translateY(2px);
+}
+
+.qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
+    top: 10px;
+    bottom: 10px;
+    right: var(--qe-driver-separator-right);
+    width: 3px;
+    opacity: 0.7;
+    border-radius: 999px;
+    background:
+        linear-gradient(180deg, color-mix(in srgb, var(--qe-driver-separator-core) 18%, transparent), var(--qe-driver-separator-core), color-mix(in srgb, var(--qe-driver-separator-core) 18%, transparent));
+    box-shadow:
+        0 0 0 1px var(--qe-driver-separator-edge),
+        0 0 10px var(--qe-driver-separator-glow),
+        0 0 22px color-mix(in srgb, var(--qe-driver-separator-glow) 70%, transparent);
+    transform: scaleY(0.92);
 }
 
 .qe-driver-tile__title {
     display: grid;
     gap: 2px;
     width: 100%;
+    max-width: calc(100% - var(--qe-driver-content-right-gap, 5rem));
     font-size: 0.98rem;
     line-height: 1.2;
     text-wrap: pretty;
 }
 
 .qe-driver-tile {
+    --qe-driver-badge-width: 42px;
+    --qe-driver-badge-offset: 10px;
+    --qe-driver-separator-gap: 10px;
+    --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 18px);
+    --qe-driver-separator-right: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap));
     flex: 0 0 min(var(--qe-driver-section-tile-width, 14rem), 100%);
     width: min(var(--qe-driver-section-tile-width, 14rem), 100%);
     max-width: 100%;
@@ -1855,39 +1913,56 @@ tbody tr:nth-child(even) td:nth-child(even) {
     hyphens: none;
 }
 
+.qe-driver-tile__route-badges {
+    position: absolute;
+    top: var(--qe-driver-badge-offset);
+    right: var(--qe-driver-badge-offset);
+    bottom: var(--qe-driver-badge-offset);
+    z-index: 2;
+    width: var(--qe-driver-badge-width);
+    pointer-events: none;
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease, filter 0.24s ease;
+}
+
 .qe-driver-tile__route-badge {
     position: absolute;
-    top: 10px;
-    right: 10px;
-    z-index: 2;
+    right: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 2.25rem;
-    min-height: 1.5rem;
-    padding: 0 0.55rem;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--primary-color) 26%, var(--border-color));
-    background: color-mix(in srgb, var(--card-bg) 75%, rgba(15, 23, 42, 0.92));
-    color: var(--text-color);
-    font-size: 0.72rem;
-    font-weight: 900;
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.09);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.92);
+    font-size: 12px;
+    font-weight: 700;
     letter-spacing: 0.03em;
     line-height: 1;
     white-space: nowrap;
-    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
 }
 
 button.qe-driver-tile__route-badge {
+    pointer-events: auto;
     cursor: pointer;
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
 }
 
 button.qe-driver-tile__route-badge:hover,
 button.qe-driver-tile__route-badge:focus-visible {
-    transform: translateY(-1px);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
-    border-color: color-mix(in srgb, var(--primary-color) 48%, var(--border-color));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 10px 24px rgba(0, 0, 0, 0.2);
+    border-color: color-mix(in srgb, var(--primary-color) 48%, rgba(255, 255, 255, 0.18));
 }
 
 button.qe-driver-tile__route-badge:focus-visible {
@@ -1896,31 +1971,94 @@ button.qe-driver-tile__route-badge:focus-visible {
 }
 
 .qe-driver-tile__route-badge.is-unavailable {
-    opacity: 0.7;
+    cursor: default;
+}
+
+.qe-driver-tile__route-badge--slot-top {
+    top: 0;
+}
+
+.qe-driver-tile__route-badge--slot-bottom {
+    bottom: 0;
+}
+
+.qe-driver-tile:hover .qe-driver-tile__route-badges,
+.qe-driver-tile:focus-within .qe-driver-tile__route-badges {
+    transform: translateY(-1px);
+}
+
+.qe-driver-tile:active .qe-driver-tile__route-badges {
+    transform: translateY(0);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__trigger,
+.qe-driver-tile:focus-within .qe-driver-tile__trigger {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
+    box-shadow:
+        0 18px 34px rgba(3, 10, 24, 0.32),
+        0 8px 18px rgba(0, 0, 0, 0.16),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    filter: saturate(1.04);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__trigger::before,
+.qe-driver-tile:focus-within .qe-driver-tile__trigger::before {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.qe-driver-tile--with-route-badges:hover .qe-driver-tile__trigger::after,
+.qe-driver-tile--with-route-badges:focus-within .qe-driver-tile__trigger::after {
+    opacity: 1;
+    transform: scaleY(1);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__route-badges,
+.qe-driver-tile:focus-within .qe-driver-tile__route-badges {
+    filter: saturate(1.05) brightness(1.02);
+}
+
+.qe-driver-tile:active .qe-driver-tile__trigger {
+    transform: translateY(0);
+    box-shadow: var(--shadow);
 }
 
 .qe-driver-tile__route-badge--STANDARD {
-    background: linear-gradient(135deg, rgba(13, 110, 253, 0.22), rgba(13, 110, 253, 0.14));
-    border-color: rgba(13, 110, 253, 0.34);
-    color: color-mix(in srgb, var(--text-color) 90%, #7dc4ff);
+    background: color-mix(in srgb, var(--secondary-text) 18%, transparent);
+    border-color: color-mix(in srgb, var(--secondary-text) 30%, rgba(255, 255, 255, 0.18));
 }
 
 .qe-driver-tile__route-badge--WIECZOREK {
-    background: linear-gradient(135deg, rgba(123, 92, 255, 0.24), rgba(123, 92, 255, 0.14));
-    border-color: rgba(123, 92, 255, 0.34);
-    color: color-mix(in srgb, var(--text-color) 90%, #b6a2ff);
+    background: color-mix(in srgb, var(--primary-color) 22%, transparent);
+    border-color: color-mix(in srgb, var(--primary-color) 36%, rgba(255, 255, 255, 0.18));
 }
 
 .qe-driver-tile__route-badge--SOBOTA {
-    background: linear-gradient(135deg, rgba(0, 167, 111, 0.24), rgba(0, 167, 111, 0.14));
-    border-color: rgba(0, 167, 111, 0.34);
-    color: color-mix(in srgb, var(--text-color) 90%, #90e2bb);
+    background: rgba(255, 190, 90, 0.16);
+    border-color: rgba(255, 190, 90, 0.28);
 }
 
 .qe-driver-tile__route-badge--NIEDZIELA {
-    background: linear-gradient(135deg, rgba(255, 159, 64, 0.24), rgba(255, 159, 64, 0.14));
-    border-color: rgba(255, 159, 64, 0.34);
-    color: color-mix(in srgb, var(--text-color) 92%, #ffd39c);
+    background: color-mix(in srgb, var(--state-success) 18%, transparent);
+    border-color: color-mix(in srgb, var(--state-success) 34%, rgba(255, 255, 255, 0.18));
+}
+
+.qe-driver-tile__route-badge--marker {
+    cursor: default;
+    background: rgba(121, 72, 191, 0.24);
+    border-color: rgba(160, 112, 235, 0.34);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 0 1px rgba(103, 63, 168, 0.12);
+}
+
+.qe-driver-tile__route-badge--marker[data-marker-code="UŻ"] {
+    background: rgba(128, 40, 58, 0.28);
+    border-color: rgba(183, 91, 110, 0.4);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 0 1px rgba(98, 30, 44, 0.16);
 }
 
 .qe-driver-tile__line--surname {
@@ -2143,16 +2281,33 @@ button.qe-driver-tile__route-badge:focus-visible {
     }
 
     .qe-driver-tile__trigger {
-        padding-right: 3.4rem;
+        min-height: 68px;
+        padding-right: var(--qe-driver-content-right-gap, 4.25rem);
+    }
+
+    .qe-driver-tile {
+        --qe-driver-badge-width: 34px;
+        --qe-driver-badge-offset: 8px;
+        --qe-driver-separator-gap: 8px;
+        --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 14px);
+        --qe-driver-separator-right: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap));
+    }
+
+    .qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
     }
 
     .qe-driver-tile__route-badge {
-        top: 8px;
-        right: 8px;
-        min-width: 2.05rem;
-        min-height: 1.4rem;
-        padding: 0 0.48rem;
-        font-size: 0.68rem;
+        width: 34px;
+        min-width: 34px;
+        max-width: 34px;
+        flex-basis: 34px;
+        height: 24px;
+        padding: 0 5px;
+        font-size: 10px;
+        border-radius: 7px;
     }
 }
 
@@ -3095,6 +3250,14 @@ button.qe-driver-tile__route-badge:focus-visible {
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.08),
         0 0 0 1px rgba(103, 63, 168, 0.12);
+}
+
+#schedule-view .route-badge--marker[data-marker-code="UŻ"] {
+    background: rgba(128, 40, 58, 0.28);
+    border-color: rgba(183, 91, 110, 0.4);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 0 0 1px rgba(98, 30, 44, 0.16);
 }
 
 #schedule-view .schedule-empty {

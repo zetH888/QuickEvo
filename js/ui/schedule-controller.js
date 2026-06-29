@@ -1070,6 +1070,7 @@ function createScheduleGrid(cfg = {}) {
                 const marker = document.createElement('span');
                 marker.className = 'route-badge route-badge--marker';
                 marker.textContent = code;
+                marker.dataset.markerCode = code.toUpperCase();
                 const meaning = String(
                     markerMeanings?.[code]
                     ?? markerMeanings?.[String(code || '').toUpperCase()]

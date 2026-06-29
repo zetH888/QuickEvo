@@ -1353,15 +1353,43 @@ function cleanupDriverGridInteractions(rootEl) {
     }
 }
 
-function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '', currentRoute = null) {
-    const nextCurrentRoute = currentRoute && typeof currentRoute === 'object'
-        ? {
-            routeCode: String(currentRoute?.routeCode ?? '').trim(),
-            isoDate: String(currentRoute?.isoDate ?? '').trim(),
-            category: String(currentRoute?.category ?? '').trim().toUpperCase(),
-            isAvailable: currentRoute?.isAvailable !== false
-        }
-        : null;
+/**
+ * Normalizuje listę dzisiejszych tokenów grafiku widocznych w kafelku kierowcy.
+ *
+ * Zachowujemy kolejność z komórki grafiku, ale usuwamy duplikaty powstałe przy
+ * składaniu modelu z kilku źródeł.
+ *
+ * @param {Array<{ kind?: 'route'|'marker', code?: string, isoDate?: string, category?: string, isAvailable?: boolean, meaning?: string }>} tokens
+ * @returns {Array<{ kind: 'route'|'marker', code: string, isoDate: string, category?: string, isAvailable?: boolean, meaning?: string }>}
+ */
+function normalizeDriverTileScheduleTokens(tokens) {
+    const list = Array.isArray(tokens) ? tokens : [];
+    const normalized = [];
+    const seen = new Set();
+
+    for (const token of list) {
+        const kind = token?.kind === 'marker' ? 'marker' : 'route';
+        const code = String(token?.code ?? '').trim();
+        const isoDate = String(token?.isoDate ?? '').trim();
+        const category = kind === 'route' ? String(token?.category ?? '').trim().toUpperCase() : '';
+        const meaning = kind === 'marker' ? String(token?.meaning ?? '').trim() : '';
+        const isAvailable = kind === 'route' ? token?.isAvailable !== false : false;
+        if (!code) continue;
+
+        const identity = `${kind}:${code}:${isoDate}:${category}:${isAvailable ? '1' : '0'}:${meaning}`;
+        if (seen.has(identity)) continue;
+        seen.add(identity);
+
+        normalized.push(kind === 'marker'
+            ? Object.freeze({ kind, code, isoDate, meaning })
+            : Object.freeze({ kind, code, isoDate, category, isAvailable }));
+    }
+
+    return normalized;
+}
+
+function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '', todayScheduleTokens = []) {
+    const nextTodayScheduleTokens = normalizeDriverTileScheduleTokens(todayScheduleTokens);
 
     return {
         label: normalizeDriverDisplayName(label),
@@ -1375,7 +1403,7 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
         hasContact: Array.isArray(phones) && phones.length > 0,
         roleCategory: String(roleCategory ?? '').trim(),
         roleNote: String(roleNote ?? '').trim(),
-        currentRoute: nextCurrentRoute && nextCurrentRoute.routeCode && nextCurrentRoute.isoDate ? nextCurrentRoute : null
+        todayScheduleTokens: nextTodayScheduleTokens
     };
 }
 
@@ -1385,8 +1413,8 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
  * Dzięki temu widok `KIEROWCY` pozostaje odporny na duplikaty pochodzące
  * z różnych grafików lub wariantów zapisu tej samej osoby.
  *
- * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, roleCategory?: string, roleNote?: string, currentRoute?: { routeCode?: string, isoDate?: string, category?: string, isAvailable?: boolean } | null }>} items
- * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, hasContact: boolean, roleCategory: string, roleNote: string, currentRoute: ({ routeCode: string, isoDate: string, category: string, isAvailable: boolean } | null) }>}
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, roleCategory?: string, roleNote?: string, todayScheduleTokens?: Array<{ kind?: 'route'|'marker', code?: string, isoDate?: string, category?: string, isAvailable?: boolean, meaning?: string }> }>} items
+ * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, hasContact: boolean, roleCategory: string, roleNote: string, todayScheduleTokens: Array<{ kind: 'route'|'marker', code: string, isoDate: string, category?: string, isAvailable?: boolean, meaning?: string }> }>}
  */
 function dedupeDriverTileModels(items) {
     const list = Array.isArray(items) ? items : [];
@@ -1399,7 +1427,7 @@ function dedupeDriverTileModels(items) {
             item?.registration,
             item?.roleCategory,
             item?.roleNote,
-            item?.currentRoute
+            item?.todayScheduleTokens
         );
         const label = String(nextModel?.label ?? '').trim();
         if (!label) continue;
@@ -1425,7 +1453,10 @@ function dedupeDriverTileModels(items) {
             currentModel.registration || nextModel.registration,
             currentModel.roleCategory || nextModel.roleCategory,
             currentModel.roleNote || nextModel.roleNote,
-            currentModel.currentRoute || nextModel.currentRoute
+            normalizeDriverTileScheduleTokens([
+                ...currentModel.todayScheduleTokens,
+                ...nextModel.todayScheduleTokens
+            ])
         ));
     }
 
@@ -2938,15 +2969,42 @@ function buildTodayIsoDate(date = new Date()) {
 }
 
 /**
- * Buduje indeks dzisiejszych tras kierowców na podstawie aktywnego grafiku.
+ * Zwraca opis znaczenia kodu informacyjnego z grafiku.
  *
- * Każdy kierowca otrzymuje najwyżej jeden badge reprezentujący pierwszą
- * aktywną trasę z komórki dla wskazanego dnia.
+ * Wyszukiwanie toleruje różne warianty zapisu klucza (`Dk`, `DK`, `dk`),
+ * dzięki czemu badge'e specjalne mają poprawny tooltip bez duplikacji logiki.
+ *
+ * @param {string} markerCode
+ * @returns {string}
+ */
+function getScheduleMarkerMeaning(markerCode) {
+    const code = String(markerCode ?? '').trim();
+    if (!code) return '';
+
+    const markerMeanings = qeConstants?.SCHEDULE_MARKER_MEANINGS && typeof qeConstants.SCHEDULE_MARKER_MEANINGS === 'object'
+        ? qeConstants.SCHEDULE_MARKER_MEANINGS
+        : {};
+    const titleCaseCode = `${code.slice(0, 1).toUpperCase()}${code.slice(1).toLowerCase()}`;
+    const lookupVariants = [code, code.toUpperCase(), code.toLowerCase(), titleCaseCode];
+
+    for (const key of lookupVariants) {
+        const meaning = String(markerMeanings?.[key] ?? '').trim();
+        if (meaning) return meaning;
+    }
+
+    return '';
+}
+
+/**
+ * Buduje indeks wszystkich dzisiejszych kodów grafiku dla każdego kierowcy.
+ *
+ * Kafelek ma pokazywać pełną zawartość komórki z bieżącego dnia: prawdziwe
+ * trasy oraz kody specjalne, w oryginalnej kolejności.
  *
  * @param {string} isoDate
- * @returns {Map<string, { routeCode: string, isoDate: string, category: string, isAvailable: boolean }>}
+ * @returns {Map<string, Array<{ kind: 'route'|'marker', code: string, isoDate: string, category?: string, isAvailable?: boolean, meaning?: string }>>}
  */
-function buildDriverCurrentRouteIndex(isoDate) {
+function buildDriverTodayScheduleIndex(isoDate) {
     const safeIsoDate = String(isoDate ?? '').trim();
     const match = safeIsoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!match) return new Map();
@@ -2965,18 +3023,36 @@ function buildDriverCurrentRouteIndex(isoDate) {
         const cells = Array.isArray(row?.cells) ? row.cells : [];
         const targetCell = cells.find((cell) => String(cell?.isoDate ?? '').trim() === safeIsoDate);
         const tokens = Array.isArray(targetCell?.tokens) ? targetCell.tokens : [];
-        const routeToken = tokens.find((token) => token?.kind === 'route' && String(token?.code ?? '').trim());
-        if (!routeToken) continue;
+        const visibleTokens = [];
 
-        const routeCode = String(routeToken?.code ?? '').trim();
-        if (!routeCode) continue;
+        for (const token of tokens) {
+            const kind = token?.kind === 'marker' ? 'marker' : 'route';
+            const code = String(token?.code ?? '').trim();
+            if (!code) continue;
 
-        routeIndex.set(driverName, {
-            routeCode,
-            isoDate: safeIsoDate,
-            category: String(routeToken?.category ?? '').trim().toUpperCase(),
-            isAvailable: Boolean(routeFileIndexByCode.get(normalizeRouteCodeForLookup(routeCode)))
-        });
+            if (kind === 'marker') {
+                visibleTokens.push(Object.freeze({
+                    kind,
+                    code,
+                    isoDate: safeIsoDate,
+                    meaning: getScheduleMarkerMeaning(code)
+                }));
+                continue;
+            }
+
+            visibleTokens.push(Object.freeze({
+                kind,
+                code,
+                isoDate: safeIsoDate,
+                category: String(token?.category ?? '').trim().toUpperCase(),
+                isAvailable: Boolean(routeFileIndexByCode.get(normalizeRouteCodeForLookup(code)))
+            }));
+
+            if (visibleTokens.length >= 2) break;
+        }
+
+        if (visibleTokens.length === 0) continue;
+        routeIndex.set(driverName, visibleTokens);
     }
 
     return routeIndex;
@@ -2993,7 +3069,7 @@ function buildDriverCurrentRouteIndex(isoDate) {
  * na dane z osobnego pliku źródłowego bez przebudowy UI.
  *
  * @param {HTMLElement | null} containerEl
- * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, hasContact?: boolean, currentRoute?: { routeCode?: string, isoDate?: string, category?: string, isAvailable?: boolean } | null }>} items
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, hasContact?: boolean, todayScheduleTokens?: Array<{ kind?: 'route'|'marker', code?: string, isoDate?: string, category?: string, isAvailable?: boolean, meaning?: string }> }>} items
  * @param {{ emptyText?: string, groupByLetter?: boolean }} [opts]
  * @returns {void}
  */
@@ -3099,14 +3175,7 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                 : [];
             const registration = String(item?.registration ?? '').trim();
             const hasContact = Boolean(item?.hasContact) && phones.length > 0;
-            const currentRoute = item?.currentRoute && typeof item.currentRoute === 'object'
-                ? {
-                    routeCode: String(item?.currentRoute?.routeCode ?? '').trim(),
-                    isoDate: String(item?.currentRoute?.isoDate ?? '').trim(),
-                    category: String(item?.currentRoute?.category ?? '').trim().toUpperCase(),
-                    isAvailable: item?.currentRoute?.isAvailable !== false
-                }
-                : null;
+            const todayScheduleTokens = normalizeDriverTileScheduleTokens(item?.todayScheduleTokens).slice(0, 2);
 
             const tile = document.createElement('div');
             tile.className = 'qe-driver-tile';
@@ -3137,33 +3206,75 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             }
             trigger.appendChild(title);
 
-            let currentRouteBadgeEl = null;
-            if (currentRoute?.routeCode && currentRoute?.isoDate) {
-                const routeBadgeClasses = [
-                    'qe-driver-tile__route-badge',
-                    currentRoute.category ? `qe-driver-tile__route-badge--${currentRoute.category}` : '',
-                    currentRoute.isAvailable ? '' : 'is-unavailable'
-                ].filter(Boolean).join(' ');
+            let todayScheduleBadgesEl = null;
+            if (todayScheduleTokens.length > 0) {
+                const badgesWrap = document.createElement('div');
+                badgesWrap.className = [
+                    'qe-driver-tile__route-badges',
+                    `qe-driver-tile__route-badges--count-${todayScheduleTokens.length}`
+                ].join(' ');
+                badgesWrap.setAttribute('aria-label', `Dzisiejsze kody z grafiku dla kierowcy ${label}`);
 
-                if (currentRoute.isAvailable) {
-                    const routeBadgeButton = document.createElement('button');
-                    routeBadgeButton.type = 'button';
-                    routeBadgeButton.className = routeBadgeClasses;
-                    routeBadgeButton.textContent = currentRoute.routeCode;
-                    routeBadgeButton.title = `Otwórz dzisiejszą trasę: ${currentRoute.routeCode}`;
-                    routeBadgeButton.setAttribute('aria-label', `Otwórz dzisiejszą trasę kierowcy ${label}: ${currentRoute.routeCode}`);
-                    routeBadgeButton.addEventListener('click', (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        openRouteFromSchedule(currentRoute.routeCode, currentRoute.isoDate);
-                    }, { signal });
-                    currentRouteBadgeEl = routeBadgeButton;
-                } else {
+                for (let index = 0; index < todayScheduleTokens.length; index += 1) {
+                    const scheduleToken = todayScheduleTokens[index];
+                    const kind = scheduleToken?.kind === 'marker' ? 'marker' : 'route';
+                    const code = String(scheduleToken?.code ?? '').trim();
+                    if (!code) continue;
+                    const badgeSlotClass = index === 0
+                        ? 'qe-driver-tile__route-badge--slot-top'
+                        : 'qe-driver-tile__route-badge--slot-bottom';
+
+                    if (kind === 'marker') {
+                        const markerBadge = document.createElement('span');
+                        const meaning = String(scheduleToken?.meaning ?? '').trim();
+                        markerBadge.className = [
+                            'qe-driver-tile__route-badge',
+                            'qe-driver-tile__route-badge--marker',
+                            badgeSlotClass
+                        ].join(' ');
+                        markerBadge.textContent = code;
+                        markerBadge.dataset.markerCode = code.toUpperCase();
+                        markerBadge.title = meaning ? `${code}: ${meaning}` : code;
+                        markerBadge.setAttribute('aria-label', meaning ? `${code}: ${meaning}` : code);
+                        badgesWrap.appendChild(markerBadge);
+                        continue;
+                    }
+
+                    const routeBadgeClasses = [
+                        'qe-driver-tile__route-badge',
+                        badgeSlotClass,
+                        scheduleToken?.category ? `qe-driver-tile__route-badge--${String(scheduleToken.category).trim().toUpperCase()}` : '',
+                        scheduleToken?.isAvailable !== false ? '' : 'is-unavailable'
+                    ].filter(Boolean).join(' ');
+                    const routeIsoDate = String(scheduleToken?.isoDate ?? '').trim();
+
+                    if (scheduleToken?.isAvailable !== false && routeIsoDate) {
+                        const routeBadgeButton = document.createElement('button');
+                        routeBadgeButton.type = 'button';
+                        routeBadgeButton.className = routeBadgeClasses;
+                        routeBadgeButton.textContent = code;
+                        routeBadgeButton.title = `Otwórz dzisiejszą trasę: ${code}`;
+                        routeBadgeButton.setAttribute('aria-label', `Otwórz dzisiejszą trasę kierowcy ${label}: ${code}`);
+                        routeBadgeButton.addEventListener('click', (event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            openRouteFromSchedule(code, routeIsoDate);
+                        }, { signal });
+                        badgesWrap.appendChild(routeBadgeButton);
+                        continue;
+                    }
+
                     const routeBadgeLabel = document.createElement('span');
                     routeBadgeLabel.className = routeBadgeClasses;
-                    routeBadgeLabel.textContent = currentRoute.routeCode;
-                    routeBadgeLabel.title = `Dzisiejsza trasa: ${currentRoute.routeCode} (brak pliku źródłowego)`;
-                    currentRouteBadgeEl = routeBadgeLabel;
+                    routeBadgeLabel.textContent = code;
+                    routeBadgeLabel.title = `Dzisiejsza trasa: ${code} (brak pliku źródłowego)`;
+                    routeBadgeLabel.setAttribute('aria-label', `Dzisiejsza trasa kierowcy ${label}: ${code} (brak pliku źródłowego)`);
+                    badgesWrap.appendChild(routeBadgeLabel);
+                }
+
+                if (badgesWrap.childElementCount > 0) {
+                    tile.classList.add('qe-driver-tile--with-route-badges');
+                    todayScheduleBadgesEl = badgesWrap;
                 }
             }
 
@@ -3302,7 +3413,7 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             }, { signal });
 
             tile.appendChild(trigger);
-            if (currentRouteBadgeEl instanceof HTMLElement) tile.appendChild(currentRouteBadgeEl);
+            if (todayScheduleBadgesEl instanceof HTMLElement) tile.appendChild(todayScheduleBadgesEl);
             tile.appendChild(panel);
             gridEl.appendChild(tile);
             tileCounter += 1;
@@ -3524,7 +3635,7 @@ async function renderDriversView() {
     refreshRouteMetaIndex(routeRecords);
     dataStore.rebuildRouteFileIndex(routeRecords);
     const todayIsoDate = buildTodayIsoDate();
-    const currentRouteIndex = buildDriverCurrentRouteIndex(todayIsoDate);
+    const todayScheduleIndex = buildDriverTodayScheduleIndex(todayIsoDate);
     const roleSectionsContainer = ensureDriverRoleSectionsContainer();
     if (roleSectionsContainer) {
         cleanupDriverGridInteractions(roleSectionsContainer);
@@ -3587,7 +3698,7 @@ async function renderDriversView() {
                 getDriverRegistrationForNameOnIsoDate(String(contact?.driverName ?? ''), todayIsoDate),
                 contact?.roleCategory,
                 contact?.roleNote,
-                currentRouteIndex.get(normalizeDriverDisplayName(String(contact?.driverName ?? ''))) || null
+                todayScheduleIndex.get(normalizeDriverDisplayName(String(contact?.driverName ?? ''))) || []
             ));
 
             renderDriverTileGrid(roleGrid, roleTiles, { emptyText: '', groupByLetter: false });
@@ -3608,7 +3719,7 @@ async function renderDriversView() {
             getDriverRegistrationForNameOnIsoDate(driverName, todayIsoDate),
             contact?.roleCategory,
             contact?.roleNote,
-            currentRouteIndex.get(normalizeDriverDisplayName(driverName)) || null
+            todayScheduleIndex.get(normalizeDriverDisplayName(driverName)) || []
         );
     });
     renderDriverTileGrid(driversGrid, tiles, { emptyText: 'Brak kierowców w zaimportowanych plikach grafiku.' });
