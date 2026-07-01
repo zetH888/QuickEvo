@@ -433,6 +433,12 @@ const QuickEvoTests = {
             const janOldIgnored = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-01');
             this.assert(janOldIgnored === 'WX 1111A', 'Parsuje wyłącznie ostatni arkusz skoroszytu i ignoruje wcześniejsze arkusze');
 
+            const janFutureFallback = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-07-03');
+            this.assert(janFutureFallback === 'WX 4444D', 'Gdy wskazany dzień nie istnieje w ostatnim arkuszu, fallback pobiera rejestrację z ostatniego niepustego dnia tego arkusza');
+
+            const annaFutureFallback = service.getRegistrationForDriverNameOnIsoDate('Anna Nowak', '2026-07-03');
+            this.assert(annaFutureFallback === 'WW 1234N', 'Fallback działa także po scaleniu wariantów tej samej osoby i wybiera ostatni niepusty dzień z ostatniego arkusza');
+
             service.invalidateDriverRegistrationsFile('rejestracje.xlsx');
             const afterInvalidate = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-03');
             this.assert(afterInvalidate === '', 'Unieważnienie cache czyści indeks rejestracji kierowców');

@@ -1654,6 +1654,25 @@ function splitDriverNameForTile(driverName) {
 }
 
 /**
+ * Zwraca modyfikator rozmiaru typografii dla nazwy kierowcy tak,
+ * aby utrzymać jednolitą szerokość kafelków bez łamania słów.
+ *
+ * @param {string} driverName
+ * @returns {''|'qe-driver-tile__title--compact'|'qe-driver-tile__title--dense'}
+ */
+function getDriverTileNameSizeModifier(driverName) {
+    const { surname, givenNames } = splitDriverNameForTile(driverName);
+    const longestLineLength = Math.max(
+        String(surname || '').length,
+        String(givenNames || '').length
+    );
+
+    if (longestLineLength >= 19) return 'qe-driver-tile__title--dense';
+    if (longestLineLength >= 16) return 'qe-driver-tile__title--compact';
+    return '';
+}
+
+/**
  * Wyznacza docelową szerokość kafelka dla całego zestawu kierowców
  * na podstawie najdłuższego wiersza nazwy.
  *
@@ -3180,6 +3199,27 @@ function buildTodayIsoDate(date = new Date()) {
 }
 
 /**
+ * Wyznacza datę odniesienia dla numerów rejestracyjnych w widoku kierowców.
+ *
+ * Logika fallbacku między miesiącami została przeniesiona do serwisu
+ * rejestracji kierowców, więc warstwa UI wskazuje tylko preferowany dzień:
+ * aktywnie wybrany w grafiku, ostatnio zapamiętany albo bieżący.
+ *
+ * @returns {string}
+ */
+function resolveDriverRegistrationsReferenceIsoDate() {
+    const activeScheduleState = typeof scheduleController?.getViewState === 'function'
+        ? scheduleController.getViewState()
+        : null;
+    const candidateIsoDates = [
+        typeof activeScheduleState?.selectedIsoDate === 'string' ? activeScheduleState.selectedIsoDate.trim() : '',
+        typeof lastScheduleViewState?.selectedIsoDate === 'string' ? lastScheduleViewState.selectedIsoDate.trim() : ''
+    ].filter((iso) => /^\d{4}-\d{2}-\d{2}$/.test(iso));
+    if (candidateIsoDates.length > 0) return candidateIsoDates[0];
+    return buildTodayIsoDate();
+}
+
+/**
  * Zwraca opis znaczenia kodu informacyjnego z grafiku.
  *
  * Wyszukiwanie toleruje różne warianty zapisu klucza (`Dk`, `DK`, `dk`),
@@ -3449,7 +3489,9 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                 : `${label} — pokaż szczegóły kierowcy`);
 
             const title = document.createElement('span');
-            title.className = 'qe-driver-tile__title';
+            title.className = ['qe-driver-tile__title', getDriverTileNameSizeModifier(label)]
+                .filter(Boolean)
+                .join(' ');
             const { surname, givenNames } = splitDriverNameForTile(label);
             const surnameLine = document.createElement('span');
             surnameLine.className = 'qe-driver-tile__line qe-driver-tile__line--surname';
@@ -3894,7 +3936,6 @@ async function renderDriversView() {
     refreshRouteMetaIndex(routeRecords);
     dataStore.rebuildRouteFileIndex(routeRecords);
     const todayIsoDate = buildTodayIsoDate();
-    const todayScheduleIndex = buildDriverTodayScheduleIndex(todayIsoDate);
     const roleSectionsContainer = ensureDriverRoleSectionsContainer();
     if (roleSectionsContainer) {
         cleanupDriverGridInteractions(roleSectionsContainer);
@@ -3902,6 +3943,8 @@ async function renderDriversView() {
     }
     const scheduleFiles = await docsListFiles();
     const list = Array.isArray(scheduleFiles) ? scheduleFiles : [];
+    const todayScheduleIndex = buildDriverTodayScheduleIndex(todayIsoDate);
+    const registrationsReferenceIsoDate = resolveDriverRegistrationsReferenceIsoDate();
 
     const names = new Set();
     for (const f of list) {
@@ -3961,7 +4004,7 @@ async function renderDriversView() {
             const roleTiles = roleContacts.map((contact) => buildDriverTileModel(
                 contact?.driverName,
                 contact?.phones,
-                getDriverRegistrationForNameOnIsoDate(String(contact?.driverName ?? ''), todayIsoDate),
+                getDriverRegistrationForNameOnIsoDate(String(contact?.driverName ?? ''), registrationsReferenceIsoDate),
                 contact?.roleCategory,
                 contact?.roleNote,
                 todayScheduleIndex.get(normalizeDriverDisplayName(String(contact?.driverName ?? ''))) || []
@@ -3982,7 +4025,7 @@ async function renderDriversView() {
         return buildDriverTileModel(
             driverName,
             contact?.phones,
-            getDriverRegistrationForNameOnIsoDate(driverName, todayIsoDate),
+            getDriverRegistrationForNameOnIsoDate(driverName, registrationsReferenceIsoDate),
             contact?.roleCategory,
             contact?.roleNote,
             todayScheduleIndex.get(normalizeDriverDisplayName(driverName)) || []

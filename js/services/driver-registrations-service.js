@@ -18,6 +18,8 @@ import { buildNormalizedDriverLookupKey, fuzzyNormalizeText, normalizeDriverDisp
  *
  * Jeśli komórka dla wskazanego dnia jest pusta, serwis zwraca ostatnią
  * wcześniejszą, znaną rejestrację tego kierowcy w tym samym miesiącu.
+ * Gdy taki fallback nie istnieje, serwis zwraca rejestrację z ostatniego
+ * niepustego dnia w ostatnim arkuszu pliku.
  *
  * @param {{
  *   listFiles: (() => Promise<any[]>) | null,
@@ -66,6 +68,9 @@ export function createDriverRegistrationsService(cfg = {}) {
 
     /** @type {Set<string>} */
     let loadedDriverRegistrationFiles = new Set();
+
+    /** @type {string} */
+    let latestRegistrationsMonthKey = '';
 
     /**
      * Buduje klucz porównawczy kierowcy odporny na warianty zapisu.
@@ -244,6 +249,7 @@ export function createDriverRegistrationsService(cfg = {}) {
     function clearCache() {
         registrationsByLookupKey = new Map();
         loadedDriverRegistrationFiles = new Set();
+        latestRegistrationsMonthKey = '';
     }
 
     /**
@@ -311,6 +317,7 @@ export function createDriverRegistrationsService(cfg = {}) {
         }
 
         const monthMeta = parseSheetMonthMeta(lastSheetName);
+        latestRegistrationsMonthKey = String(monthMeta?.key ?? '').trim();
         if (!monthMeta.matchesCurrentMonth) {
             try {
                 cfg.logAction?.('driver_registrations', {
@@ -450,10 +457,49 @@ export function createDriverRegistrationsService(cfg = {}) {
     }
 
     /**
+     * Zwraca rejestrację z ostatniego niepustego dnia w najnowszym arkuszu.
+     *
+     * To awaryjny fallback używany wtedy, gdy nie udało się znaleźć
+     * rejestracji dla wskazanego dnia ani wcześniejszego dnia tego miesiąca.
+     *
+     * @param {string[]} lookupKeys
+     * @returns {string}
+     */
+    function resolveLatestRegistrationFromLastSheet(lookupKeys) {
+        const keys = Array.isArray(lookupKeys) ? lookupKeys.map((key) => String(key ?? '').trim()).filter(Boolean) : [];
+        const latestMonthKey = String(latestRegistrationsMonthKey ?? '').trim();
+        if (keys.length === 0 || !latestMonthKey) return '';
+
+        for (const lookupKey of keys) {
+            const bucket = registrationsByLookupKey.get(lookupKey);
+            const byMonthKey = bucket?.byMonthKey;
+            const monthMap = byMonthKey instanceof Map ? byMonthKey.get(latestMonthKey) : null;
+            if (!(monthMap instanceof Map) || monthMap.size === 0) continue;
+
+            let latestDay = 0;
+            let latestRegistration = '';
+            for (const [day, registration] of monthMap.entries()) {
+                const safeDay = Number(day);
+                const safeRegistration = normalizeRegistrationValue(registration);
+                if (!Number.isInteger(safeDay) || safeDay < 1 || safeDay > 31 || !safeRegistration) continue;
+                if (safeDay >= latestDay) {
+                    latestDay = safeDay;
+                    latestRegistration = safeRegistration;
+                }
+            }
+
+            if (latestRegistration) return latestRegistration;
+        }
+
+        return '';
+    }
+
+    /**
      * Zwraca rejestrację dla zestawu kluczy kierowcy w konkretnym dniu.
      *
      * Jeśli komórka dla danego dnia jest pusta, serwis szuka wstecz
-     * ostatniej znanej rejestracji w tym samym miesiącu.
+     * ostatniej znanej rejestracji w tym samym miesiącu. Gdy nic nie znajdzie,
+     * pobiera ostatni niepusty dzień z ostatniego arkusza.
      *
      * @param {string[]} lookupKeys
      * @param {{ day: number, monthKey: string } | null} targetDate
@@ -475,7 +521,7 @@ export function createDriverRegistrationsService(cfg = {}) {
             }
         }
 
-        return '';
+        return resolveLatestRegistrationFromLastSheet(keys);
     }
 
     /**

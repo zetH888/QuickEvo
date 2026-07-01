@@ -1981,7 +1981,15 @@ tbody tr:nth-child(even) td:nth-child(even) {
     max-width: calc(100% - var(--qe-driver-content-right-gap, 5rem));
     font-size: 0.98rem;
     line-height: 1.2;
-    text-wrap: pretty;
+    text-wrap: nowrap;
+}
+
+.qe-driver-tile__title--compact {
+    font-size: 0.92rem;
+}
+
+.qe-driver-tile__title--dense {
+    font-size: 0.86rem;
 }
 
 .qe-driver-tile {
@@ -2023,10 +2031,11 @@ tbody tr:nth-child(even) td:nth-child(even) {
 .qe-driver-tile__line {
     display: block;
     width: 100%;
-    white-space: normal;
+    white-space: nowrap;
     overflow-wrap: normal;
     word-break: normal;
     hyphens: none;
+    text-wrap: nowrap;
 }
 
 .qe-driver-tile__route-badges {
@@ -2179,8 +2188,6 @@ button.qe-driver-tile__route-badge:focus-visible {
 
 .qe-driver-tile__line--surname {
     font-weight: 900;
-    /* Awaryjnie łamie bardzo długie nazwiska, aby nie wchodziły na sąsiednie kafelki. */
-    overflow-wrap: anywhere;
 }
 
 .qe-driver-tile__line--given {
