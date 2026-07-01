@@ -386,6 +386,9 @@ body.light-theme .app-header-logo svg {
     display: inline-block;
     width: 50px;
     height: 24px;
+    /* Izolacja i clipping zapobiegają „wyciekaniu” warstwy suwaka podczas animacji widoków. */
+    overflow: hidden;
+    isolation: isolate;
 }
 
 .switch input {
@@ -1630,6 +1633,16 @@ tbody tr:nth-child(even) td:nth-child(even) {
     visibility: hidden !important;
 }
 
+/* Podczas opuszczania widoku wyszukiwania wyłączamy render przełącznika sortowania,
+   aby przeglądarka nie zostawiała krótkiego artefaktu samego suwaka. */
+#search-view.view-hidden .search-sort-switch,
+#search-view.view-hidden .search-sort-switch * {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    transition: none !important;
+}
+
 .qe-view-header {
     display: flex;
     align-items: baseline;
@@ -1739,13 +1752,102 @@ tbody tr:nth-child(even) td:nth-child(even) {
     margin-bottom: 18px;
 }
 
+.qe-driver-group {
+    display: grid;
+    gap: 10px;
+}
+
 .qe-role-segment {
     display: grid;
     gap: 10px;
 }
 
+.qe-driver-group__heading {
+    margin: 0;
+}
+
+.qe-driver-group__heading--view {
+    width: 100%;
+}
+
 .qe-role-segment__title {
-    margin-bottom: 0;
+    margin: 0;
+}
+
+.qe-driver-group__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--secondary-text);
+    cursor: pointer;
+    text-align: left;
+}
+
+.qe-driver-group__toggle:hover .qe-driver-group__toggle-label,
+.qe-driver-group__toggle:focus-visible .qe-driver-group__toggle-label {
+    color: var(--text-color);
+}
+
+.qe-driver-group__toggle:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 4px;
+    border-radius: 10px;
+}
+
+.qe-driver-group__toggle-label {
+    flex: 0 1 auto;
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    line-height: 1.2;
+}
+
+.qe-driver-group__toggle-chevron {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transform-origin: center;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+    opacity: 0.75;
+}
+
+.qe-driver-group__toggle:hover .qe-driver-group__toggle-chevron,
+.qe-driver-group__toggle:focus-visible .qe-driver-group__toggle-chevron {
+    border-color: var(--primary-color);
+}
+
+.qe-driver-group__toggle.is-collapsed .qe-driver-group__toggle-chevron {
+    transform: rotate(-45deg);
+}
+
+.qe-driver-group__content {
+    overflow: hidden;
+    max-height: var(--qe-driver-group-max, none);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, visibility 0ms linear 0ms;
+    will-change: max-height, opacity;
+}
+
+.qe-driver-group__content.is-collapsed {
+    max-height: 0px;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, visibility 0ms linear 280ms;
+}
+
+.qe-driver-group__content[hidden] {
+    display: none !important;
 }
 
 .qe-driver-role-grid {
@@ -1760,6 +1862,10 @@ tbody tr:nth-child(even) td:nth-child(even) {
     grid-template-columns: minmax(0, 1fr);
     gap: 18px;
     align-content: start;
+}
+
+.qe-driver-group__content.qe-driver-sections {
+    margin-top: 0;
 }
 
 .qe-driver-section {
@@ -1778,9 +1884,11 @@ tbody tr:nth-child(even) td:nth-child(even) {
     display: flex;
     align-items: center;
     justify-content: center;
+    /* Litera sekcji ma być przypięta do pierwszego rzędu kafelków,
+       a nie do środka całej sekcji po rozwinięciu panelu. */
     align-self: start;
-    min-height: 44px;
-    padding-top: 2px;
+    min-height: 78px;
+    padding-top: 0;
     position: relative;
     z-index: 1;
     pointer-events: none;
@@ -1808,6 +1916,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
 .qe-driver-section__grid {
     display: flex;
     flex-wrap: wrap;
+    align-items: flex-start;
     gap: 12px;
     margin-top: 0;
     min-width: 0;
@@ -1881,10 +1990,17 @@ tbody tr:nth-child(even) td:nth-child(even) {
     --qe-driver-separator-gap: 10px;
     --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 18px);
     --qe-driver-separator-right: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap));
-    flex: 0 0 min(var(--qe-driver-section-tile-width, 14rem), 100%);
-    width: min(var(--qe-driver-section-tile-width, 14rem), 100%);
+    /* Ustala lokalny kontekst pozycjonowania dla badge'y tras na kafelku kierowcy. */
+    position: relative;
+    flex: 0 0 min(var(--qe-driver-section-tile-width, 16rem), 100%);
+    width: min(var(--qe-driver-section-tile-width, 16rem), 100%);
     max-width: 100%;
     min-width: 0;
+}
+
+.qe-driver-tile__main {
+    /* Ogranicza pozycjonowanie badge'y do frontowej warstwy kafelka. */
+    position: relative;
 }
 
 .qe-driver-tile--flash .qe-driver-tile__trigger,
@@ -2063,6 +2179,8 @@ button.qe-driver-tile__route-badge:focus-visible {
 
 .qe-driver-tile__line--surname {
     font-weight: 900;
+    /* Awaryjnie łamie bardzo długie nazwiska, aby nie wchodziły na sąsiednie kafelki. */
+    overflow-wrap: anywhere;
 }
 
 .qe-driver-tile__line--given {
@@ -2090,21 +2208,21 @@ button.qe-driver-tile__route-badge:focus-visible {
 }
 
 .qe-driver-tile__panel {
-    position: absolute;
-    z-index: 12;
-    left: 0;
-    right: 0;
-    top: calc(100% + 8px);
+    /* Na desktopie panel pozostaje w normalnym flow,
+       aby sekcja mogła zwiększyć wysokość i nie ucinała szczegółów. */
+    position: static;
+    z-index: auto;
     display: grid;
     gap: 10px;
     justify-items: center;
     padding: 0 12px;
+    margin-top: 8px;
     border-radius: 14px;
     border: 0 solid color-mix(in srgb, var(--primary-color) 30%, var(--border-color));
     background: color-mix(in srgb, var(--card-bg) 92%, rgba(12, 18, 26, 0.88));
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+    box-shadow: none;
     opacity: 0;
-    transform: translateY(-10px) scale(0.97);
+    transform: translateY(-6px) scale(0.985);
     transform-origin: top center;
     pointer-events: none;
     overflow: hidden;
@@ -2121,6 +2239,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     padding-top: 12px;
     padding-bottom: 12px;
     border-width: 1px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
 }
 
 .qe-driver-tile__row {
@@ -2248,12 +2367,17 @@ button.qe-driver-tile__route-badge:focus-visible {
 
     .qe-driver-section__header {
         justify-content: flex-start;
+        align-self: start;
         min-height: auto;
         padding-top: 0;
     }
 
     .qe-driver-role-grid {
         padding-left: 0;
+    }
+
+    .qe-driver-group__toggle-label {
+        font-size: 1rem;
     }
 
     .qe-driver-tile__panel {

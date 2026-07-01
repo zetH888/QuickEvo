@@ -21,6 +21,8 @@ const QuickEvoTests = {
         await this.testDriveService(ctx);
         await this.testSimpleXlsxDiff(ctx);
         await this.testDriveChangesModalDiffButton(ctx);
+        await this.testModalControllerFocusRestore(ctx);
+        await this.testLoadingOverlayFocusSafety(ctx);
         await this.testDriveUnifiedSyncQueuedManual(ctx);
         await this.testDriveUnifiedSyncDeletesMissingDriveFiles(ctx);
         this.testModuleIsolation(ctx);
@@ -38,7 +40,7 @@ const QuickEvoTests = {
      * @returns {Promise<{ utils: any, searchEngine: any }>}
      */
     async loadModules() {
-        const [utils, searchEngine, scheduleService, driverContactsService, driverRegistrationsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
+        const [utils, searchEngine, scheduleService, driverContactsService, driverRegistrationsService, driveService, previewController, modalController, loadingOverlayDom, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal] = await Promise.all([
             import('../core/utils.js'),
             import('../core/search-engine.js'),
             import('../services/schedule-service.js'),
@@ -46,6 +48,8 @@ const QuickEvoTests = {
             import('../services/driver-registrations-service.js'),
             import('../services/drive-service.js'),
             import('../ui/preview/preview-controller.js'),
+            import('../ui/preview/modal-controller.js'),
+            import('../ui/loading/loading-overlay-dom.js'),
             import('../app/drive-unified-sync-application.js'),
             import('../features/search/search-results-sort.js'),
             import('../core/formatters/route-name.js'),
@@ -54,7 +58,7 @@ const QuickEvoTests = {
             import('../core/simple-xlsx-diff.js'),
             import('../ui/drive/drive-changes-modal.js')
         ]);
-        return { utils, searchEngine, scheduleService, driverContactsService, driverRegistrationsService, driveService, previewController, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
+        return { utils, searchEngine, scheduleService, driverContactsService, driverRegistrationsService, driveService, previewController, modalController, loadingOverlayDom, driveUnifiedSyncApplication, searchResultsSort, routeNameFormatter, previewLabsHighlight, resultsRenderer, simpleXlsxDiff, driveChangesModal };
     },
 
     async testXlsxLoaded() {
@@ -727,6 +731,100 @@ const QuickEvoTests = {
             this.assert(html.includes('data-qe-change-index="0"'), 'Przycisk diff dostaje identyfikator pozycji do późniejszego otwarcia podglądu');
         } catch (e) {
             this.assert(false, "Nie udało się przetestować przycisku diff w modalu zmian");
+            console.error(e);
+        }
+    },
+
+    async testModalControllerFocusRestore(ctx) {
+        console.log("\nTesting Modal Controller — bezpieczne zdejmowanie fokusu:");
+        try {
+            const createModalController = ctx?.modalController?.createModalController;
+            this.assert(typeof createModalController === 'function', "modal-controller jest dostępny przez import");
+            if (typeof createModalController !== 'function') return;
+
+            const opener = document.createElement('button');
+            opener.type = 'button';
+            opener.textContent = 'Otwórz modal';
+            document.body.appendChild(opener);
+            opener.focus();
+
+            const modalOverlay = document.createElement('div');
+            modalOverlay.className = 'modal-overlay hidden';
+            modalOverlay.setAttribute('aria-hidden', 'true');
+            const modalCard = document.createElement('div');
+            const modalTitle = document.createElement('div');
+            const modalContent = document.createElement('div');
+            const modalActions = document.createElement('div');
+            modalCard.append(modalTitle, modalContent, modalActions);
+            modalOverlay.appendChild(modalCard);
+            document.body.appendChild(modalOverlay);
+
+            const controller = createModalController({
+                modalOverlay,
+                modalTitle,
+                modalContent,
+                modalActions
+            });
+
+            controller.show('Test modala', '<p>Treść</p>', [
+                { label: 'Zamknij', class: 'modal-btn--primary' }
+            ]);
+
+            const closeBtn = modalActions.querySelector('button');
+            closeBtn?.focus();
+            this.assert(document.activeElement === closeBtn, 'Przycisk akcji przejmuje fokus w scenariuszu testowym');
+
+            controller.hide();
+
+            this.assert(modalOverlay.getAttribute('aria-hidden') === 'true', 'Host modala jest oznaczany jako aria-hidden po zamknięciu');
+            this.assert(!modalOverlay.contains(document.activeElement), 'Po zamknięciu fokus nie pozostaje wewnątrz ukrytego modala');
+            this.assert(document.activeElement === opener, 'Po zamknięciu fokus wraca do elementu otwierającego');
+
+            modalOverlay.remove();
+            opener.remove();
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować bezpiecznego przywracania fokusu modala");
+            console.error(e);
+        }
+    },
+
+    async testLoadingOverlayFocusSafety(ctx) {
+        console.log("\nTesting Loading Overlay — bezpieczne ukrywanie z aktywnym fokusem:");
+        try {
+            const hideLoadingOverlayDom = ctx?.loadingOverlayDom?.hideLoadingOverlayDom;
+            const showLoadingOverlayDom = ctx?.loadingOverlayDom?.showLoadingOverlayDom;
+            this.assert(typeof hideLoadingOverlayDom === 'function', "loading-overlay-dom.hideLoadingOverlayDom jest dostępne przez import");
+            this.assert(typeof showLoadingOverlayDom === 'function', "loading-overlay-dom.showLoadingOverlayDom jest dostępne przez import");
+            if (typeof hideLoadingOverlayDom !== 'function' || typeof showLoadingOverlayDom !== 'function') return;
+
+            const opener = document.createElement('button');
+            opener.type = 'button';
+            opener.textContent = 'Pokaż loading';
+            document.body.appendChild(opener);
+            opener.focus();
+
+            const loadingOverlay = document.createElement('div');
+            loadingOverlay.className = 'loading-overlay hidden';
+            loadingOverlay.setAttribute('aria-hidden', 'true');
+            const loadingButton = document.createElement('button');
+            loadingButton.type = 'button';
+            loadingButton.textContent = 'Kontynuuj';
+            loadingOverlay.appendChild(loadingButton);
+            document.body.appendChild(loadingOverlay);
+
+            showLoadingOverlayDom({ loadingOverlay });
+            loadingButton.focus();
+            this.assert(document.activeElement === loadingButton, 'Przycisk w ekranie loadingu przejmuje fokus w scenariuszu testowym');
+
+            hideLoadingOverlayDom({ loadingOverlay, fadeOutMs: 0 });
+
+            this.assert(loadingOverlay.getAttribute('aria-hidden') === 'true', 'Loading overlay otrzymuje aria-hidden po ukryciu');
+            this.assert(!loadingOverlay.contains(document.activeElement), 'Po ukryciu loadingu fokus nie pozostaje w overlayu');
+
+            loadingOverlay.remove();
+            opener.remove();
+        } catch (e) {
+            this.assert(false, "Nie udało się przetestować bezpiecznego ukrywania loading overlay");
             console.error(e);
         }
     },

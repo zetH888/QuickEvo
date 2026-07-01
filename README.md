@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.37.31-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.37.54-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,6 +47,37 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.37.54
+
+- Naprawiono rozwijanie panelu informacyjnego w kafelkach `KIEROWCY` na desktopie: panel szczegółów wrócił do normalnego flow układu, dzięki czemu rozwinięty kafelek zwiększa wysokość własnej sekcji zamiast być ucinany przez kolejne nagłówki lub dolną krawędź dokumentu.
+- Otwarcie panelu szczegółów kierowcy na desktopie wykonuje teraz delikatny auto-scroll tylko wtedy, gdy dolna część rozwiniętego panelu wychodzi poza viewport, co ogranicza przypadki ręcznego dosuwania treści po kliknięciu kafelka.
+
+### Zmiany w wersji 2.37.53
+
+- Widok `KIEROWCY` otrzymał zwijane sekcje z pamięcią stanu w `localStorage`: główna sekcja `Kierowcy` jest teraz renderowana jako pierwsza, sekcje ról specjalnych pojawiają się pod nią, a każdy nagłówek ma spójny toggle z chevronem po lewej stronie.
+- Rozwijanie i zwijanie sekcji w widoku `KIEROWCY` działa teraz płynnie z animacją `max-height` i wygaszaniem zawartości, z fallbackiem dla `prefers-reduced-motion`, dzięki czemu zachowanie jest spójniejsze z istniejącymi akordeonami aplikacji.
+- Literowe znaczniki sekcji alfabetycznych w widoku `KIEROWCY` zostały optycznie wyśrodkowane względem całego rzędu kafelków, a same chevrony nagłówków zostały pomniejszone i dopasowane charakterem do tych używanych w liście wyników.
+
+### Zmiany w wersji 2.37.47
+
+- Uszczelniono przejście `TRASY -> preview`: reset scrolla do początku dokumentu jest teraz wykonywany wielotorowo i po kolejnych klatkach renderu, a fokus zostaje wcześniej przeniesiony z klikniętego kafelka, żeby przeglądarka nie przywracała poprzedniego położenia listy.
+
+### Zmiany w wersji 2.37.46
+
+- Przejście `TRASY -> preview` przewija teraz stronę automatycznie na sam początek po otwarciu podglądu wybranej trasy, dzięki czemu użytkownik zawsze startuje od górnej części widoku zamiast dziedziczyć pozycję scrolla z listy kafelków.
+
+### Zmiany w wersji 2.37.45
+
+- Ujednolicono ochronę dostępności dla hostów ukrywanych przez `aria-hidden`: systemowy modal, ekran ładowania oraz panel debuggera najpierw wyprowadzają fokus poza własny kontener, a dopiero potem przechodzą w stan ukryty i `inert`.
+- Dodano współdzielony helper `js/core/focus-visibility.js`, który centralizuje bezpieczne przenoszenie fokusu, fallback na `body` oraz przełączanie `inert` dla overlayów i paneli.
+- Rozszerzono testy regresyjne o scenariusz ukrywania `loading overlay` z aktywnym fokusem w środku, aby podobne ostrzeżenia ARIA nie wracały przy kolejnych zmianach.
+
+### Zmiany w wersji 2.37.37
+
+- Naprawiono dostępność systemowego modala synchronizacji Google Drive: podczas zamykania fokus jest teraz najpierw bezpiecznie przenoszony poza overlay, a dopiero potem host otrzymuje `aria-hidden`, co eliminuje ostrzeżenie przeglądarki o ukrywaniu aktywnego elementu.
+- Zamknięcie drugiego modala podglądu różnic XLSX przywraca fokus do elementu, z którego został otwarty, dzięki czemu nawigacja klawiaturą pozostaje spójna po wyjściu z podglądu.
+- Dodano test regresyjny dla kontrolera modala, weryfikujący że po zamknięciu fokus nie pozostaje wewnątrz ukrytego hosta.
 
 ### Zmiany w wersji 2.37.31
 

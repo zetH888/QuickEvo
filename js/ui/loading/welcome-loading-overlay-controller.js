@@ -36,7 +36,6 @@ export function createWelcomeLoadingOverlayController(cfg) {
         : (() => Boolean(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches));
 
     const isVisualFinishAllowed = typeof cfg?.isVisualFinishAllowed === 'function' ? cfg.isVisualFinishAllowed : (() => false);
-    const focusBodySafely = typeof cfg?.focusBodySafely === 'function' ? cfg.focusBodySafely : (() => { });
     const getWelcomeGraphicEl = typeof cfg?.getWelcomeGraphicEl === 'function' ? cfg.getWelcomeGraphicEl : (() => document.getElementById('welcome-graphic'));
 
     const flags = cfg?.flags || {};
@@ -314,8 +313,6 @@ export function createWelcomeLoadingOverlayController(cfg) {
 
     function stop() {
         if (!loadingOverlay) return;
-        const active = document.activeElement;
-        if (active && loadingOverlay.contains(active)) { try { active.blur(); } catch { } focusBodySafely(); }
         hideLoadingOverlayDom({ loadingOverlay, fadeOutMs: 600 });
         if (welcomeLogoEnterTimer !== null) { window.clearTimeout(welcomeLogoEnterTimer); welcomeLogoEnterTimer = null; }
         if (welcomeSeqUnlockTimer !== null) { window.clearTimeout(welcomeSeqUnlockTimer); welcomeSeqUnlockTimer = null; }

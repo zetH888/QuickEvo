@@ -866,7 +866,7 @@ function setupNavigationListeners() {
             if (!tile) return;
             const fileName = String(tile.dataset.fileName || '').trim();
             if (!fileName) return;
-            showFilePreview(fileName, null);
+            showFilePreview(fileName, null, { scrollToTop: true });
         });
     }
 }
@@ -1314,6 +1314,7 @@ const DRIVER_ROLE_SECTION_CONFIG = Object.freeze([
     { key: 'koordynator', singular: 'Koordynator', plural: 'Koordynatorzy' },
     { key: 'dyspozytor', singular: 'Dyspozytor', plural: 'Dyspozytorzy' }
 ]);
+const DRIVER_SECTION_STORAGE_PREFIX = 'qe:driverSectionCollapsed:';
 
 function getDriverRoleSectionTitle(roleKey, count) {
     const config = DRIVER_ROLE_SECTION_CONFIG.find((item) => item.key === String(roleKey ?? '').trim());
@@ -1321,19 +1322,190 @@ function getDriverRoleSectionTitle(roleKey, count) {
     return Number(count) === 1 ? config.singular : config.plural;
 }
 
+/**
+ * Buduje pełny klucz pamięci dla stanu zwinięcia sekcji w widoku `KIEROWCY`.
+ *
+ * @param {string} sectionKey
+ * @returns {string}
+ */
+function buildDriverSectionStorageKey(sectionKey) {
+    return `${DRIVER_SECTION_STORAGE_PREFIX}${String(sectionKey ?? '').trim()}`;
+}
+
+/**
+ * Sprawdza, czy wskazana sekcja widoku `KIEROWCY` jest zwinięta.
+ *
+ * @param {string} sectionKey
+ * @returns {boolean}
+ */
+function isDriverSectionCollapsed(sectionKey) {
+    const key = String(sectionKey ?? '').trim();
+    if (!key) return false;
+    return storageGet(buildDriverSectionStorageKey(key)) === '1';
+}
+
+/**
+ * Zapamiętuje stan zwinięcia sekcji widoku `KIEROWCY`.
+ *
+ * @param {string} sectionKey
+ * @param {boolean} collapsed
+ * @returns {void}
+ */
+function setDriverSectionCollapsed(sectionKey, collapsed) {
+    const key = String(sectionKey ?? '').trim();
+    if (!key) return;
+    storageSet(buildDriverSectionStorageKey(key), collapsed ? '1' : '0');
+}
+
+/**
+ * Nakłada wspólny stan rozwinięcia na sekcję kierowców i synchronizuje atrybuty A11Y.
+ *
+ * @param {HTMLButtonElement | null} toggleEl
+ * @param {HTMLElement | null} contentEl
+ * @param {boolean} collapsed
+ * @param {{ animate?: boolean }} [options]
+ * @returns {void}
+ */
+function applyDriverSectionCollapsedState(toggleEl, contentEl, collapsed, { animate = false } = {}) {
+    if (!(toggleEl instanceof HTMLButtonElement) || !(contentEl instanceof HTMLElement)) return;
+    contentEl.classList.add('qe-driver-group__content');
+    toggleEl.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    toggleEl.classList.toggle('is-collapsed', collapsed);
+
+    if (collapsed && activeDriverDetailsTile instanceof HTMLElement && contentEl.contains(activeDriverDetailsTile)) {
+        activeDriverDetailsTile = null;
+        activeDriverDetailsClose = null;
+    }
+
+    const height = contentEl.scrollHeight;
+    const reduceMotion = prefersReducedMotion();
+
+    if (!animate || reduceMotion) {
+        contentEl.classList.toggle('is-collapsed', collapsed);
+        contentEl.hidden = collapsed;
+        contentEl.style.setProperty('--qe-driver-group-max', collapsed ? '0px' : `${height}px`);
+        if (!collapsed) contentEl.style.removeProperty('--qe-driver-group-max');
+        return;
+    }
+
+    const previousCleanup = contentEl.__qeDriverGroupTransitionCleanup;
+    if (typeof previousCleanup === 'function') {
+        try { previousCleanup(); } catch { }
+    }
+
+    contentEl.hidden = false;
+    contentEl.classList.remove('is-collapsed');
+
+    if (!collapsed) {
+        contentEl.style.setProperty('--qe-driver-group-max', '0px');
+        window.requestAnimationFrame(() => {
+            const nextHeight = contentEl.scrollHeight;
+            contentEl.style.setProperty('--qe-driver-group-max', `${nextHeight}px`);
+            const onEnd = (event) => {
+                if (event?.propertyName !== 'max-height') return;
+                contentEl.removeEventListener('transitionend', onEnd);
+                contentEl.style.removeProperty('--qe-driver-group-max');
+                contentEl.__qeDriverGroupTransitionCleanup = null;
+            };
+            contentEl.__qeDriverGroupTransitionCleanup = () => {
+                contentEl.removeEventListener('transitionend', onEnd);
+                contentEl.__qeDriverGroupTransitionCleanup = null;
+            };
+            contentEl.addEventListener('transitionend', onEnd);
+        });
+        return;
+    }
+
+    contentEl.style.setProperty('--qe-driver-group-max', `${height}px`);
+    void contentEl.offsetHeight;
+    contentEl.classList.add('is-collapsed');
+    const onEnd = (event) => {
+        if (event?.propertyName !== 'max-height') return;
+        contentEl.removeEventListener('transitionend', onEnd);
+        contentEl.hidden = true;
+        contentEl.style.setProperty('--qe-driver-group-max', '0px');
+        contentEl.__qeDriverGroupTransitionCleanup = null;
+    };
+    contentEl.__qeDriverGroupTransitionCleanup = () => {
+        contentEl.removeEventListener('transitionend', onEnd);
+        contentEl.__qeDriverGroupTransitionCleanup = null;
+    };
+    contentEl.addEventListener('transitionend', onEnd);
+    contentEl.style.setProperty('--qe-driver-group-max', '0px');
+}
+
+/**
+ * Buduje klikany nagłówek sekcji w widoku `KIEROWCY` i podpina zapis stanu.
+ *
+ * @param {{ title: string, sectionKey: string, controlsId: string, contentEl: HTMLElement | null, modifierClass?: string }} params
+ * @returns {HTMLButtonElement}
+ */
+function createDriverSectionToggle({ title, sectionKey, controlsId, contentEl, modifierClass = '' }) {
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = ['qe-driver-group__toggle', modifierClass].filter(Boolean).join(' ');
+    toggle.setAttribute('aria-controls', String(controlsId ?? '').trim());
+
+    const label = document.createElement('span');
+    label.className = 'qe-driver-group__toggle-label';
+    label.textContent = String(title ?? '').trim() || 'Sekcja';
+
+    const chevron = document.createElement('span');
+    chevron.className = 'qe-driver-group__toggle-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+
+    toggle.append(chevron, label);
+
+    const syncState = (collapsed, options) => applyDriverSectionCollapsedState(toggle, contentEl, collapsed, options);
+    syncState(isDriverSectionCollapsed(sectionKey), { animate: false });
+
+    toggle.addEventListener('click', () => {
+        const nextCollapsed = toggle.getAttribute('aria-expanded') === 'true';
+        setDriverSectionCollapsed(sectionKey, nextCollapsed);
+        syncState(nextCollapsed, { animate: true });
+    });
+
+    return toggle;
+}
+
+/**
+ * Rozwija sekcję sterującą wskazaną zawartością, np. gdy aplikacja przewija do konkretnego kierowcy.
+ *
+ * @param {HTMLElement | null} contentEl
+ * @returns {void}
+ */
+function ensureDriverSectionExpandedForContent(contentEl) {
+    if (!(contentEl instanceof HTMLElement) || !contentEl.id || !(driversView instanceof HTMLElement)) return;
+    const toggles = driversView.querySelectorAll('.qe-driver-group__toggle[aria-controls]');
+    for (const toggle of toggles) {
+        if (!(toggle instanceof HTMLButtonElement)) continue;
+        if (toggle.getAttribute('aria-controls') !== contentEl.id) continue;
+        if (toggle.getAttribute('aria-expanded') === 'true') return;
+        toggle.click();
+        return;
+    }
+}
+
 function ensureDriverRoleSectionsContainer() {
     if (!driversView) return null;
     let container = driversView.querySelector('.qe-role-sections');
-    if (container) return container;
-
-    container = document.createElement('div');
-    container.className = 'qe-role-sections';
-    const header = driversView.querySelector('.qe-view-header');
-    if (header?.parentNode === driversView) {
-        driversView.insertBefore(container, header);
-    } else {
-        driversView.prepend(container);
+    if (!(container instanceof HTMLElement)) {
+        container = document.createElement('div');
+        container.className = 'qe-role-sections';
     }
+
+    const driversGridEl = driversView.querySelector('#drivers-grid');
+    if (driversGridEl?.parentNode === driversView) {
+        driversView.insertBefore(container, driversGridEl.nextSibling);
+    } else {
+        const header = driversView.querySelector('.qe-view-header');
+        if (header?.parentNode === driversView) {
+            driversView.insertBefore(container, header.nextSibling);
+        } else {
+            driversView.appendChild(container);
+        }
+    }
+
     return container;
 }
 
@@ -1482,15 +1654,15 @@ function splitDriverNameForTile(driverName) {
 }
 
 /**
- * Wyznacza docelową szerokość kafelka dla całej sekcji na podstawie
- * najdłuższego wiersza nazwy kierowcy w tej sekcji.
+ * Wyznacza docelową szerokość kafelka dla całego zestawu kierowców
+ * na podstawie najdłuższego wiersza nazwy.
  *
  * @param {Array<{ label?: string }>} items
  * @returns {string}
  */
 function estimateDriverSectionTileWidth(items) {
     const list = dedupeDriverTileModels(items);
-    let longestLineChars = 14;
+    let longestLineChars = 16;
 
     for (const item of list) {
         const { surname, givenNames } = splitDriverNameForTile(String(item?.label ?? ''));
@@ -1501,8 +1673,8 @@ function estimateDriverSectionTileWidth(items) {
         );
     }
 
-    const clampedChars = Math.max(14, Math.min(longestLineChars + 4, 34));
-    return `calc(${clampedChars}ch + 2.5rem)`;
+    const clampedChars = Math.max(18, Math.min(longestLineChars + 6, 38));
+    return `max(16rem, calc(${clampedChars}ch + 2.75rem))`;
 }
 
 /**
@@ -1572,6 +1744,9 @@ function revealPendingDriverTile(rootEl) {
         }
     }
     if (!(targetTile instanceof HTMLElement)) return false;
+
+    const controlledContent = targetTile.closest('.qe-driver-group__content');
+    if (controlledContent instanceof HTMLElement) ensureDriverSectionExpandedForContent(controlledContent);
 
     const trigger = targetTile.querySelector('.qe-driver-tile__trigger');
     targetTile.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
@@ -2402,9 +2577,44 @@ function isRouteCategoryCollapsed(category) {
 }
 
 /**
- * Wyświetla widok podglądu pełnej tabeli pliku.
+ * Przewija główny dokument do początku i wykonuje powtórkę po kolejnej klatce,
+ * aby układ po zmianie widoku nie „odbił” z powrotem na poprzednią pozycję.
+ *
+ * Dodatkowo przenosimy fokus poza kliknięty kafelek z listy tras, bo przeglądarka
+ * potrafi utrzymywać aktywny element w obszarze widocznym i w ten sposób niwelować
+ * ręczny reset scrolla.
+ *
+ * @returns {void}
  */
-function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false, contextIsoDate: null }) {
+function scrollDocumentToTop() {
+    try { backToSearchBtn?.focus?.({ preventScroll: true }); } catch { }
+
+    const performScroll = () => {
+        try { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); } catch { try { window.scrollTo(0, 0); } catch { } }
+        try {
+            const scrollingElement = document.scrollingElement;
+            if (scrollingElement) scrollingElement.scrollTop = 0;
+        } catch { }
+        try { document.documentElement.scrollTop = 0; } catch { }
+        try { document.body.scrollTop = 0; } catch { }
+    };
+
+    performScroll();
+    window.requestAnimationFrame(() => {
+        performScroll();
+        window.requestAnimationFrame(() => performScroll());
+    });
+}
+
+/**
+ * Wyświetla widok podglądu pełnej tabeli pliku.
+ *
+ * @param {string} fileName
+ * @param {number|null} highlightRowIndex
+ * @param {{ skipPush?: boolean, contextIsoDate?: (string|null), scrollToTop?: boolean }} [options]
+ * @returns {void}
+ */
+function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false, contextIsoDate: null, scrollToTop: false }) {
     trackVisibleView('preview');
     if (scheduleView) scheduleView.classList.add('view-hidden');
     if (routesView) routesView.classList.add('view-hidden');
@@ -2416,6 +2626,7 @@ function showFilePreview(fileName, highlightRowIndex, options = { skipPush: fals
         contextIsoDate: options?.contextIsoDate ?? null,
         skipPush: Boolean(options?.skipPush)
     });
+    if (options?.scrollToTop) scrollDocumentToTop();
 }
 
 function ensurePreviewApplication() {
@@ -3152,18 +3363,60 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
         setTileOpenState(openedTile, false);
     };
 
+    /**
+     * Delikatnie dosuwa otwarty panel szczegółów do viewportu na desktopie.
+     * Na mobile panel jest elementem flow i zwykle mieści się naturalnie w układzie.
+     *
+     * @param {HTMLElement} tileEl
+     * @returns {void}
+     */
+    const ensureOpenedTilePanelVisible = (tileEl) => {
+        if (!(tileEl instanceof HTMLElement)) return;
+        try {
+            if (globalThis.matchMedia?.('(max-width: 860px)')?.matches) return;
+        } catch { }
+
+        const scheduleScrollIntoView = () => {
+            const panelEl = tileEl.querySelector('.qe-driver-tile__panel');
+            if (!(panelEl instanceof HTMLElement)) return;
+            const panelRect = panelEl.getBoundingClientRect();
+            const viewportMargin = 16;
+            const viewportTop = viewportMargin;
+            const viewportBottom = Math.max(viewportMargin, window.innerHeight - viewportMargin);
+
+            if (panelRect.bottom > viewportBottom) {
+                const delta = panelRect.bottom - viewportBottom;
+                try { window.scrollBy({ top: delta, left: 0, behavior: 'smooth' }); } catch { }
+                return;
+            }
+
+            if (panelRect.top < viewportTop) {
+                const delta = panelRect.top - viewportTop;
+                try { window.scrollBy({ top: delta, left: 0, behavior: 'smooth' }); } catch { }
+            }
+        };
+
+        // Dwie klatki dają przeglądarce czas na przeliczenie wysokości po zmianie klasy `is-open`.
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(scheduleScrollIntoView);
+        });
+    };
+
     const sortedItems = list.slice().sort((a, b) => {
         const bySurname = buildDriverSurnameSortKey(String(a?.label ?? '')).localeCompare(buildDriverSurnameSortKey(String(b?.label ?? '')), 'pl', { sensitivity: 'base' });
         if (bySurname !== 0) return bySurname;
         return String(a?.label ?? '').localeCompare(String(b?.label ?? ''), 'pl', { sensitivity: 'base' });
     });
+    const sharedTileWidth = estimateDriverSectionTileWidth(sortedItems);
 
     let tileCounter = 0;
     const appendTilesToGrid = (gridEl, sectionItems) => {
         if (!(gridEl instanceof HTMLElement) || !Array.isArray(sectionItems) || sectionItems.length === 0) return null;
         gridEl.className = 'qe-tile-grid qe-driver-section__grid';
         gridEl.setAttribute('role', 'list');
-        gridEl.style.setProperty('--qe-driver-section-tile-width', estimateDriverSectionTileWidth(sectionItems));
+        /* Wszystkie kafelki w danym widoku mają wspólną szerokość,
+           aby zachować spójny rytm siatki i zapas dla dłuższych nazwisk. */
+        gridEl.style.setProperty('--qe-driver-section-tile-width', sharedTileWidth);
 
         for (const item of sectionItems) {
             const label = String(item?.label ?? '').trim();
@@ -3181,6 +3434,10 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             tile.className = 'qe-driver-tile';
             tile.setAttribute('role', 'listitem');
             tile.dataset.driverLookupKey = utils.buildNormalizedDriverLookupKey(label);
+
+            /* Warstwa główna utrzymuje badge'e względem frontowej części kafelka także na mobile. */
+            const tileMain = document.createElement('div');
+            tileMain.className = 'qe-driver-tile__main';
 
             const trigger = document.createElement('button');
             trigger.type = 'button';
@@ -3403,6 +3660,7 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                 }
                 setTileOpenState(tile, nextOpenState);
                 setTileManualCloseState(tile, false);
+                if (nextOpenState) ensureOpenedTilePanelVisible(tile);
             }, { signal });
 
             tile.addEventListener('keydown', (event) => {
@@ -3412,8 +3670,9 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                 trigger.focus();
             }, { signal });
 
-            tile.appendChild(trigger);
-            if (todayScheduleBadgesEl instanceof HTMLElement) tile.appendChild(todayScheduleBadgesEl);
+            tileMain.appendChild(trigger);
+            if (todayScheduleBadgesEl instanceof HTMLElement) tileMain.appendChild(todayScheduleBadgesEl);
+            tile.appendChild(tileMain);
             tile.appendChild(panel);
             gridEl.appendChild(tile);
             tileCounter += 1;
@@ -3676,17 +3935,24 @@ async function renderDriversView() {
             }
 
             const roleSection = document.createElement('section');
-            roleSection.className = 'qe-role-segment';
+            roleSection.className = 'qe-role-segment qe-driver-group';
             roleSection.setAttribute('aria-label', `Sekcja ${getDriverRoleSectionTitle(roleConfig.key, roleContacts.length)}`);
 
             const roleTitle = document.createElement('h3');
-            roleTitle.className = 'qe-view-subtitle qe-role-segment__title';
-            roleTitle.textContent = getDriverRoleSectionTitle(roleConfig.key, roleContacts.length);
+            roleTitle.className = 'qe-role-segment__title qe-driver-group__heading';
 
             const roleGrid = document.createElement('div');
             roleGrid.className = 'qe-driver-role-grid';
+            roleGrid.id = `qe-driver-role-grid-${roleConfig.key}`;
             roleGrid.setAttribute('role', 'list');
             roleGrid.setAttribute('aria-label', getDriverRoleSectionTitle(roleConfig.key, roleContacts.length));
+
+            roleTitle.appendChild(createDriverSectionToggle({
+                title: getDriverRoleSectionTitle(roleConfig.key, roleContacts.length),
+                sectionKey: `role:${roleConfig.key}`,
+                controlsId: roleGrid.id,
+                contentEl: roleGrid
+            }));
 
             roleSection.appendChild(roleTitle);
             roleSection.appendChild(roleGrid);
@@ -3723,7 +3989,21 @@ async function renderDriversView() {
         );
     });
     renderDriverTileGrid(driversGrid, tiles, { emptyText: 'Brak kierowców w zaimportowanych plikach grafiku.' });
-    revealPendingDriverTile(driversView);
+
+    const driversViewHeader = driversView?.querySelector('.qe-view-header');
+    const driversViewTitle = driversViewHeader?.querySelector('.qe-view-title');
+    if (driversViewTitle instanceof HTMLElement && driversGrid instanceof HTMLElement) {
+        driversViewTitle.classList.add('qe-driver-group__heading', 'qe-driver-group__heading--view');
+        clearElement(driversViewTitle);
+        driversViewTitle.appendChild(createDriverSectionToggle({
+            title: 'Kierowcy',
+            sectionKey: 'all-drivers',
+            controlsId: driversGrid.id || 'drivers-grid',
+            contentEl: driversGrid,
+            modifierClass: 'qe-driver-group__toggle--view'
+        }));
+    }
+
 }
 
 function showRoutesShell() {
@@ -3758,9 +4038,12 @@ async function openDriversView({ skipPush = false, source = '', transitionToken 
     if (String(targetDriverName || '').trim()) {
         queueDriverTileReveal(String(targetDriverName || '').trim());
     }
-    showDriversShell();
+    // Widok odsłaniamy dopiero po zakończeniu pierwszego renderu,
+    // aby użytkownik nie widział przejściowego, „surowego” nagłówka.
     await renderDriversView();
     if (transitionToken && transitionToken !== primaryNavTransitionToken) return;
+    showDriversShell();
+    revealPendingDriverTile(driversView);
     if (!skipPush) ensureNavigationService().pushDrivers();
     logClientEvent('navigate', { to: 'drivers', source: String(source || '') });
 }

@@ -12,6 +12,7 @@
         entries: [],
         lastRenderedIndex: 0,
         renderScheduled: false,
+        lastFocusedBeforeOpen: null,
         pendingClearConfirmUntil: 0,
         pendingClearDbConfirmUntil: 0,
         pendingClearRndConfirmUntil: 0,
@@ -44,6 +45,95 @@
     function clamp(n, a, b) { return Math.min(b, Math.max(a, n)); }
     function raf(fn) { return window.requestAnimationFrame(fn); }
     function isDesktopViewport() { try { return window.innerWidth >= MIN_DESKTOP_WIDTH; } catch { return false; } }
+
+    /**
+     * Zwraca aktywny element HTML.
+     *
+     * @returns {HTMLElement | null}
+     */
+    function getActiveHtmlElement() {
+        return document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+
+    /**
+     * Sprawdza, czy element moze przejac fokus po zamknieciu panelu.
+     *
+     * @param {unknown} element
+     * @returns {element is HTMLElement}
+     */
+    function isRestorableFocusTarget(element) {
+        return element instanceof HTMLElement
+            && element.isConnected
+            && !element.hasAttribute('disabled')
+            && element.getAttribute('aria-hidden') !== 'true';
+    }
+
+    /**
+     * Bezpiecznie ustawia fokus na wskazanym elemencie.
+     *
+     * @param {HTMLElement | null | undefined} element
+     * @returns {boolean}
+     */
+    function focusElementSafely(element) {
+        if (!isRestorableFocusTarget(element)) return false;
+        try {
+            element.focus({ preventScroll: true });
+            return document.activeElement === element;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Awaryjnie przenosi fokus na body.
+     *
+     * @returns {boolean}
+     */
+    function focusBodySafely() {
+        const body = document.body;
+        if (!(body instanceof HTMLElement)) return false;
+        const previousTabIndex = body.getAttribute('tabindex');
+        body.setAttribute('tabindex', '-1');
+        let focused = false;
+        try {
+            body.focus({ preventScroll: true });
+            focused = document.activeElement === body;
+        } catch {
+            focused = false;
+        }
+        if (previousTabIndex == null) body.removeAttribute('tabindex');
+        else body.setAttribute('tabindex', previousTabIndex);
+        return focused;
+    }
+
+    /**
+     * Ustawia stan inert panelu, jesli przegladarka wspiera ten atrybut.
+     *
+     * @param {boolean} inert
+     * @returns {void}
+     */
+    function setPanelInert(inert) {
+        if (!(dom.panel instanceof HTMLElement)) return;
+        try {
+            if ('inert' in dom.panel) dom.panel.inert = Boolean(inert);
+        } catch { }
+    }
+
+    /**
+     * Przenosi fokus poza panel debuggera przed jego ukryciem.
+     *
+     * @returns {void}
+     */
+    function moveFocusOutsidePanel() {
+        const activeElement = getActiveHtmlElement();
+        if (!activeElement || !dom.panel?.contains(activeElement)) return;
+        const restoreTarget = isRestorableFocusTarget(state.lastFocusedBeforeOpen)
+            ? state.lastFocusedBeforeOpen
+            : (isRestorableFocusTarget(dom.fab) ? dom.fab : null);
+        if (restoreTarget && !dom.panel.contains(restoreTarget) && focusElementSafely(restoreTarget)) return;
+        try { activeElement.blur?.(); } catch { }
+        focusBodySafely();
+    }
 
     function normalizeLevel(level) {
         const lvl = String(level || 'INFO').toUpperCase();
@@ -228,6 +318,9 @@
         panel.className = 'panel';
         panel.setAttribute('aria-label', 'Debugger');
         panel.setAttribute('aria-hidden', 'true');
+        try {
+            if ('inert' in panel) panel.inert = true;
+        } catch { }
         dom.panel = panel;
 
         const header = document.createElement('div');
@@ -344,11 +437,19 @@
     }
 
     function setOpen(open) {
+        const previousOpen = state.open;
         state.open = Boolean(open);
         if (!dom.wrap || !dom.fab || !dom.panel) return;
 
+        if (state.open && !previousOpen) {
+            const activeElement = getActiveHtmlElement();
+            if (activeElement && !dom.panel.contains(activeElement)) state.lastFocusedBeforeOpen = activeElement;
+        }
+        if (!state.open && previousOpen) moveFocusOutsidePanel();
+
         dom.wrap.setAttribute('data-open', state.open ? 'true' : 'false');
         dom.panel.setAttribute('aria-hidden', state.open ? 'false' : 'true');
+        setPanelInert(!state.open);
         dom.fab.setAttribute('aria-expanded', state.open ? 'true' : 'false');
         dom.fab.setAttribute('aria-label', state.open ? 'Zwiń debugger' : 'Otwórz debugger');
 

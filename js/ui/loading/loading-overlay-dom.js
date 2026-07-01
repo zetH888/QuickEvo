@@ -1,3 +1,5 @@
+import { moveFocusOutsideContainer, setElementInert } from '../../core/focus-visibility.js';
+
 export function setLoadingStatusTextDom(loadingStatusTextEl, nextText) {
     if (!loadingStatusTextEl) return;
     loadingStatusTextEl.textContent = String(nextText || '');
@@ -53,6 +55,7 @@ export function showLoadingOverlayDom({ loadingOverlay, loadingErrorEl, loadingC
     loadingOverlay.classList.remove('hidden');
     loadingOverlay.setAttribute('aria-hidden', 'false');
     loadingOverlay.setAttribute('aria-busy', 'true');
+    setElementInert(loadingOverlay, false);
 
     clearLoadingErrorDom(loadingErrorEl);
     if (loadingContinueButtonEl) loadingContinueButtonEl.disabled = true;
@@ -61,6 +64,8 @@ export function showLoadingOverlayDom({ loadingOverlay, loadingErrorEl, loadingC
 
 export function hideLoadingOverlayDom({ loadingOverlay, fadeOutMs = 600 } = {}) {
     if (!loadingOverlay) return;
+    moveFocusOutsideContainer(loadingOverlay);
+    setElementInert(loadingOverlay, true);
     loadingOverlay.classList.add('loading-overlay-fade-out');
     window.setTimeout(() => {
         loadingOverlay.classList.add('hidden');
@@ -117,4 +122,3 @@ export function scheduleWelcomeLogoEntranceDom(cfg) {
 
     return timers;
 }
-

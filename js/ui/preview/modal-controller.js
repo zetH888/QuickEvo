@@ -1,3 +1,5 @@
+import { focusElementSafely, getActiveHtmlElement, isRestorableFocusTarget, moveFocusOutsideContainer, setElementInert } from '../../core/focus-visibility.js';
+
 export function createModalController(cfg) {
     const modalOverlay = cfg?.modalOverlay || null;
     const modalTitle = cfg?.modalTitle || null;
@@ -9,9 +11,22 @@ export function createModalController(cfg) {
     const clearElement = typeof cfg?.clearElement === 'function' ? cfg.clearElement : ((el) => { if (el) el.replaceChildren(); });
     const onBeforeHide = typeof cfg?.onBeforeHide === 'function' ? cfg.onBeforeHide : (() => { });
     let secondaryModalState = null;
+    let lastFocusedBeforeOpen = null;
+
+    /**
+     * Zwraca najlepszy kandydat do odzyskania fokusu po zamknieciu glownego modala.
+     *
+     * @returns {HTMLElement | null}
+     */
+    function getFocusRestoreTarget() {
+        if (isRestorableFocusTarget(lastFocusedBeforeOpen) && !modalOverlay?.contains(lastFocusedBeforeOpen)) return lastFocusedBeforeOpen;
+        return document?.body instanceof HTMLElement ? document.body : null;
+    }
 
     function show(title, content, actions = []) {
         if (!modalOverlay || !modalTitle || !modalContent || !modalActions) return;
+        const activeBeforeOpen = getActiveHtmlElement(document);
+        if (!modalOverlay.contains(activeBeforeOpen)) lastFocusedBeforeOpen = activeBeforeOpen;
         const { html, hasDrive } = buildTitleHtml(title);
         modalTitle.innerHTML = html;
         modalTitle.classList.toggle('qe-modal-title--gdrive', Boolean(hasDrive));
@@ -26,6 +41,7 @@ export function createModalController(cfg) {
         });
         modalOverlay.classList.remove('hidden');
         modalOverlay.setAttribute('aria-hidden', 'false');
+        setElementInert(modalOverlay, false);
     }
 
     /**
@@ -52,12 +68,14 @@ export function createModalController(cfg) {
         if (!secondaryModalState) return;
 
         secondaryModalState.onClose = typeof options?.onClose === 'function' ? options.onClose : null;
+        secondaryModalState.previousActiveElement = getActiveHtmlElement(document);
         secondaryModalState.titleEl.textContent = title;
         setElementHtml(secondaryModalState.contentEl, content);
         secondaryModalState.cardEl.className = `qe-secondary-modal-card${className ? ` ${className}` : ''}`;
         secondaryModalState.closeBtn.setAttribute('aria-label', closeLabel);
         secondaryModalState.overlayEl.hidden = false;
         secondaryModalState.overlayEl.setAttribute('aria-hidden', 'false');
+        setElementInert(secondaryModalState.overlayEl, false);
         secondaryModalState.closeBtn.focus({ preventScroll: true });
     }
 
@@ -91,16 +109,23 @@ export function createModalController(cfg) {
      */
     function hideSecondary() {
         if (!secondaryModalState) return;
-        const { overlayEl, onClose } = secondaryModalState;
+        const { overlayEl, onClose, previousActiveElement } = secondaryModalState;
         secondaryModalState = null;
+        moveFocusOutsideContainer(overlayEl, { preferredTarget: previousActiveElement });
+        setElementInert(overlayEl, true);
+        overlayEl.hidden = true;
+        overlayEl.setAttribute('aria-hidden', 'true');
         try { onClose?.(); } catch { }
         try { overlayEl.remove(); } catch { }
+        focusElementSafely(previousActiveElement);
     }
 
     function hide() {
         hideSecondary();
         onBeforeHide();
         if (!modalOverlay) return;
+        moveFocusOutsideContainer(modalOverlay, { preferredTarget: getFocusRestoreTarget() });
+        setElementInert(modalOverlay, true);
         modalOverlay.classList.add('hidden');
         modalOverlay.setAttribute('aria-hidden', 'true');
     }
@@ -114,7 +139,8 @@ export function createModalController(cfg) {
      *   titleEl: HTMLDivElement,
      *   contentEl: HTMLDivElement,
      *   closeBtn: HTMLButtonElement,
-     *   onClose: (() => void) | null
+     *   onClose: (() => void) | null,
+     *   previousActiveElement: HTMLElement | null
      * } | null}
      */
     function createSecondaryModalDom() {
@@ -167,7 +193,8 @@ export function createModalController(cfg) {
             titleEl,
             contentEl,
             closeBtn,
-            onClose: null
+            onClose: null,
+            previousActiveElement: null
         };
     }
 
