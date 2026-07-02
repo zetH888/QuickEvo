@@ -167,6 +167,11 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
 - Wycentrowano etykiety filtrów oraz wskazane rzędy/sekcje toolbaru (`wybór miesiąca`, nawigacja dnia i grupy filtrów), aby układ był bardziej symetryczny na desktopie.
 - Na mobile przywrócono `Powrót` w postaci małej ikony w rogu, bez cofania wcześniejszego uproszczenia toolbaru.
 
+### Zmiany w wersji 2.36.1
+
+- Logika rejestracji pojazdów w widoku `KIEROWCY` została przebudowana pod historię wszystkich arkuszy skoroszytu: serwis zaczyna od ostatniego arkusza, sprawdza wskazany dzień wstecz do `1`, a gdy zakres jest pusty, schodzi do starszych arkuszy i w każdym z nich szuka już od końca miesiąca do `1`, zwracając pierwszą napotkaną niepustą komórkę danego kierowcy.
+- Parser rejestracji został zoptymalizowany pod nazwy arkuszy w formacie `<MIESIĄC> <ROK>`, dzięki czemu dokładniej wylicza długość miesiąca i buduje lżejszy indeks historii per kierowca/per arkusz zamiast fallbacku ograniczonego do jednego arkusza.
+
 ### Zmiany w wersji 2.36.0
 
 - Badge kierowcy w podglądzie trasy dla konkretnego dnia stał się interaktywny: kliknięcie przenosi teraz do widoku `KIEROWCY`, przewija do odpowiedniej osoby, otwiera jej panel szczegółów i chwilowo podświetla właściwy kafelek.

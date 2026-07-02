@@ -9,17 +9,20 @@ import { buildNormalizedDriverLookupKey, fuzzyNormalizeText, normalizeDriverDisp
  *
  * Założenia źródła:
  * - plik jest pojedynczym źródłem prawdy,
- * - wykorzystywany jest wyłącznie ostatni arkusz skoroszytu,
- * - ostatni arkusz powinien reprezentować bieżący miesiąc i rok,
+ * - wszystkie arkusze skoroszytu reprezentują historię zmian,
+ * - ostatni arkusz jest traktowany jako najnowszy punkt startowy,
+ * - nazwy arkuszy mają format `<MIESIĄC> <ROK>`,
  * - układ kolumn odpowiada grafikowi kierowców:
  *   - kolumna A: `IMIE I NAZWISKO`,
  *   - kolejne kolumny: numery dni miesiąca,
  *   - komórki: numery rejestracyjne pojazdów.
  *
- * Jeśli komórka dla wskazanego dnia jest pusta, serwis zwraca ostatnią
- * wcześniejszą, znaną rejestrację tego kierowcy w tym samym miesiącu.
- * Gdy taki fallback nie istnieje, serwis zwraca rejestrację z ostatniego
- * niepustego dnia w ostatnim arkuszu pliku.
+ * Dla wskazanego kierowcy i dnia serwis działa następująco:
+ * - zaczyna od ostatniego arkusza skoroszytu,
+ * - w ostatnim arkuszu szuka od wskazanego dnia wstecz do `1`,
+ * - jeśli nic nie znajdzie, przechodzi do starszych arkuszy,
+ * - w każdym starszym arkuszu szuka od końca miesiąca wstecz do `1`,
+ * - zwraca pierwszą napotkaną niepustą rejestrację.
  *
  * @param {{
  *   listFiles: (() => Promise<any[]>) | null,
@@ -33,6 +36,8 @@ import { buildNormalizedDriverLookupKey, fuzzyNormalizeText, normalizeDriverDisp
  *   loadDriverRegistrationsFiles: (opts?: { fullReload?: boolean }) => Promise<void>,
  *   processDriverRegistrationsFile: (fileName: string) => Promise<void>,
  *   invalidateDriverRegistrationsFile: (fileName: string) => void,
+ *   getRegistrationInfoForDriverName: (driverName: string, opts?: { date?: Date }) => { registration: string, sourceIsoDate: string, sourceSheetName: string },
+ *   getRegistrationInfoForDriverNameOnIsoDate: (driverName: string, isoDate: string) => { registration: string, sourceIsoDate: string, sourceSheetName: string },
  *   getRegistrationForDriverName: (driverName: string, opts?: { date?: Date }) => string,
  *   getRegistrationForDriverNameOnIsoDate: (driverName: string, isoDate: string) => string,
  *   buildDriverLookupKey: (value: unknown) => string,
@@ -56,21 +61,30 @@ export function createDriverRegistrationsService(cfg = {}) {
         'listopad',
         'grudzien'
     ]);
+    const MONTH_NAME_TO_NUMBER = Object.freeze(MONTH_NAMES_PL.reduce((acc, monthName, index) => {
+        acc[monthName] = index + 1;
+        return acc;
+    }, {}));
+    const SHEET_MONTH_PATTERN = new RegExp(`^(${MONTH_NAMES_PL.join('|')})\\s+(20\\d{2})$`);
 
     /**
      * Indeks:
      * - klucz: znormalizowana nazwa kierowcy,
-     * - wartość: mapa miesięcy -> mapa dni -> rejestracja.
+     * - wartość: mapa arkuszy z gotowymi wpisami dziennymi.
      *
-     * @type {Map<string, { driverName: string, lookupKeys: string[], byMonthKey: Map<string, Map<number, string>> }>}
+     * @type {Map<string, { driverName: string, lookupKeys: string[], bySheetIndex: Map<number, { sheetIndex: number, sheetName: string, monthKey: string, maxDays: number, dayRegistrations: Map<number, string>, sortedDaysDesc: number[] }> }>}
      */
     let registrationsByLookupKey = new Map();
 
     /** @type {Set<string>} */
     let loadedDriverRegistrationFiles = new Set();
 
-    /** @type {string} */
-    let latestRegistrationsMonthKey = '';
+    /**
+     * Chronologiczna lista arkuszy od najstarszego do najnowszego.
+     *
+     * @type {Array<{ sheetIndex: number, sheetName: string, monthKey: string, year: number, month: number, maxDays: number }>}
+     */
+    let registrationSheetTimeline = [];
 
     /**
      * Buduje klucz porównawczy kierowcy odporny na warianty zapisu.
@@ -160,6 +174,25 @@ export function createDriverRegistrationsService(cfg = {}) {
     }
 
     /**
+     * Buduje datę ISO (`YYYY-MM-DD`) z bezpiecznych części składowych.
+     *
+     * @param {number} year
+     * @param {number} month
+     * @param {number} day
+     * @returns {string}
+     */
+    function buildIsoDate(year, month, day) {
+        const y = Number(year);
+        const m = Number(month);
+        const d = Number(day);
+        if (!Number.isInteger(y) || y < 2000 || y > 2100) return '';
+        if (!Number.isInteger(m) || m < 1 || m > 12) return '';
+        const maxDays = daysInMonth(y, m);
+        if (!Number.isInteger(d) || d < 1 || d > maxDays) return '';
+        return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+
+    /**
      * Normalizuje numer rejestracyjny do postaci czytelnej w UI.
      *
      * @param {unknown} value
@@ -210,7 +243,8 @@ export function createDriverRegistrationsService(cfg = {}) {
 
     /**
      * Próbuje wyciągnąć miesiąc i rok z nazwy arkusza.
-     * Jeśli to się nie uda, fallbackiem jest bieżąca data.
+     * Preferuje ścisły format `<MIESIĄC> <ROK>`, ale zachowuje fallback,
+     * aby nie wywrócić starszych plików o lekko innym zapisie.
      *
      * @param {string} sheetName
      * @returns {{ year: number, month: number, key: string, matchesCurrentMonth: boolean }}
@@ -223,22 +257,35 @@ export function createDriverRegistrationsService(cfg = {}) {
         const fallbackMonth = now.getMonth() + 1;
         const fallbackKey = buildMonthKey(fallbackYear, fallbackMonth);
 
-        let matchedMonth = 0;
-        for (let index = 0; index < MONTH_NAMES_PL.length; index += 1) {
-            if (normalizedSheetName.includes(MONTH_NAMES_PL[index])) {
-                matchedMonth = index + 1;
-                break;
+        let month = 0;
+        let year = 0;
+
+        const strictMatch = normalizedSheetName.match(SHEET_MONTH_PATTERN);
+        if (strictMatch) {
+            month = Number(MONTH_NAME_TO_NUMBER[strictMatch[1]] || 0);
+            year = Number(strictMatch[2]);
+        }
+
+        if (!month) {
+            for (let index = 0; index < MONTH_NAMES_PL.length; index += 1) {
+                if (normalizedSheetName.includes(MONTH_NAMES_PL[index])) {
+                    month = index + 1;
+                    break;
+                }
             }
         }
 
-        const yearMatch = normalizedSheetName.match(/\b(20\d{2})\b/);
-        const matchedYear = yearMatch ? Number(yearMatch[1]) : 0;
-        const year = Number.isInteger(matchedYear) && matchedYear >= 2000 && matchedYear <= 2100 ? matchedYear : fallbackYear;
-        const month = Number.isInteger(matchedMonth) && matchedMonth >= 1 && matchedMonth <= 12 ? matchedMonth : fallbackMonth;
-        const key = buildMonthKey(year, month) || fallbackKey;
-        const matchesCurrentMonth = year === fallbackYear && month === fallbackMonth;
+        if (!year) {
+            const yearMatch = normalizedSheetName.match(/\b(20\d{2})\b/);
+            year = yearMatch ? Number(yearMatch[1]) : 0;
+        }
 
-        return { year, month, key, matchesCurrentMonth };
+        const safeYear = Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : fallbackYear;
+        const safeMonth = Number.isInteger(month) && month >= 1 && month <= 12 ? month : fallbackMonth;
+        const key = buildMonthKey(safeYear, safeMonth) || fallbackKey;
+        const matchesCurrentMonth = safeYear === fallbackYear && safeMonth === fallbackMonth;
+
+        return { year: safeYear, month: safeMonth, key, matchesCurrentMonth };
     }
 
     /**
@@ -249,45 +296,94 @@ export function createDriverRegistrationsService(cfg = {}) {
     function clearCache() {
         registrationsByLookupKey = new Map();
         loadedDriverRegistrationFiles = new Set();
-        latestRegistrationsMonthKey = '';
+        registrationSheetTimeline = [];
     }
 
     /**
-     * Dodaje lub scala rejestracje dla jednego kierowcy i miesiąca.
+     * Dodaje lub scala rejestracje dla jednego kierowcy i konkretnego arkusza.
      *
-     * @param {{ driverName: string, lookupKeys: string[], monthKey: string, dayRegistrations: Map<number, string> }} entry
+     * @param {{
+     *   driverName: string,
+     *   lookupKeys: string[],
+     *   sheetMeta: { sheetIndex: number, sheetName: string, monthKey: string, maxDays: number },
+     *   dayRegistrations: Map<number, string>
+     * }} entry
      * @returns {void}
      */
     function upsertRegistrations(entry) {
-        const lookupKeys = Array.isArray(entry?.lookupKeys) ? entry.lookupKeys.map((key) => String(key ?? '').trim()).filter(Boolean) : [];
-        const monthKey = String(entry?.monthKey ?? '').trim();
+        const lookupKeys = Array.isArray(entry?.lookupKeys)
+            ? entry.lookupKeys.map((key) => String(key ?? '').trim()).filter(Boolean)
+            : [];
+        const sheetIndex = Number(entry?.sheetMeta?.sheetIndex);
+        const sheetName = String(entry?.sheetMeta?.sheetName ?? '').trim();
+        const monthKey = String(entry?.sheetMeta?.monthKey ?? '').trim();
+        const maxDays = Number(entry?.sheetMeta?.maxDays);
         const dayRegistrations = entry?.dayRegistrations instanceof Map ? entry.dayRegistrations : null;
-        if (lookupKeys.length === 0 || !monthKey || !(dayRegistrations instanceof Map)) return;
+        if (lookupKeys.length === 0 || !Number.isInteger(sheetIndex) || !sheetName || !monthKey || !Number.isInteger(maxDays) || !(dayRegistrations instanceof Map) || dayRegistrations.size === 0) {
+            return;
+        }
 
         for (const lookupKey of lookupKeys) {
             if (!registrationsByLookupKey.has(lookupKey)) {
                 registrationsByLookupKey.set(lookupKey, {
                     driverName: String(entry?.driverName ?? '').trim(),
                     lookupKeys: lookupKeys.slice(),
-                    byMonthKey: new Map()
+                    bySheetIndex: new Map()
                 });
             }
 
             const target = registrationsByLookupKey.get(lookupKey);
             if (!target) continue;
-            if (!(target.byMonthKey instanceof Map)) target.byMonthKey = new Map();
-            if (!target.byMonthKey.has(monthKey)) target.byMonthKey.set(monthKey, new Map());
+            if (!(target.bySheetIndex instanceof Map)) target.bySheetIndex = new Map();
+            if (!target.bySheetIndex.has(sheetIndex)) {
+                target.bySheetIndex.set(sheetIndex, {
+                    sheetIndex,
+                    sheetName,
+                    monthKey,
+                    maxDays,
+                    dayRegistrations: new Map(),
+                    sortedDaysDesc: []
+                });
+            }
 
-            const targetMonthMap = target.byMonthKey.get(monthKey);
-            if (!(targetMonthMap instanceof Map)) continue;
+            const targetSheetEntry = target.bySheetIndex.get(sheetIndex);
+            if (!targetSheetEntry || !(targetSheetEntry.dayRegistrations instanceof Map)) continue;
 
             for (const [day, registration] of dayRegistrations.entries()) {
                 const safeDay = Number(day);
                 const safeRegistration = normalizeRegistrationValue(registration);
                 if (!Number.isInteger(safeDay) || safeDay < 1 || safeDay > 31 || !safeRegistration) continue;
-                targetMonthMap.set(safeDay, safeRegistration);
+                targetSheetEntry.dayRegistrations.set(safeDay, safeRegistration);
             }
+
+            targetSheetEntry.sortedDaysDesc = Array.from(targetSheetEntry.dayRegistrations.keys())
+                .map((day) => Number(day))
+                .filter((day) => Number.isInteger(day) && day >= 1 && day <= 31)
+                .sort((a, b) => b - a);
         }
+    }
+
+    /**
+     * Zwraca pierwsze trafienie rejestracji z arkusza nie dalej niż do wskazanego dnia.
+     *
+     * @param {{ dayRegistrations: Map<number, string>, sortedDaysDesc: number[] } | null | undefined} sheetEntry
+     * @param {number} maxDayInclusive
+     * @returns {{ registration: string, day: number } | null}
+     */
+    function resolveRegistrationMatchFromSheetEntry(sheetEntry, maxDayInclusive) {
+        const safeMaxDayInclusive = Number(maxDayInclusive);
+        if (!sheetEntry || !Number.isInteger(safeMaxDayInclusive) || safeMaxDayInclusive < 1) return null;
+        const daysDesc = Array.isArray(sheetEntry.sortedDaysDesc) ? sheetEntry.sortedDaysDesc : [];
+        const dayRegistrations = sheetEntry.dayRegistrations instanceof Map ? sheetEntry.dayRegistrations : null;
+        if (!(dayRegistrations instanceof Map) || daysDesc.length === 0) return null;
+
+        for (const day of daysDesc) {
+            if (!Number.isInteger(day) || day < 1 || day > safeMaxDayInclusive) continue;
+            const registration = normalizeRegistrationValue(dayRegistrations.get(day));
+            if (registration) return { registration, day };
+        }
+
+        return null;
     }
 
     /**
@@ -305,57 +401,85 @@ export function createDriverRegistrationsService(cfg = {}) {
         }
 
         const workbook = await cfg.readWorkbook(source, safeFileName);
-        const sheetNames = Array.isArray(workbook?.SheetNames) ? workbook.SheetNames.map((name) => String(name ?? '').trim()).filter(Boolean) : [];
+        const sheetNames = Array.isArray(workbook?.SheetNames)
+            ? workbook.SheetNames.map((name) => String(name ?? '').trim()).filter(Boolean)
+            : [];
         const lastSheetName = sheetNames.length > 0 ? sheetNames[sheetNames.length - 1] : '';
         if (!lastSheetName) throw new Error('Plik rejestracji nie zawiera arkusza.');
 
-        const worksheet = workbook?.Sheets?.[lastSheetName];
-        const matrix = cfg.sheetToMatrix(worksheet);
-        const headerRowIndex = findRegistrationsHeaderRowIndex(matrix);
-        if (headerRowIndex < 0) {
-            throw new Error('Nie znaleziono wiersza nagłówka rejestracji ("IMIE I NAZWISKO").');
-        }
-
-        const monthMeta = parseSheetMonthMeta(lastSheetName);
-        latestRegistrationsMonthKey = String(monthMeta?.key ?? '').trim();
-        if (!monthMeta.matchesCurrentMonth) {
+        const lastSheetMonthMeta = parseSheetMonthMeta(lastSheetName);
+        if (!lastSheetMonthMeta.matchesCurrentMonth) {
             try {
                 cfg.logAction?.('driver_registrations', {
                     phase: 'last_sheet_not_current_month',
                     fileName: safeFileName,
                     sheetName: lastSheetName,
-                    monthKey: monthMeta.key
+                    monthKey: lastSheetMonthMeta.key
                 }, 'WARN');
             } catch { }
         }
 
-        const headerRow = matrix[headerRowIndex];
-        const dayToCol = buildDayColumnMap(headerRow);
-        const maxDays = daysInMonth(monthMeta.year, monthMeta.month);
-
-        for (let rowIndex = headerRowIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
-            const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
-            const driverName = normalizeDriverDisplayName(row[0]);
-            if (!driverName) continue;
-
-            const lookupKeys = buildDriverLookupKeys(driverName);
-            if (lookupKeys.length === 0) continue;
-
-            const dayRegistrations = new Map();
-            for (let day = 1; day <= maxDays; day += 1) {
-                const col = dayToCol.get(day);
-                if (!Number.isInteger(col)) continue;
-                const registration = normalizeRegistrationValue(row[col]);
-                if (!registration) continue;
-                dayRegistrations.set(day, registration);
+        let parsedSheetCount = 0;
+        for (const sheetName of sheetNames) {
+            const worksheet = workbook?.Sheets?.[sheetName];
+            const matrix = cfg.sheetToMatrix(worksheet);
+            const headerRowIndex = findRegistrationsHeaderRowIndex(matrix);
+            if (headerRowIndex < 0) {
+                try {
+                    cfg.logAction?.('driver_registrations', {
+                        phase: 'sheet_skipped_invalid_header',
+                        fileName: safeFileName,
+                        sheetName
+                    }, 'WARN');
+                } catch { }
+                continue;
             }
 
-            upsertRegistrations({
-                driverName,
-                lookupKeys,
+            const monthMeta = parseSheetMonthMeta(sheetName);
+            const headerRow = matrix[headerRowIndex];
+            const dayToCol = buildDayColumnMap(headerRow);
+            const maxDays = daysInMonth(monthMeta.year, monthMeta.month);
+            const sheetIndex = registrationSheetTimeline.length;
+            const sheetMeta = {
+                sheetIndex,
+                sheetName,
                 monthKey: monthMeta.key,
-                dayRegistrations
-            });
+                year: monthMeta.year,
+                month: monthMeta.month,
+                maxDays
+            };
+
+            registrationSheetTimeline.push(sheetMeta);
+            parsedSheetCount += 1;
+
+            for (let rowIndex = headerRowIndex + 1; rowIndex < matrix.length; rowIndex += 1) {
+                const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+                const driverName = normalizeDriverDisplayName(row[0]);
+                if (!driverName) continue;
+
+                const lookupKeys = buildDriverLookupKeys(driverName);
+                if (lookupKeys.length === 0) continue;
+
+                const dayRegistrations = new Map();
+                for (let day = 1; day <= maxDays; day += 1) {
+                    const col = dayToCol.get(day);
+                    if (!Number.isInteger(col)) continue;
+                    const registration = normalizeRegistrationValue(row[col]);
+                    if (!registration) continue;
+                    dayRegistrations.set(day, registration);
+                }
+
+                upsertRegistrations({
+                    driverName,
+                    lookupKeys,
+                    sheetMeta,
+                    dayRegistrations
+                });
+            }
+        }
+
+        if (parsedSheetCount === 0) {
+            throw new Error('Nie znaleziono poprawnego arkusza rejestracji z nagłówkiem "IMIE I NAZWISKO".');
         }
     }
 
@@ -457,71 +581,76 @@ export function createDriverRegistrationsService(cfg = {}) {
     }
 
     /**
-     * Zwraca rejestrację z ostatniego niepustego dnia w najnowszym arkuszu.
+     * Zwraca szczegóły rejestracji dla zestawu kluczy kierowcy w konkretnym dniu.
      *
-     * To awaryjny fallback używany wtedy, gdy nie udało się znaleźć
-     * rejestracji dla wskazanego dnia ani wcześniejszego dnia tego miesiąca.
-     *
-     * @param {string[]} lookupKeys
-     * @returns {string}
-     */
-    function resolveLatestRegistrationFromLastSheet(lookupKeys) {
-        const keys = Array.isArray(lookupKeys) ? lookupKeys.map((key) => String(key ?? '').trim()).filter(Boolean) : [];
-        const latestMonthKey = String(latestRegistrationsMonthKey ?? '').trim();
-        if (keys.length === 0 || !latestMonthKey) return '';
-
-        for (const lookupKey of keys) {
-            const bucket = registrationsByLookupKey.get(lookupKey);
-            const byMonthKey = bucket?.byMonthKey;
-            const monthMap = byMonthKey instanceof Map ? byMonthKey.get(latestMonthKey) : null;
-            if (!(monthMap instanceof Map) || monthMap.size === 0) continue;
-
-            let latestDay = 0;
-            let latestRegistration = '';
-            for (const [day, registration] of monthMap.entries()) {
-                const safeDay = Number(day);
-                const safeRegistration = normalizeRegistrationValue(registration);
-                if (!Number.isInteger(safeDay) || safeDay < 1 || safeDay > 31 || !safeRegistration) continue;
-                if (safeDay >= latestDay) {
-                    latestDay = safeDay;
-                    latestRegistration = safeRegistration;
-                }
-            }
-
-            if (latestRegistration) return latestRegistration;
-        }
-
-        return '';
-    }
-
-    /**
-     * Zwraca rejestrację dla zestawu kluczy kierowcy w konkretnym dniu.
-     *
-     * Jeśli komórka dla danego dnia jest pusta, serwis szuka wstecz
-     * ostatniej znanej rejestracji w tym samym miesiącu. Gdy nic nie znajdzie,
-     * pobiera ostatni niepusty dzień z ostatniego arkusza.
+     * Strategia:
+     * - ostatni arkusz: szukanie od wskazanego dnia wstecz,
+     * - każdy starszy arkusz: szukanie od końca miesiąca wstecz,
+     * - wynik: pierwsza napotkana niepusta komórka.
      *
      * @param {string[]} lookupKeys
      * @param {{ day: number, monthKey: string } | null} targetDate
-     * @returns {string}
+     * @returns {{ registration: string, sourceIsoDate: string, sourceSheetName: string }}
      */
-    function resolveRegistrationForLookupKeys(lookupKeys, targetDate) {
-        const keys = Array.isArray(lookupKeys) ? lookupKeys.map((key) => String(key ?? '').trim()).filter(Boolean) : [];
-        if (keys.length === 0 || !targetDate?.monthKey || !Number.isInteger(targetDate?.day)) return '';
+    function resolveRegistrationInfoForLookupKeys(lookupKeys, targetDate) {
+        const keys = Array.isArray(lookupKeys)
+            ? lookupKeys.map((key) => String(key ?? '').trim()).filter(Boolean)
+            : [];
+        if (keys.length === 0 || !targetDate?.monthKey || !Number.isInteger(targetDate?.day)) {
+            return { registration: '', sourceIsoDate: '', sourceSheetName: '' };
+        }
+        if (!Array.isArray(registrationSheetTimeline) || registrationSheetTimeline.length === 0) {
+            return { registration: '', sourceIsoDate: '', sourceSheetName: '' };
+        }
 
+        const latestSheetIndex = registrationSheetTimeline.length - 1;
+        const buckets = [];
+        const seen = new Set();
         for (const lookupKey of keys) {
             const bucket = registrationsByLookupKey.get(lookupKey);
-            const byMonthKey = bucket?.byMonthKey;
-            const monthMap = byMonthKey instanceof Map ? byMonthKey.get(targetDate.monthKey) : null;
-            if (!(monthMap instanceof Map) || monthMap.size === 0) continue;
+            if (!bucket || seen.has(bucket)) continue;
+            seen.add(bucket);
+            buckets.push(bucket);
+        }
+        if (buckets.length === 0) return { registration: '', sourceIsoDate: '', sourceSheetName: '' };
 
-            for (let day = targetDate.day; day >= 1; day -= 1) {
-                const registration = normalizeRegistrationValue(monthMap.get(day));
-                if (registration) return registration;
+        for (let sheetIndex = latestSheetIndex; sheetIndex >= 0; sheetIndex -= 1) {
+            const sheetMeta = registrationSheetTimeline[sheetIndex];
+            if (!sheetMeta) continue;
+
+            const maxDayInclusive = sheetIndex === latestSheetIndex
+                ? Math.min(targetDate.day, sheetMeta.maxDays)
+                : sheetMeta.maxDays;
+            if (!Number.isInteger(maxDayInclusive) || maxDayInclusive < 1) continue;
+
+            for (const bucket of buckets) {
+                const bySheetIndex = bucket?.bySheetIndex;
+                const sheetEntry = bySheetIndex instanceof Map ? bySheetIndex.get(sheetIndex) : null;
+                const match = resolveRegistrationMatchFromSheetEntry(sheetEntry, maxDayInclusive);
+                if (!match) continue;
+                return {
+                    registration: match.registration,
+                    sourceIsoDate: buildIsoDate(sheetMeta.year, sheetMeta.month, match.day),
+                    sourceSheetName: String(sheetMeta.sheetName ?? '').trim()
+                };
             }
         }
 
-        return resolveLatestRegistrationFromLastSheet(keys);
+        return { registration: '', sourceIsoDate: '', sourceSheetName: '' };
+    }
+
+    /**
+     * Zwraca szczegóły rejestracji kierowcy dla daty ISO `YYYY-MM-DD`.
+     *
+     * @param {string} driverName
+     * @param {string} isoDate
+     * @returns {{ registration: string, sourceIsoDate: string, sourceSheetName: string }}
+     */
+    function getRegistrationInfoForDriverNameOnIsoDate(driverName, isoDate) {
+        const parsed = parseIsoDate(isoDate);
+        if (!parsed) return { registration: '', sourceIsoDate: '', sourceSheetName: '' };
+        const lookupKeys = buildDriverLookupKeys(driverName);
+        return resolveRegistrationInfoForLookupKeys(lookupKeys, parsed);
     }
 
     /**
@@ -532,10 +661,20 @@ export function createDriverRegistrationsService(cfg = {}) {
      * @returns {string}
      */
     function getRegistrationForDriverNameOnIsoDate(driverName, isoDate) {
-        const parsed = parseIsoDate(isoDate);
-        if (!parsed) return '';
-        const lookupKeys = buildDriverLookupKeys(driverName);
-        return resolveRegistrationForLookupKeys(lookupKeys, parsed);
+        return String(getRegistrationInfoForDriverNameOnIsoDate(driverName, isoDate)?.registration ?? '').trim();
+    }
+
+    /**
+     * Zwraca szczegóły rejestracji kierowcy dla podanej daty lub dla dnia bieżącego.
+     *
+     * @param {string} driverName
+     * @param {{ date?: Date }} [opts]
+     * @returns {{ registration: string, sourceIsoDate: string, sourceSheetName: string }}
+     */
+    function getRegistrationInfoForDriverName(driverName, { date } = {}) {
+        const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : getNow();
+        const isoDate = `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, '0')}-${String(safeDate.getDate()).padStart(2, '0')}`;
+        return getRegistrationInfoForDriverNameOnIsoDate(driverName, isoDate);
     }
 
     /**
@@ -546,15 +685,15 @@ export function createDriverRegistrationsService(cfg = {}) {
      * @returns {string}
      */
     function getRegistrationForDriverName(driverName, { date } = {}) {
-        const safeDate = date instanceof Date && !Number.isNaN(date.getTime()) ? date : getNow();
-        const isoDate = `${safeDate.getFullYear()}-${String(safeDate.getMonth() + 1).padStart(2, '0')}-${String(safeDate.getDate()).padStart(2, '0')}`;
-        return getRegistrationForDriverNameOnIsoDate(driverName, isoDate);
+        return String(getRegistrationInfoForDriverName(driverName, { date })?.registration ?? '').trim();
     }
 
     return Object.freeze({
         loadDriverRegistrationsFiles,
         processDriverRegistrationsFile,
         invalidateDriverRegistrationsFile,
+        getRegistrationInfoForDriverName,
+        getRegistrationInfoForDriverNameOnIsoDate,
         getRegistrationForDriverName,
         getRegistrationForDriverNameOnIsoDate,
         buildDriverLookupKey,

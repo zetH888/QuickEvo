@@ -393,51 +393,80 @@ const QuickEvoTests = {
             this.assert(typeof createDriverRegistrationsService === 'function', "driver-registrations-service jest dostępny przez import");
             if (typeof createDriverRegistrationsService !== 'function') return;
 
-            const matrixOldSheet = [
-                ['IMIE I NAZWISKO', 1, 2, 3],
-                ['Jan Kowalski', 'OLD-111', '', '']
-            ];
-            const matrixCurrentSheet = [
-                ['IMIE I NAZWISKO', 1, 2, 3, 4],
-                [' Jan  Kowalski ', 'WX 1111A', 'WX 2222B', '', 'WX 4444D'],
-                ['Nowak Anna', '', 'WW 9876K', '', ''],
-                ['Anna   Nowak', '', '', 'WW 1234N', '']
-            ];
+            /**
+             * Buduje przykładowy arkusz rejestracji z kolumnami dni miesiąca.
+             *
+             * @param {number} daysInSheet
+             * @param {Array<{ name: string, days?: Record<number, string> }>} rows
+             * @returns {Array<Array<string | number>>}
+             */
+            const buildRegistrationMatrix = (daysInSheet, rows) => {
+                const header = ['IMIE I NAZWISKO', ...Array.from({ length: daysInSheet }, (_, index) => index + 1)];
+                return [
+                    header,
+                    ...rows.map((row) => [
+                        row?.name ?? '',
+                        ...Array.from({ length: daysInSheet }, (_, index) => {
+                            const day = index + 1;
+                            return row?.days?.[day] ?? '';
+                        })
+                    ])
+                ];
+            };
+
+            const matrixMaySheet = buildRegistrationMatrix(31, [
+                { name: 'Jan Kowalski', days: { 31: 'OLD-531' } }
+            ]);
+            const matrixJuneSheet = buildRegistrationMatrix(30, [
+                { name: 'Jan Kowalski', days: { 2: 'WX 2222B', 30: 'WX 3030J' } },
+                { name: 'Nowak Anna', days: { 2: 'WW 9876K' } },
+                { name: 'Anna   Nowak', days: { 3: 'WW 1234N' } }
+            ]);
+            const matrixJulySheet = buildRegistrationMatrix(31, [
+                { name: ' Jan  Kowalski ', days: { 4: 'WX 4444D' } }
+            ]);
 
             const service = createDriverRegistrationsService({
                 readWorkbook: async () => ({
-                    SheetNames: ['Maj 2026', 'Czerwiec 2026'],
+                    SheetNames: ['Maj 2026', 'Czerwiec 2026', 'Lipiec 2026'],
                     Sheets: {
-                        'Maj 2026': { __matrix: matrixOldSheet },
-                        'Czerwiec 2026': { __matrix: matrixCurrentSheet }
+                        'Maj 2026': { __matrix: matrixMaySheet },
+                        'Czerwiec 2026': { __matrix: matrixJuneSheet },
+                        'Lipiec 2026': { __matrix: matrixJulySheet }
                     }
                 }),
                 sheetToMatrix: (worksheet) => worksheet.__matrix,
                 getBlob: async () => ({ arrayBuffer: async () => new ArrayBuffer(0) }),
                 listFiles: async () => [{ name: 'rejestracje.xlsx', sourceKind: 'driver_registrations' }],
-                getNow: () => new Date('2026-06-03T12:00:00'),
+                getNow: () => new Date('2026-07-03T12:00:00'),
                 logAction: () => { }
             });
 
             await service.loadDriverRegistrationsFiles({ fullReload: true });
 
-            const janCurrent = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-03');
-            this.assert(janCurrent === 'WX 2222B', 'Dla pustej komórki bieżącego dnia zwraca ostatnią wcześniejszą rejestrację z tego samego miesiąca');
+            const janLatestExact = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-07-04');
+            this.assert(janLatestExact === 'WX 4444D', 'Dla niepustej komórki w ostatnim arkuszu zwraca dokładną rejestrację z tego dnia');
 
             const janExact = service.getRegistrationForDriverName('Jan Kowalski');
-            this.assert(janExact === 'WX 2222B', 'Pobieranie bez jawnej daty korzysta z bieżącego dnia');
+            this.assert(janExact === 'WX 3030J', 'Pobieranie bez jawnej daty korzysta z bieżącego dnia i po pustym zakresie schodzi do starszego arkusza');
 
-            const annaCurrent = service.getRegistrationForDriverNameOnIsoDate('Anna Nowak', '2026-06-04');
-            this.assert(annaCurrent === 'WW 1234N', 'Scala warianty tej samej osoby i znajduje rejestrację po odwróconej kolejności imienia i nazwiska');
+            const janLatestFallback = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-07-05');
+            this.assert(janLatestFallback === 'WX 4444D', 'W ostatnim arkuszu cofa się od wskazanego dnia do pierwszego dnia tego arkusza');
 
-            const janOldIgnored = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-01');
-            this.assert(janOldIgnored === 'WX 1111A', 'Parsuje wyłącznie ostatni arkusz skoroszytu i ignoruje wcześniejsze arkusze');
+            const janCrossSheetFallback = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-07-03');
+            this.assert(janCrossSheetFallback === 'WX 3030J', 'Gdy ostatni arkusz jest pusty w badanym zakresie, schodzi do poprzedniego arkusza i zaczyna od końca jego miesiąca');
 
-            const janFutureFallback = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-07-03');
-            this.assert(janFutureFallback === 'WX 4444D', 'Gdy wskazany dzień nie istnieje w ostatnim arkuszu, fallback pobiera rejestrację z ostatniego niepustego dnia tego arkusza');
+            const janCrossMonthFallback = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-07-01');
+            this.assert(janCrossMonthFallback === 'WX 3030J', 'Starszy arkusz jest przeszukiwany od końca miesiąca także wtedy, gdy wskazany dzień w ostatnim arkuszu to początek miesiąca');
 
-            const annaFutureFallback = service.getRegistrationForDriverNameOnIsoDate('Anna Nowak', '2026-07-03');
-            this.assert(annaFutureFallback === 'WW 1234N', 'Fallback działa także po scaleniu wariantów tej samej osoby i wybiera ostatni niepusty dzień z ostatniego arkusza');
+            const annaCurrent = service.getRegistrationForDriverNameOnIsoDate('Anna Nowak', '2026-07-03');
+            this.assert(annaCurrent === 'WW 1234N', 'Scala warianty tej samej osoby i znajduje rejestrację po przejściu do starszego arkusza');
+
+            const annaOlderVariant = service.getRegistrationForDriverNameOnIsoDate('Anna Nowak', '2026-07-01');
+            this.assert(annaOlderVariant === 'WW 1234N', 'Dla starszego arkusza bierze ostatnią znaną niepustą komórkę, a nie tylko dni nieprzekraczające dnia wejściowego');
+
+            const janDeepHistory = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-01-01');
+            this.assert(janDeepHistory === 'WX 3030J', 'Historia rejestracji jest przeszukiwana od najnowszego arkusza do najstarszego niezależnie od miesiąca wskazanej daty');
 
             service.invalidateDriverRegistrationsFile('rejestracje.xlsx');
             const afterInvalidate = service.getRegistrationForDriverNameOnIsoDate('Jan Kowalski', '2026-06-03');

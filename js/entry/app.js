@@ -1233,6 +1233,10 @@ async function loadDriverRegistrationsFiles({ fullReload } = { fullReload: false
     });
 }
 
+function getDriverRegistrationInfoForNameOnIsoDate(driverName, isoDate) {
+    return ensureDriverRegistrationsService().getRegistrationInfoForDriverNameOnIsoDate(driverName, isoDate);
+}
+
 function getDriverRegistrationForNameOnIsoDate(driverName, isoDate) {
     return ensureDriverRegistrationsService().getRegistrationForDriverNameOnIsoDate(driverName, isoDate);
 }
@@ -1562,6 +1566,7 @@ function normalizeDriverTileScheduleTokens(tokens) {
 
 function buildDriverTileModel(label, phones, registration, roleCategory = '', roleNote = '', todayScheduleTokens = []) {
     const nextTodayScheduleTokens = normalizeDriverTileScheduleTokens(todayScheduleTokens);
+    const nextRegistrationInfo = normalizeDriverTileRegistrationInfo(registration);
 
     return {
         label: normalizeDriverDisplayName(label),
@@ -1571,7 +1576,8 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
                 phoneHref: String(phone?.phoneHref ?? '').trim()
             })).filter((phone) => phone.phoneDisplay)
             : [],
-        registration: String(registration ?? '').trim(),
+        registration: nextRegistrationInfo.registration,
+        registrationInfo: nextRegistrationInfo,
         hasContact: Array.isArray(phones) && phones.length > 0,
         roleCategory: String(roleCategory ?? '').trim(),
         roleNote: String(roleNote ?? '').trim(),
@@ -1580,13 +1586,65 @@ function buildDriverTileModel(label, phones, registration, roleCategory = '', ro
 }
 
 /**
+ * Normalizuje metadane rejestracji widoczne w kafelku kierowcy.
+ *
+ * @param {unknown} registrationInfo
+ * @returns {{ registration: string, sourceIsoDate: string, tooltipText: string, tooltipTone: string, ariaLabel: string }}
+ */
+function normalizeDriverTileRegistrationInfo(registrationInfo) {
+    const isObject = registrationInfo && typeof registrationInfo === 'object';
+    const normalized = {
+        registration: isObject
+            ? String(registrationInfo?.registration ?? '').trim()
+            : String(registrationInfo ?? '').trim(),
+        sourceIsoDate: isObject ? String(registrationInfo?.sourceIsoDate ?? '').trim() : '',
+        tooltipText: isObject ? String(registrationInfo?.tooltipText ?? '').trim() : '',
+        tooltipTone: isObject ? String(registrationInfo?.tooltipTone ?? '').trim() : '',
+        ariaLabel: isObject ? String(registrationInfo?.ariaLabel ?? '').trim() : ''
+    };
+
+    if (normalized.tooltipTone !== 'current' && normalized.tooltipTone !== 'stale') {
+        normalized.tooltipTone = normalized.tooltipText ? 'current' : '';
+    }
+
+    return normalized;
+}
+
+/**
+ * Wybiera lepszy wariant metadanych rejestracji przy scalaniu duplikatów kafelków.
+ *
+ * Preferowany jest wariant:
+ * - z niepustą rejestracją,
+ * - oznaczony jako aktualny,
+ * - z nowszą datą źródłową.
+ *
+ * @param {unknown} currentInfo
+ * @param {unknown} nextInfo
+ * @returns {{ registration: string, sourceIsoDate: string, tooltipText: string, tooltipTone: string, ariaLabel: string }}
+ */
+function choosePreferredDriverTileRegistrationInfo(currentInfo, nextInfo) {
+    const current = normalizeDriverTileRegistrationInfo(currentInfo);
+    const next = normalizeDriverTileRegistrationInfo(nextInfo);
+
+    if (!current.registration) return next;
+    if (!next.registration) return current;
+
+    const currentRank = current.tooltipTone === 'current' ? 2 : 1;
+    const nextRank = next.tooltipTone === 'current' ? 2 : 1;
+    if (nextRank > currentRank) return next;
+    if (currentRank > nextRank) return current;
+    if (next.sourceIsoDate > current.sourceIsoDate) return next;
+    return current;
+}
+
+/**
  * Scala zduplikowane modele kafelków kierowców po tej samej, znormalizowanej nazwie.
  *
  * Dzięki temu widok `KIEROWCY` pozostaje odporny na duplikaty pochodzące
  * z różnych grafików lub wariantów zapisu tej samej osoby.
  *
- * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, roleCategory?: string, roleNote?: string, todayScheduleTokens?: Array<{ kind?: 'route'|'marker', code?: string, isoDate?: string, category?: string, isAvailable?: boolean, meaning?: string }> }>} items
- * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, hasContact: boolean, roleCategory: string, roleNote: string, todayScheduleTokens: Array<{ kind: 'route'|'marker', code: string, isoDate: string, category?: string, isAvailable?: boolean, meaning?: string }> }>}
+ * @param {Array<{ label?: string, phones?: Array<{ phoneDisplay?: string, phoneHref?: string }>, registration?: string, registrationInfo?: { registration?: string, sourceIsoDate?: string, tooltipText?: string, tooltipTone?: string, ariaLabel?: string }, roleCategory?: string, roleNote?: string, todayScheduleTokens?: Array<{ kind?: 'route'|'marker', code?: string, isoDate?: string, category?: string, isAvailable?: boolean, meaning?: string }> }>} items
+ * @returns {Array<{ label: string, phones: Array<{ phoneDisplay: string, phoneHref: string }>, registration: string, registrationInfo: { registration: string, sourceIsoDate: string, tooltipText: string, tooltipTone: string, ariaLabel: string }, hasContact: boolean, roleCategory: string, roleNote: string, todayScheduleTokens: Array<{ kind: 'route'|'marker', code: string, isoDate: string, category?: string, isAvailable?: boolean, meaning?: string }> }>}
  */
 function dedupeDriverTileModels(items) {
     const list = Array.isArray(items) ? items : [];
@@ -1622,7 +1680,7 @@ function dedupeDriverTileModels(items) {
         mergedByLabel.set(label, buildDriverTileModel(
             label,
             Array.from(phonesByIdentity.values()),
-            currentModel.registration || nextModel.registration,
+            choosePreferredDriverTileRegistrationInfo(currentModel.registrationInfo, nextModel.registrationInfo),
             currentModel.roleCategory || nextModel.roleCategory,
             currentModel.roleNote || nextModel.roleNote,
             normalizeDriverTileScheduleTokens([
@@ -3199,6 +3257,91 @@ function buildTodayIsoDate(date = new Date()) {
 }
 
 /**
+ * Formatuje datę ISO do krótkiej, czytelnej postaci dla tooltipa.
+ *
+ * @param {string} isoDate
+ * @returns {string}
+ */
+function formatDriverRegistrationTooltipDate(isoDate) {
+    const safeIsoDate = String(isoDate ?? '').trim();
+    const match = safeIsoDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return safeIsoDate;
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return safeIsoDate;
+
+    const monthNamesGenitive = [
+        'Stycznia',
+        'Lutego',
+        'Marca',
+        'Kwietnia',
+        'Maja',
+        'Czerwca',
+        'Lipca',
+        'Sierpnia',
+        'Września',
+        'Października',
+        'Listopada',
+        'Grudnia'
+    ];
+    const weekdayShortNames = ['Nd', 'Pn', 'Wt', 'Śr', 'Cz', 'Pt', 'Sb'];
+    const date = new Date(year, month - 1, day);
+    if (Number.isNaN(date.getTime())) return safeIsoDate;
+
+    const monthLabel = monthNamesGenitive[month - 1] || `${month}`;
+    const weekdayLabel = weekdayShortNames[date.getDay()] || '';
+    return `${day} ${monthLabel} ${year}${weekdayLabel ? ` (${weekdayLabel})` : ''}`;
+}
+
+/**
+ * Buduje model prezentacyjny rejestracji kierowcy dla widoku kafelka.
+ *
+ * Tooltip porównuje datę znalezionej rejestracji do realnego dnia dzisiejszego:
+ * - rejestracja z dziś lub z przyszłości jest traktowana jako aktualna,
+ * - rejestracja starsza niż dziś dostaje status historyczny z datą źródłową.
+ *
+ * @param {{ registration?: string, sourceIsoDate?: string, sourceSheetName?: string } | string | null | undefined} registrationInfo
+ * @param {string} [todayIsoDate]
+ * @returns {{ registration: string, sourceIsoDate: string, tooltipText: string, tooltipTone: 'current'|'stale'|'', ariaLabel: string }}
+ */
+function buildDriverRegistrationDisplayModel(registrationInfo, todayIsoDate = buildTodayIsoDate()) {
+    const isObject = registrationInfo && typeof registrationInfo === 'object';
+    const registration = isObject
+        ? String(registrationInfo?.registration ?? '').trim()
+        : String(registrationInfo ?? '').trim();
+    const sourceIsoDate = isObject ? String(registrationInfo?.sourceIsoDate ?? '').trim() : '';
+    if (!registration) {
+        return {
+            registration: '',
+            sourceIsoDate: '',
+            tooltipText: '',
+            tooltipTone: '',
+            ariaLabel: 'Brak przypisanej rejestracji pojazdu'
+        };
+    }
+
+    const safeTodayIsoDate = String(todayIsoDate ?? '').trim();
+    const isHistorical = Boolean(sourceIsoDate && safeTodayIsoDate && sourceIsoDate < safeTodayIsoDate);
+    const tooltipText = isHistorical
+        ? `Na dzień ${formatDriverRegistrationTooltipDate(sourceIsoDate)}`
+        : 'Aktualny';
+    const tooltipTone = isHistorical ? 'stale' : 'current';
+    const ariaLabel = isHistorical
+        ? `Pojazd ${registration}. Na dzień ${formatDriverRegistrationTooltipDate(sourceIsoDate)}.`
+        : `Pojazd ${registration}. Aktualny.`;
+
+    return {
+        registration,
+        sourceIsoDate,
+        tooltipText,
+        tooltipTone,
+        ariaLabel
+    };
+}
+
+/**
  * Wyznacza datę odniesienia dla numerów rejestracyjnych w widoku kierowców.
  *
  * Logika fallbacku między miesiącami została przeniesiona do serwisu
@@ -3466,8 +3609,12 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
                     phoneHref: String(phone?.phoneHref ?? '').trim()
                 })).filter((phone) => phone.phoneDisplay)
                 : [];
-            const registration = String(item?.registration ?? '').trim();
+            const registrationInfo = normalizeDriverTileRegistrationInfo(item?.registrationInfo ?? item?.registration);
+            const registration = String(registrationInfo?.registration ?? '').trim();
             const hasContact = Boolean(item?.hasContact) && phones.length > 0;
+            const roleNote = String(item?.roleNote ?? '').trim();
+            const roleCategory = String(item?.roleCategory ?? '').trim();
+            const shouldShowRegistration = !roleCategory;
             const todayScheduleTokens = normalizeDriverTileScheduleTokens(item?.todayScheduleTokens).slice(0, 2);
 
             const tile = document.createElement('div');
@@ -3485,7 +3632,7 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             trigger.setAttribute('aria-expanded', 'false');
             trigger.setAttribute('aria-haspopup', 'dialog');
             trigger.setAttribute('aria-label', hasContact
-                ? `${label} — pokaż numery telefonu i rejestrację`
+                ? `${label} — pokaż ${shouldShowRegistration ? 'numery telefonu i rejestrację' : 'numery telefonu'}`
                 : `${label} — pokaż szczegóły kierowcy`);
 
             const title = document.createElement('span');
@@ -3585,8 +3732,6 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             trigger.setAttribute('aria-controls', panel.id);
             setPanelInteractivity(panel, false);
 
-            const roleNote = String(item?.roleNote ?? '').trim();
-            const roleCategory = String(item?.roleCategory ?? '').trim();
             if (roleCategory && roleNote) {
                 const roleBadge = document.createElement('div');
                 roleBadge.className = 'qe-driver-tile__role-wrap';
@@ -3660,19 +3805,31 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
             }
             phoneRow.appendChild(phoneList);
 
-            const registrationRow = document.createElement('div');
-            registrationRow.className = 'qe-driver-tile__row';
-            const registrationLabel = document.createElement('span');
-            registrationLabel.className = 'qe-driver-tile__row-label';
-            registrationLabel.textContent = 'Pojazd';
-            const registrationValue = document.createElement('span');
-            registrationValue.className = 'qe-driver-tile__row-value qe-driver-tile__plate';
-            registrationValue.textContent = registration || '-';
-            registrationRow.appendChild(registrationLabel);
-            registrationRow.appendChild(registrationValue);
-
             panel.appendChild(phoneRow);
-            panel.appendChild(registrationRow);
+            if (shouldShowRegistration) {
+                const registrationRow = document.createElement('div');
+                registrationRow.className = 'qe-driver-tile__row';
+                const registrationLabel = document.createElement('span');
+                registrationLabel.className = 'qe-driver-tile__row-label';
+                registrationLabel.textContent = 'Pojazd';
+                const registrationValue = document.createElement('span');
+                registrationValue.className = 'qe-driver-tile__row-value qe-driver-tile__plate';
+                if (registrationInfo.ariaLabel) {
+                    registrationValue.setAttribute('aria-label', registrationInfo.ariaLabel);
+                }
+                const registrationText = document.createElement('span');
+                registrationText.className = 'qe-driver-tile__plate-text';
+                registrationText.textContent = registration || '-';
+                registrationValue.appendChild(registrationText);
+                if (registration && registrationInfo.tooltipText) {
+                    registrationValue.tabIndex = 0;
+                    registrationValue.classList.add('has-tooltip', `is-${registrationInfo.tooltipTone || 'current'}`);
+                    registrationValue.dataset.tooltip = registrationInfo.tooltipText;
+                }
+                registrationRow.appendChild(registrationLabel);
+                registrationRow.appendChild(registrationValue);
+                panel.appendChild(registrationRow);
+            }
 
             trigger.addEventListener('click', (event) => {
                 event.preventDefault();
@@ -4004,7 +4161,10 @@ async function renderDriversView() {
             const roleTiles = roleContacts.map((contact) => buildDriverTileModel(
                 contact?.driverName,
                 contact?.phones,
-                getDriverRegistrationForNameOnIsoDate(String(contact?.driverName ?? ''), registrationsReferenceIsoDate),
+                buildDriverRegistrationDisplayModel(
+                    getDriverRegistrationInfoForNameOnIsoDate(String(contact?.driverName ?? ''), registrationsReferenceIsoDate),
+                    todayIsoDate
+                ),
                 contact?.roleCategory,
                 contact?.roleNote,
                 todayScheduleIndex.get(normalizeDriverDisplayName(String(contact?.driverName ?? ''))) || []
@@ -4025,7 +4185,10 @@ async function renderDriversView() {
         return buildDriverTileModel(
             driverName,
             contact?.phones,
-            getDriverRegistrationForNameOnIsoDate(driverName, registrationsReferenceIsoDate),
+            buildDriverRegistrationDisplayModel(
+                getDriverRegistrationInfoForNameOnIsoDate(driverName, registrationsReferenceIsoDate),
+                todayIsoDate
+            ),
             contact?.roleCategory,
             contact?.roleNote,
             todayScheduleIndex.get(normalizeDriverDisplayName(driverName)) || []

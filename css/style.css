@@ -2280,6 +2280,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    position: relative;
     width: fit-content;
     min-height: 32px;
     padding: 0 10px;
@@ -2289,6 +2290,73 @@ button.qe-driver-tile__route-badge:focus-visible {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+.qe-driver-tile__plate.has-tooltip {
+    outline: none;
+}
+
+.qe-driver-tile__plate.has-tooltip::before,
+.qe-driver-tile__plate.has-tooltip::after {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.qe-driver-tile__plate.has-tooltip:hover,
+.qe-driver-tile__plate.has-tooltip:focus-visible {
+    border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 16%, var(--state-hover));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 22%, transparent);
+}
+
+.qe-driver-tile__plate-text {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qe-driver-tile__plate.has-tooltip::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    z-index: 35;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translate(-50%, 4px);
+    min-width: max-content;
+    max-width: min(240px, 80vw);
+    padding: 7px 10px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--card-bg) 90%, rgba(12, 16, 24, 0.95));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.qe-driver-tile__plate.has-tooltip.is-current::before {
+    color: #53d88d;
+    border-color: color-mix(in srgb, #53d88d 40%, transparent);
+}
+
+.qe-driver-tile__plate.has-tooltip.is-stale::before {
+    color: #ffb454;
+    border-color: color-mix(in srgb, #ffb454 42%, transparent);
+}
+
+.qe-driver-tile__plate.has-tooltip:hover::before,
+.qe-driver-tile__plate.has-tooltip:focus-visible::before {
+    opacity: 1;
+}
+
+.qe-driver-tile__plate.has-tooltip:hover::before,
+.qe-driver-tile__plate.has-tooltip:focus-visible::before {
+    transform: translate(-50%, 0);
 }
 
 .qe-driver-tile__actions {
