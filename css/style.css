@@ -102,6 +102,67 @@ html::-webkit-scrollbar {
     --qe-driver-separator-core: rgba(66, 156, 255, 0.94);
     --qe-driver-separator-glow: rgba(66, 156, 255, 0.24);
     --qe-driver-separator-edge: rgba(153, 211, 255, 0.16);
+
+    /* Theme adaptive variables */
+    --primary-accent-color: #2f8cff;
+    --primary-accent-glow: rgba(47, 140, 255, 0.15);
+    --primary-accent-active-shadow: rgba(0, 102, 204, 0.35);
+    --drop-zone-hover-bg: rgba(0, 102, 204, 0.05);
+
+    --ghost-hint-border: rgba(77, 166, 255, 0.24);
+    --ghost-hint-bg: rgba(77, 166, 255, 0.07);
+    --ghost-hint-color: rgba(95, 179, 255, 0.88);
+    --ghost-hint-hover-bg: rgba(77, 166, 255, 0.14);
+    --ghost-hint-hover-border: rgba(77, 166, 255, 0.40);
+    --ghost-hint-hover-color: #7ec5ff;
+
+    --upload-progress-fill-end: rgba(0, 102, 204, 0.55);
+
+    --sync-btn-bg: linear-gradient(135deg, rgba(47, 140, 255, 0.98) 0%, rgba(110, 80, 255, 0.92) 55%, rgba(47, 140, 255, 0.9) 100%);
+    --sync-btn-border: rgba(110, 80, 255, 0.45);
+    --sync-btn-shadow: 0 10px 26px rgba(47, 140, 255, 0.18), 0 6px 18px rgba(110, 80, 255, 0.12);
+    --sync-btn-hover-shadow: 0 14px 30px rgba(47, 140, 255, 0.22), 0 10px 22px rgba(110, 80, 255, 0.16);
+
+    --continue-btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
+    --continue-btn-border: rgba(255, 255, 255, 0.12);
+    --continue-btn-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
+    --continue-btn-hover-bg: linear-gradient(180deg, rgba(47, 140, 255, 0.14) 0%, rgba(110, 80, 255, 0.08) 100%);
+    --continue-btn-hover-border: rgba(47, 140, 255, 0.55);
+    --continue-btn-hover-shadow: 0 14px 28px rgba(0, 0, 0, 0.22), 0 10px 22px rgba(47, 140, 255, 0.10);
+
+    --modal-gdrive-bg: linear-gradient(135deg, rgba(47, 140, 255, 0.18), rgba(47, 140, 255, 0.06));
+    --modal-gdrive-shadow: 0 10px 22px rgba(47, 140, 255, 0.10);
+    --modal-gdrive-text: rgba(255, 255, 255, 0.94);
+    --modal-gdrive-shadow-active: 0 10px 22px rgba(47, 140, 255, 0.08);
+    --modal-gdrive-shadow-active-50: 0 12px 28px rgba(47, 140, 255, 0.18);
+
+    --expandall-hover-shadow: 0 12px 26px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(47, 140, 255, 0.16) inset, 0 10px 22px rgba(47, 140, 255, 0.10);
+
+    --orbit-dot-shadow: rgba(0, 102, 204, 0.25);
+
+    --schedule-selection-bg: rgba(45, 145, 255, 0.06);
+    --schedule-selection-border: rgba(45, 145, 255, 0.55);
+    --schedule-selection-header-bg: rgba(45, 145, 255, 0.12);
+    --schedule-selection-intersection: radial-gradient(circle at center, rgba(45, 145, 255, 0.16) 0%, rgba(45, 145, 255, 0.125) 52%, rgba(45, 145, 255, 0.1) 100%);
+
+    --scrollbar-thumb-bg: rgba(255, 255, 255, 0.18);
+    --scrollbar-track-bg: rgba(255, 255, 255, 0.04);
+    --scrollbar-thumb-border: 2px solid rgba(15, 18, 26, 0.9);
+    --scrollbar-thumb-hover: rgba(45, 145, 255, 0.45);
+
+    --active-row-outline: rgba(255, 255, 255, 0.10);
+
+    --route-badge-default-bg: rgba(255, 255, 255, 0.09);
+    --route-badge-default-border: rgba(255, 255, 255, 0.18);
+    --route-badge-default-text: rgba(255, 255, 255, 0.92);
+    --route-badge-text-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+    --driver-tile-trigger-overlay: radial-gradient(120px 42px at 14% 8%, rgba(255, 255, 255, 0.08), transparent 72%), linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
+    --driver-tile-trigger-shadow: 0 18px 34px rgba(3, 10, 24, 0.32), 0 8px 18px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --driver-section-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    --driver-cell-divider: rgba(255, 255, 255, 0.08);
+
+    --phonepoint-bg: rgba(0, 0, 0, 0.10);
 }
 
 body.light-theme {
@@ -184,6 +245,67 @@ body.light-theme {
     --qe-driver-separator-core: rgba(102, 138, 201, 0.9);
     --qe-driver-separator-glow: rgba(102, 138, 201, 0.22);
     --qe-driver-separator-edge: rgba(164, 190, 230, 0.22);
+
+    /* Theme adaptive variables */
+    --primary-accent-color: #8B7355;
+    --primary-accent-glow: rgba(156, 175, 136, 0.25);
+    --primary-accent-active-shadow: rgba(139, 115, 85, 0.35);
+    --drop-zone-hover-bg: rgba(156, 175, 136, 0.12);
+
+    --ghost-hint-border: rgba(156, 175, 136, 0.45);
+    --ghost-hint-bg: rgba(156, 175, 136, 0.14);
+    --ghost-hint-color: #5D5A56;
+    --ghost-hint-hover-bg: rgba(156, 175, 136, 0.25);
+    --ghost-hint-hover-border: rgba(156, 175, 136, 0.70);
+    --ghost-hint-hover-color: #2C2C2C;
+
+    --upload-progress-fill-end: rgba(156, 175, 136, 0.75);
+
+    --sync-btn-bg: linear-gradient(135deg, #8B7355 0%, #9CAF88 55%, #8B7355 100%);
+    --sync-btn-border: rgba(156, 175, 136, 0.45);
+    --sync-btn-shadow: 0 10px 26px rgba(139, 115, 85, 0.18), 0 6px 18px rgba(156, 175, 136, 0.12);
+    --sync-btn-hover-shadow: 0 14px 30px rgba(139, 115, 85, 0.22), 0 10px 22px rgba(156, 175, 136, 0.16);
+
+    --continue-btn-bg: linear-gradient(180deg, rgba(44, 44, 44, 0.05) 0%, rgba(44, 44, 44, 0.02) 100%);
+    --continue-btn-border: rgba(44, 44, 44, 0.12);
+    --continue-btn-shadow: 0 10px 22px rgba(139, 115, 85, 0.10);
+    --continue-btn-hover-bg: linear-gradient(180deg, rgba(156, 175, 136, 0.14) 0%, rgba(139, 115, 85, 0.08) 100%);
+    --continue-btn-hover-border: rgba(156, 175, 136, 0.55);
+    --continue-btn-hover-shadow: 0 14px 28px rgba(139, 115, 85, 0.15), 0 10px 22px rgba(156, 175, 136, 0.08);
+
+    --modal-gdrive-bg: linear-gradient(135deg, rgba(156, 175, 136, 0.24), rgba(139, 115, 85, 0.12));
+    --modal-gdrive-shadow: 0 10px 22px rgba(139, 115, 85, 0.08);
+    --modal-gdrive-text: #2C2C2C;
+    --modal-gdrive-shadow-active: 0 10px 22px rgba(139, 115, 85, 0.06);
+    --modal-gdrive-shadow-active-50: 0 12px 28px rgba(156, 175, 136, 0.18);
+
+    --expandall-hover-shadow: 0 12px 26px rgba(139, 115, 85, 0.15), 0 0 0 1px rgba(156, 175, 136, 0.20) inset, 0 10px 22px rgba(156, 175, 136, 0.10);
+
+    --orbit-dot-shadow: rgba(139, 115, 85, 0.35);
+
+    --schedule-selection-bg: rgba(156, 175, 136, 0.14);
+    --schedule-selection-border: rgba(156, 175, 136, 0.65);
+    --schedule-selection-header-bg: rgba(156, 175, 136, 0.22);
+    --schedule-selection-intersection: radial-gradient(circle at center, rgba(156, 175, 136, 0.26) 0%, rgba(156, 175, 136, 0.20) 52%, rgba(156, 175, 136, 0.12) 100%);
+
+    --scrollbar-thumb-bg: rgba(139, 115, 85, 0.28);
+    --scrollbar-track-bg: rgba(139, 115, 85, 0.06);
+    --scrollbar-thumb-border: 2px solid #FAF8F5;
+    --scrollbar-thumb-hover: rgba(139, 115, 85, 0.48);
+
+    --active-row-outline: rgba(139, 115, 85, 0.20);
+
+    --route-badge-default-bg: rgba(44, 44, 44, 0.06);
+    --route-badge-default-border: rgba(44, 44, 44, 0.15);
+    --route-badge-default-text: #2C2C2C;
+    --route-badge-text-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.40);
+
+    --driver-tile-trigger-overlay: radial-gradient(120px 42px at 14% 8%, rgba(255, 255, 255, 0.60), transparent 72%), linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0));
+    --driver-tile-trigger-shadow: 0 18px 34px rgba(139, 115, 85, 0.10), 0 8px 18px rgba(139, 115, 85, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.60);
+    --driver-section-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.60);
+    --driver-cell-divider: rgba(44, 44, 44, 0.08);
+
+    --phonepoint-bg: rgba(44, 44, 44, 0.05);
 }
 
 body {
@@ -372,7 +494,7 @@ body.light-theme .app-header-logo svg {
 
 .primary-nav-button.is-active {
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 1px rgba(0, 102, 204, 0.35), var(--shadow);
+    box-shadow: 0 0 0 1px var(--primary-accent-active-shadow), var(--shadow);
 }
 
 .icon {
@@ -532,10 +654,10 @@ input:checked + .slider:before {
     min-width: 42px;
     height: 30px;
     padding: 0 10px;
-    border: 1px solid rgba(77, 166, 255, 0.24);
+    border: 1px solid var(--ghost-hint-border);
     border-radius: 999px;
-    background: rgba(77, 166, 255, 0.07);
-    color: rgba(95, 179, 255, 0.88);
+    background: var(--ghost-hint-bg);
+    color: var(--ghost-hint-color);
     font-size: 0.72rem;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -556,17 +678,17 @@ input:checked + .slider:before {
 .qe-ghost-hint.is-visible {
     opacity: 0.78;
     visibility: visible;
-    box-shadow: 0 0 10px rgba(77, 166, 255, 0.10);
+    box-shadow: var(--ghost-hint-hover-shadow, 0 0 10px rgba(77, 166, 255, 0.10));
     animation: none;
 }
 
 .qe-ghost-hint:hover,
 .qe-ghost-hint:focus-visible {
     opacity: 1;
-    background: rgba(77, 166, 255, 0.14);
-    border-color: rgba(77, 166, 255, 0.40);
-    color: #7ec5ff;
-    box-shadow: 0 0 14px rgba(77, 166, 255, 0.18);
+    background: var(--ghost-hint-hover-bg);
+    border-color: var(--ghost-hint-hover-border);
+    color: var(--ghost-hint-hover-color);
+    box-shadow: var(--ghost-hint-hover-shadow, 0 0 14px rgba(77, 166, 255, 0.18));
     outline: none;
 }
 
@@ -648,7 +770,7 @@ input:checked + .slider:before {
 }
 
 .drop-zone:hover, .drop-zone--over {
-    background: rgba(0, 102, 204, 0.05);
+    background: var(--drop-zone-hover-bg);
     border-color: var(--primary-color);
 }
 
@@ -677,11 +799,11 @@ input:checked + .slider:before {
 }
 
 .upload-progress::-webkit-progress-value {
-    background: linear-gradient(90deg, var(--primary-color) 0%, rgba(0, 102, 204, 0.55) 100%);
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--upload-progress-fill-end) 100%);
 }
 
 .upload-progress::-moz-progress-bar {
-    background: linear-gradient(90deg, var(--primary-color) 0%, rgba(0, 102, 204, 0.55) 100%);
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--upload-progress-fill-end) 100%);
 }
 
 #upload-status {
@@ -1128,7 +1250,7 @@ input:checked + .slider:before {
     padding-left: 28px;
     font-weight: 400;
     opacity: 0.78;
-    background: rgba(0, 0, 0, 0.10);
+    background: var(--phonepoint-bg);
     border-top-left-radius: 12px;
     border-bottom-left-radius: 12px;
 }
@@ -1148,7 +1270,7 @@ input:checked + .slider:before {
 
 .result-row--active {
     background-color: var(--qe-soft-row-hover);
-    outline: 2px solid rgba(255, 255, 255, 0.10);
+    outline: 2px solid var(--active-row-outline);
     outline-offset: -2px;
 }
 
@@ -1907,7 +2029,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
     font-size: 1.08rem;
     font-weight: 900;
     letter-spacing: 0.06em;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    box-shadow: var(--driver-section-shadow-inset);
     opacity: 0.42;
     pointer-events: none;
     user-select: none;
@@ -1952,9 +2074,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
 .qe-driver-tile__trigger::before {
     inset: 1px;
     border-radius: inherit;
-    background:
-        radial-gradient(120px 42px at 14% 8%, rgba(255, 255, 255, 0.08), transparent 72%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
+    background: var(--driver-tile-trigger-overlay);
     transform: translateY(2px);
 }
 
@@ -2061,10 +2181,10 @@ tbody tr:nth-child(even) td:nth-child(even) {
     height: 28px;
     padding: 0 8px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.09);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    color: rgba(255, 255, 255, 0.92);
+    border: 1px solid var(--route-badge-default-border);
+    background: var(--route-badge-default-bg);
+    box-shadow: var(--route-badge-text-shadow);
+    color: var(--route-badge-default-text);
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.03em;
@@ -2085,13 +2205,13 @@ button.qe-driver-tile__route-badge {
 button.qe-driver-tile__route-badge:hover,
 button.qe-driver-tile__route-badge:focus-visible {
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        var(--route-badge-text-shadow),
         0 10px 24px rgba(0, 0, 0, 0.2);
-    border-color: color-mix(in srgb, var(--primary-color) 48%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--primary-color) 48%, var(--route-badge-default-border));
 }
 
 button.qe-driver-tile__route-badge:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--primary-color) 72%, white);
+    outline: 2px solid color-mix(in srgb, var(--primary-color) 72%, var(--route-badge-default-text));
     outline-offset: 2px;
 }
 
@@ -2120,10 +2240,7 @@ button.qe-driver-tile__route-badge:focus-visible {
 .qe-driver-tile:focus-within .qe-driver-tile__trigger {
     transform: translateY(-1px);
     border-color: color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
-    box-shadow:
-        0 18px 34px rgba(3, 10, 24, 0.32),
-        0 8px 18px rgba(0, 0, 0, 0.16),
-        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    box-shadow: var(--driver-tile-trigger-shadow);
     filter: saturate(1.04);
 }
 
@@ -2151,22 +2268,22 @@ button.qe-driver-tile__route-badge:focus-visible {
 
 .qe-driver-tile__route-badge--STANDARD {
     background: color-mix(in srgb, var(--secondary-text) 18%, transparent);
-    border-color: color-mix(in srgb, var(--secondary-text) 30%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--secondary-text) 30%, var(--route-badge-default-border));
 }
 
 .qe-driver-tile__route-badge--WIECZOREK {
     background: color-mix(in srgb, var(--primary-color) 22%, transparent);
-    border-color: color-mix(in srgb, var(--primary-color) 36%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--primary-color) 36%, var(--route-badge-default-border));
 }
 
 .qe-driver-tile__route-badge--SOBOTA {
-    background: rgba(255, 190, 90, 0.16);
-    border-color: rgba(255, 190, 90, 0.28);
+    background: color-mix(in srgb, var(--state-warning) 16%, transparent);
+    border-color: color-mix(in srgb, var(--state-warning) 32%, var(--route-badge-default-border));
 }
 
 .qe-driver-tile__route-badge--NIEDZIELA {
     background: color-mix(in srgb, var(--state-success) 18%, transparent);
-    border-color: color-mix(in srgb, var(--state-success) 34%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--state-success) 34%, var(--route-badge-default-border));
 }
 
 .qe-driver-tile__route-badge--marker {
@@ -2174,7 +2291,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     background: rgba(121, 72, 191, 0.24);
     border-color: rgba(160, 112, 235, 0.34);
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        var(--route-badge-text-shadow),
         0 0 0 1px rgba(103, 63, 168, 0.12);
 }
 
@@ -2182,7 +2299,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     background: rgba(128, 40, 58, 0.28);
     border-color: rgba(183, 91, 110, 0.4);
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        var(--route-badge-text-shadow),
         0 0 0 1px rgba(98, 30, 44, 0.16);
 }
 
@@ -3081,7 +3198,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     box-shadow: 0 18px 40px rgba(0, 0, 0, 0.2);
     overscroll-behavior: contain;
     scrollbar-width: thin;
-    scrollbar-color: rgba(255, 255, 255, 0.22) rgba(255, 255, 255, 0.05);
+    scrollbar-color: var(--scrollbar-thumb-bg) var(--scrollbar-track-bg);
 }
 
 /* W trybie pełnego ekranu cały widok grafiku staje się własnym viewportem. */
@@ -3130,18 +3247,18 @@ button.qe-driver-tile__route-badge:focus-visible {
 }
 
 #schedule-view .schedule-table-container::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--scrollbar-track-bg);
     border-radius: 999px;
 }
 
 #schedule-view .schedule-table-container::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.18);
+    background: var(--scrollbar-thumb-bg);
     border-radius: 999px;
-    border: 2px solid rgba(15, 18, 26, 0.9);
+    border: var(--scrollbar-thumb-border);
 }
 
 #schedule-view .schedule-table-container::-webkit-scrollbar-thumb:hover {
-    background: rgba(45, 145, 255, 0.45);
+    background: var(--scrollbar-thumb-hover);
 }
 
 #schedule-view .schedule-table {
@@ -3200,7 +3317,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     right: -1px;
     width: 1px;
     height: 100%;
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--driver-cell-divider);
     box-shadow: 8px 0 16px rgba(0, 0, 0, 0.25);
     pointer-events: none;
 }
@@ -3282,49 +3399,43 @@ button.qe-driver-tile__route-badge:focus-visible {
 }
 
 #schedule-view .schedule-cell.is-selected-day {
-    background: rgba(45, 145, 255, 0.06);
+    background: var(--schedule-selection-bg);
     box-shadow:
-        inset 1px 0 0 rgba(45, 145, 255, 0.55),
-        inset -1px 0 0 rgba(45, 145, 255, 0.55);
+        inset 1px 0 0 var(--schedule-selection-border),
+        inset -1px 0 0 var(--schedule-selection-border);
 }
 
 #schedule-view .schedule-row:nth-child(even) .schedule-cell.is-selected-day,
 #schedule-view .schedule-row:nth-child(odd) .schedule-cell.is-selected-day {
-    background: rgba(45, 145, 255, 0.06);
+    background: var(--schedule-selection-bg);
 }
 
 #schedule-view .schedule-day-header.is-selected-day {
-    background: rgba(45, 145, 255, 0.12);
+    background: var(--schedule-selection-header-bg);
     box-shadow:
-        inset 1px 0 0 rgba(45, 145, 255, 0.55),
-        inset -1px 0 0 rgba(45, 145, 255, 0.55);
+        inset 1px 0 0 var(--schedule-selection-border),
+        inset -1px 0 0 var(--schedule-selection-border);
 }
 
 #schedule-view .schedule-row.is-selected-driver .schedule-cell,
 #schedule-view .schedule-row.is-selected-driver .driver-cell {
-    background: rgba(45, 145, 255, 0.06);
+    background: var(--schedule-selection-bg);
     box-shadow:
-        inset 0 1px 0 rgba(45, 145, 255, 0.55),
-        inset 0 -1px 0 rgba(45, 145, 255, 0.55);
+        inset 0 1px 0 var(--schedule-selection-border),
+        inset 0 -1px 0 var(--schedule-selection-border);
 }
 
 #schedule-view .schedule-row:nth-child(even).is-selected-driver .schedule-cell,
 #schedule-view .schedule-row:nth-child(odd).is-selected-driver .schedule-cell,
 #schedule-view .schedule-row:nth-child(even).is-selected-driver .driver-cell,
 #schedule-view .schedule-row:nth-child(odd).is-selected-driver .driver-cell {
-    background: rgba(45, 145, 255, 0.06);
+    background: var(--schedule-selection-bg);
 }
 
 #schedule-view .schedule-cell.is-selection-intersection,
 #schedule-view .schedule-row.is-selected-driver .schedule-cell.is-selected-day,
 #schedule-view .schedule-row.is-selected-driver .schedule-cell.is-selection-intersection {
-    background:
-        radial-gradient(
-            circle at center,
-            rgba(45, 145, 255, 0.16) 0%,
-            rgba(45, 145, 255, 0.125) 52%,
-            rgba(45, 145, 255, 0.1) 100%
-        );
+    background: var(--schedule-selection-intersection);
     box-shadow: none;
 }
 
@@ -3381,7 +3492,7 @@ button.qe-driver-tile__route-badge:focus-visible {
 }
 
 #schedule-view .route-badge {
-    --route-badge-color: rgba(255, 255, 255, 0.92);
+    --route-badge-color: var(--route-badge-default-text);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3391,9 +3502,9 @@ button.qe-driver-tile__route-badge:focus-visible {
     height: 28px;
     padding: 0 8px;
     border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.09);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--route-badge-default-border);
+    background: var(--route-badge-default-bg);
+    box-shadow: var(--route-badge-text-shadow);
     color: var(--route-badge-color);
     font-size: 12px;
     font-weight: 700;
@@ -3424,22 +3535,22 @@ button.qe-driver-tile__route-badge:focus-visible {
 
 #schedule-view .route-badge--STANDARD {
     background: color-mix(in srgb, var(--secondary-text) 18%, transparent);
-    border-color: color-mix(in srgb, var(--secondary-text) 30%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--secondary-text) 30%, var(--route-badge-default-border));
 }
 
 #schedule-view .route-badge--WIECZOREK {
     background: color-mix(in srgb, var(--primary-color) 22%, transparent);
-    border-color: color-mix(in srgb, var(--primary-color) 36%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--primary-color) 36%, var(--route-badge-default-border));
 }
 
 #schedule-view .route-badge--SOBOTA {
-    background: rgba(255, 190, 90, 0.16);
-    border-color: rgba(255, 190, 90, 0.28);
+    background: color-mix(in srgb, var(--state-warning) 16%, transparent);
+    border-color: color-mix(in srgb, var(--state-warning) 32%, var(--route-badge-default-border));
 }
 
 #schedule-view .route-badge--NIEDZIELA {
     background: color-mix(in srgb, var(--state-success) 18%, transparent);
-    border-color: color-mix(in srgb, var(--state-success) 34%, rgba(255, 255, 255, 0.18));
+    border-color: color-mix(in srgb, var(--state-success) 34%, var(--route-badge-default-border));
 }
 
 #schedule-view .route-badge--marker {
@@ -3447,7 +3558,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     background: rgba(121, 72, 191, 0.24);
     border-color: rgba(160, 112, 235, 0.34);
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        var(--route-badge-text-shadow),
         0 0 0 1px rgba(103, 63, 168, 0.12);
 }
 
@@ -3455,7 +3566,7 @@ button.qe-driver-tile__route-badge:focus-visible {
     background: rgba(128, 40, 58, 0.28);
     border-color: rgba(183, 91, 110, 0.4);
     box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        var(--route-badge-text-shadow),
         0 0 0 1px rgba(98, 30, 44, 0.16);
 }
 
@@ -4018,7 +4129,7 @@ footer {
 
 .welcome-graphic .qe-orbit-dot,
 .app-header-logo .qe-orbit-dot {
-    filter: drop-shadow(0 2px 6px rgba(0, 102, 204, 0.25));
+    filter: drop-shadow(0 2px 6px var(--orbit-dot-shadow));
 }
 
 .welcome-graphic .qe-circuit-node,
@@ -4243,16 +4354,16 @@ footer {
 }
 
 .loading-sync-button {
-    background: linear-gradient(135deg, rgba(47, 140, 255, 0.98) 0%, rgba(110, 80, 255, 0.92) 55%, rgba(47, 140, 255, 0.9) 100%);
+    background: var(--sync-btn-bg);
     color: rgba(255, 255, 255, 0.96);
-    border-color: rgba(110, 80, 255, 0.45);
-    box-shadow: 0 10px 26px rgba(47, 140, 255, 0.18), 0 6px 18px rgba(110, 80, 255, 0.12);
+    border-color: var(--sync-btn-border);
+    box-shadow: var(--sync-btn-shadow);
 }
 
 .loading-sync-button:hover {
     filter: saturate(1.08) brightness(1.07);
     transform: translateY(-2px);
-    box-shadow: 0 14px 30px rgba(47, 140, 255, 0.22), 0 10px 22px rgba(110, 80, 255, 0.16);
+    box-shadow: var(--sync-btn-hover-shadow);
 }
 
 .loading-sync-button:active {
@@ -4260,17 +4371,17 @@ footer {
 }
 
 .loading-continue-button {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
+    background: var(--continue-btn-bg);
     color: var(--text-color);
-    border-color: rgba(255, 255, 255, 0.12);
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
+    border-color: var(--continue-btn-border);
+    box-shadow: var(--continue-btn-shadow);
 }
 
 .loading-continue-button:not(:disabled):hover {
-    background: linear-gradient(180deg, rgba(47, 140, 255, 0.14) 0%, rgba(110, 80, 255, 0.08) 100%);
-    border-color: rgba(47, 140, 255, 0.55);
+    background: var(--continue-btn-hover-bg);
+    border-color: var(--continue-btn-hover-border);
     transform: translateY(-2px);
-    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.22), 0 10px 22px rgba(47, 140, 255, 0.10);
+    box-shadow: var(--continue-btn-hover-shadow);
 }
 
 .loading-continue-button:not(:disabled):hover .btn-icon {
@@ -4491,10 +4602,10 @@ footer {
     padding: 2px 10px;
     margin-left: 6px;
     border-radius: 999px;
-    background: linear-gradient(135deg, rgba(47, 140, 255, 0.18), rgba(47, 140, 255, 0.06));
+    background: var(--modal-gdrive-bg);
     border: none;
-    box-shadow: 0 10px 22px rgba(47, 140, 255, 0.10);
-    color: rgba(255, 255, 255, 0.94);
+    box-shadow: var(--modal-gdrive-shadow);
+    color: var(--modal-gdrive-text);
     transition: filter 0.25s cubic-bezier(0.4, 0, 0.2, 1), transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
@@ -4531,9 +4642,9 @@ footer {
 }
 
 @keyframes qeGdriveGlow {
-    0% { box-shadow: 0 10px 22px rgba(47, 140, 255, 0.08); }
-    50% { box-shadow: 0 12px 28px rgba(47, 140, 255, 0.18); }
-    100% { box-shadow: 0 10px 22px rgba(47, 140, 255, 0.08); }
+    0% { box-shadow: var(--modal-gdrive-shadow-active); }
+    50% { box-shadow: var(--modal-gdrive-shadow-active-50); }
+    100% { box-shadow: var(--modal-gdrive-shadow-active); }
 }
 
 .modal-content {
@@ -4638,7 +4749,7 @@ footer {
 .qe-drive-expandall:hover {
     filter: saturate(1.08) brightness(1.07);
     background: rgba(255, 255, 255, 0.07);
-    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(47, 140, 255, 0.16) inset, 0 10px 22px rgba(47, 140, 255, 0.10);
+    box-shadow: var(--expandall-hover-shadow);
 }
 
 .qe-drive-expandall:active {
