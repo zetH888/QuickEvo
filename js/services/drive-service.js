@@ -184,9 +184,8 @@ function requestAccessToken(prompt) {
  * @returns {Promise<string>}
  */
 export async function getAccessToken() {
-    if (accessToken && Date.now() < accessTokenExpiresAt) return accessToken;
     try {
-        return await requestAccessToken('');
+        return await requestAccessToken('select_account');
     } catch {
         return await requestAccessToken('consent');
     }
