@@ -6,7 +6,7 @@
 
 # QuickEvo
 
-![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.37.54-blue) 
+![Status](https://img.shields.io/badge/status-active-success) ![Version](https://img.shields.io/badge/version-2.37.55-blue) 
 
 ![JavaScript](https://img.shields.io/badge/JavaScript-ESM-F7DF1E?logo=javascript&logoColor=000) 
 ![HTML5](https://img.shields.io/badge/HTML5-markup-E34F26?logo=html5&logoColor=fff) 
@@ -47,6 +47,11 @@ Dokument roboczy prowadzący refaktoryzację monolitu `js/entry/app.js` do mniej
   - Faza 2: `js/core/data-store.js` przejął mutacje dla `allData`, `loadedFiles`, `fullFileData`, `routeFileIndexByCode`, `currentResults`, `matchedResults`, `lastRenderedSearch` i `lastQuery`
   - Helpery `extractRouteCodeFromFileName`, `normalizeRouteCodeForLookup`, `buildRouteFileIndex` zostały wyniesione z `js/entry/app.js` do `js/core/data-store.js`
   - Dalszy plan został uproszczony do 3 większych wdrożeń: dane/ingestia/sync, widoki/nawigacja/struktura oraz finalne odchudzenie entrypointu
+
+### Zmiany w wersji 2.37.55
+
+- **Równoległa synchronizacja z Google Drive:** Zoptymalizowano pobieranie i parsowanie plików Excel poprzez zmianę pętli sekwencyjnej na asynchroniczne pobieranie z ograniczoną współbieżnością (limit ustawiony na 4 połączenia równoległe) przy użyciu istniejącego silnika `runWithConcurrency`.
+- **Stabilizacja listy statusu na ekranie powitalnym:** Elementy listy postępu importu (Welcome list items) są teraz wstępnie generowane sekwencyjnie i w ustalonym porządku alfabetycznym przed uruchomieniem zadań w tle, co eliminuje przeskakiwanie i zmianę kolejności elementów w interfejsie graficznym.
 
 ### Zmiany w wersji 2.37.54
 

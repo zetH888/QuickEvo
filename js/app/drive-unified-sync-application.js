@@ -390,23 +390,41 @@ export function createDriveUnifiedSyncApplication(cfg) {
         const before = cfg.getAllDataLength();
 
         try {
+            const progressItems = new Map();
+            if (isWelcomeVisible) {
+                for (const file of list) {
+                    const name = String(file?.name || '').trim();
+                    if (!name) continue;
+                    const progressItem = safeCall(() => cfg.createWelcomeItem(name), null);
+                    if (progressItem) {
+                        progressItems.set(name, progressItem);
+                        safeCall(() => cfg.appendWelcomeItem(progressItem), undefined);
+                    }
+                }
+                if (list.length > 0) {
+                    const first = list.find(f => String(f?.name || '').trim() && progressItems.has(String(f.name).trim()));
+                    if (first) {
+                        const item = progressItems.get(String(first.name).trim());
+                        safeCall(() => cfg.scrollWelcomeItemIntoView(item), undefined);
+                    }
+                }
+            }
+
             let processed = 0;
-            for (const file of list) {
+
+            await cfg.runWithConcurrency(list, 4, async (file) => {
                 const name = String(file?.name || '').trim();
                 const id = String(file?.id || '').trim();
-                if (!name || (!id && !isLocalDeleteChange(file))) { processed += 1; continue; }
-
-                const progressItem = isWelcomeVisible ? safeCall(() => cfg.createWelcomeItem(name), null) : null;
-                if (progressItem) {
-                    safeCall(() => cfg.appendWelcomeItem(progressItem), undefined);
-                    safeCall(() => cfg.scrollWelcomeItemIntoView(progressItem), undefined);
+                if (!name || (!id && !isLocalDeleteChange(file))) {
+                    processed += 1;
+                    const percent = list.length > 0 ? (processed / list.length) * 100 : 100;
+                    cfg.setLoadingProgress(percent, `${Math.round(percent)}%`);
+                    cfg.setUploadProgressValue(Math.round(percent));
+                    return;
                 }
 
+                const progressItem = progressItems.get(name) || null;
                 const displayName = cfg.formatFileName ? cfg.formatFileName(name) : name;
-
-                const percent = list.length > 0 ? (processed / list.length) * 100 : 0;
-                cfg.setLoadingProgress(percent, `${Math.round(percent)}%`);
-                cfg.setUploadProgressValue(Math.max(0, Math.min(95, percent)));
 
                 let prevUpdatedAt = null;
                 let existedBefore = null;
@@ -446,55 +464,50 @@ export function createDriveUnifiedSyncApplication(cfg) {
                             const defer = Boolean(cfg.shouldDeferWelcomeUpdates?.());
                             safeCall(() => cfg.updateWelcomeItem(progressItem, 100, 'Usunięto lokalnie', { defer }), undefined);
                         }
-                        continue;
-                    }
-
-                    cfg.setLoadingStatusText(`Pobieranie: ${displayName}...`);
-                    cfg.setUploadStatusText({ prefix: 'Pobieram: ', content: `${displayName}...` });
-                    const buffer = await api.downloadFileArrayBuffer(id, token);
-                    if (Number(buffer?.byteLength || 0) > cfg.maxImportBytes) throw new Error('Plik przekracza limit 5MB');
-
-                    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-                    await cfg.putDbBlob(name, blob, {
-                        driveModifiedAt: file?.driveModifiedAt ?? null,
-                        sourceKind: String(file?.qeKind || '').trim() || 'route',
-                        topLevelFolderName: file?.topLevelFolderName ?? ''
-                    });
-
-                    cfg.removeFileData(name);
-
-                    const kind = String(file?.qeKind || '');
-                    if (kind === 'driver_contacts') {
-                        cfg.invalidateDriverContactsFile(name);
-                        await cfg.processDriverContactsFile(name);
-                    } else if (kind === 'driver_registrations') {
-                        cfg.invalidateDriverRegistrationsFile?.(name);
-                        await cfg.processDriverRegistrationsFile?.(name);
-                    } else if (kind === 'schedule') {
-                        cfg.invalidateScheduleFile(name);
-                        await cfg.processScheduleFile(name);
-                    } else if (cfg.isScheduleFileName(name)) {
-                        cfg.invalidateScheduleFile(name);
-                        await cfg.processScheduleFile(name);
                     } else {
-                        try { cfg.loadedFiles?.delete?.(name); } catch { }
-                        await cfg.processFile(name);
-                        try { cfg.loadedFiles?.add?.(name); } catch { }
-                    }
+                        cfg.setLoadingStatusText(`Pobieranie: ${displayName}...`);
+                        cfg.setUploadStatusText({ prefix: 'Pobieram: ', content: `${displayName}...` });
+                        const buffer = await api.downloadFileArrayBuffer(id, token);
+                        if (Number(buffer?.byteLength || 0) > cfg.maxImportBytes) throw new Error('Plik przekracza limit 5MB');
 
-                    summary.files.push(name);
-                    /**
-                     * Dla Google Drive nie mamy File.lastModified, więc jako „Teraz” pokazujemy timestamp modyfikacji z Drive (jeśli dostępny),
-                     * a w przeciwnym razie moment pobrania/zapisu.
-                     */
-                    const nextUpdatedAt = Number.isFinite(Number(file?.driveModifiedAt)) && Number(file.driveModifiedAt) > 0 ? Number(file.driveModifiedAt) : Date.now();
-                    const entry = { name, prevUpdatedAt, nextUpdatedAt };
-                    const isNewInDb = file?.isNewInDb === true || (existedBefore === false);
-                    if (isNewInDb) summary.newFiles.push(entry);
-                    else if (existedBefore === true) summary.updatedFiles.push(entry);
-                    if (progressItem) {
-                        const defer = Boolean(cfg.shouldDeferWelcomeUpdates?.());
-                        safeCall(() => cfg.updateWelcomeItem(progressItem, 100, 'Gotowe', { defer }), undefined);
+                        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                        await cfg.putDbBlob(name, blob, {
+                            driveModifiedAt: file?.driveModifiedAt ?? null,
+                            sourceKind: String(file?.qeKind || '').trim() || 'route',
+                            topLevelFolderName: file?.topLevelFolderName ?? ''
+                        });
+
+                        cfg.removeFileData(name);
+
+                        const kind = String(file?.qeKind || '');
+                        if (kind === 'driver_contacts') {
+                            cfg.invalidateDriverContactsFile(name);
+                            await cfg.processDriverContactsFile(name);
+                        } else if (kind === 'driver_registrations') {
+                            cfg.invalidateDriverRegistrationsFile?.(name);
+                            await cfg.processDriverRegistrationsFile?.(name);
+                        } else if (kind === 'schedule') {
+                            cfg.invalidateScheduleFile(name);
+                            await cfg.processScheduleFile(name);
+                        } else if (cfg.isScheduleFileName(name)) {
+                            cfg.invalidateScheduleFile(name);
+                            await cfg.processScheduleFile(name);
+                        } else {
+                            try { cfg.loadedFiles?.delete?.(name); } catch { }
+                            await cfg.processFile(name);
+                            try { cfg.loadedFiles?.add?.(name); } catch { }
+                        }
+
+                        summary.files.push(name);
+                        const nextUpdatedAt = Number.isFinite(Number(file?.driveModifiedAt)) && Number(file.driveModifiedAt) > 0 ? Number(file.driveModifiedAt) : Date.now();
+                        const entry = { name, prevUpdatedAt, nextUpdatedAt };
+                        const isNewInDb = file?.isNewInDb === true || (existedBefore === false);
+                        if (isNewInDb) summary.newFiles.push(entry);
+                        else if (existedBefore === true) summary.updatedFiles.push(entry);
+                        if (progressItem) {
+                            const defer = Boolean(cfg.shouldDeferWelcomeUpdates?.());
+                            safeCall(() => cfg.updateWelcomeItem(progressItem, 100, 'Gotowe', { defer }), undefined);
+                        }
                     }
                 } catch (err) {
                     summary.errors += 1;
@@ -509,7 +522,7 @@ export function createDriveUnifiedSyncApplication(cfg) {
                     cfg.setLoadingProgress(nextPercent, `${Math.round(nextPercent)}%`);
                     cfg.setUploadProgressValue(Math.round(nextPercent));
                 }
-            }
+            });
 
             await cfg.finalizeImport(summary, before);
             cfg.setLoadingStatusText('Synchronizacja zakończona');
