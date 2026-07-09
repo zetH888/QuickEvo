@@ -427,13 +427,64 @@ body.light-theme .app-header-logo svg {
 .theme-switch-container {
     display: flex;
     align-items: center;
-    gap: 10px;
+}
+
+.hidden-checkbox {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.theme-btn, .tool-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    background: var(--card-gradient);
+    color: var(--text-color);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    transition: border-color 0.3s, background 0.3s, color 0.3s, transform 0.2s, box-shadow 0.3s;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#import-google-drive-button.tool-btn {
+    background: var(--sync-btn-bg);
+    border: 1px solid var(--sync-btn-border);
+    box-shadow: var(--sync-btn-shadow);
+    color: #ffffff;
+}
+
+#import-google-drive-button.tool-btn:hover {
+    border-color: var(--primary-color);
+    box-shadow: var(--sync-btn-hover-shadow);
+}
+
+.theme-btn:hover {
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+    box-shadow: 0 0 10px var(--primary-accent-glow), var(--shadow);
+}
+
+.theme-btn:active, .tool-btn:active {
+    transform: translateY(0px);
+}
+
+#theme-icon {
+    font-size: 1.15rem;
+    line-height: 1;
 }
 
 .toolbar {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
     flex-wrap: wrap;
     justify-content: flex-end;
 }
@@ -443,7 +494,6 @@ body.light-theme .app-header-logo svg {
     display: flex;
     align-items: center;
     gap: 10px;
-    flex-wrap: wrap;
 }
 
 .toolbar-group--imports {
@@ -451,50 +501,188 @@ body.light-theme .app-header-logo svg {
 }
 
 .primary-nav {
-    display: flex;
+    position: relative;
+    display: inline-flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 12px;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    gap: 4px;
     flex: 0 0 auto;
-    flex-wrap: wrap;
     min-width: 0;
+    box-shadow: var(--shadow);
+}
+
+/* Ruchomy suwak aktywnej zakładki */
+.primary-nav::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    bottom: 4px;
+    left: var(--nav-active-left, 0);
+    width: var(--nav-active-width, 0);
+    background: rgba(255, 255, 255, 0.09);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    transition: left 0.32s cubic-bezier(0.25, 1, 0.5, 1), width 0.32s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.25s;
+    opacity: var(--nav-active-opacity, 0);
+    pointer-events: none;
+    z-index: 0;
+}
+
+body.light-theme .primary-nav::before {
+    background: rgba(0, 0, 0, 0.06);
+    border-color: rgba(0, 0, 0, 0.12);
 }
 
 .primary-nav-button {
+    position: relative;
+    z-index: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 10px 14px;
+    padding: 8px 16px;
     border-radius: 12px;
-    border: 1px solid var(--border-color);
-    background: var(--card-gradient);
-    color: var(--text-color);
-    box-shadow: var(--shadow);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--secondary-text);
     cursor: pointer;
     font-weight: 800;
+    font-size: 0.85rem;
     letter-spacing: 0.4px;
     text-transform: uppercase;
-    transition: transform 0.1s, border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+    transition: color 0.3s;
     user-select: none;
 }
 
 .primary-nav-button:hover {
-    transform: translateY(-1px);
-    border-color: var(--primary-color);
-}
-
-.primary-nav-button:active {
-    transform: translateY(0px);
-}
-
-.primary-nav-button:focus-visible {
-    outline: 2px solid var(--primary-color);
-    outline-offset: 3px;
+    color: var(--text-color);
 }
 
 .primary-nav-button.is-active {
-    border-color: var(--primary-color);
-    box-shadow: 0 0 0 1px var(--primary-accent-active-shadow), var(--shadow);
+    color: var(--text-color);
+}
+
+/* Dostosowanie nagłówka */
+.header-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: nowrap;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 30px;
+    flex-direction: row;
+    min-width: 0;
+    flex: 1 1 auto;
+}
+
+.logo {
+    display: flex;
+    align-items: center;
+    min-height: auto;
+    color: var(--primary-color);
+}
+
+.app-header-logo svg {
+    height: 48px;
+    width: auto;
+    display: block;
+    overflow: visible;
+}
+
+/* Tooltips */
+[data-tooltip] {
+    position: relative;
+}
+
+[data-tooltip]::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%) scale(0.95);
+    background: rgba(18, 20, 26, 0.95);
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    z-index: 100;
+}
+
+[data-tooltip]:hover::after {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+}
+
+body.light-theme [data-tooltip]::after {
+    background: rgba(250, 248, 245, 0.98);
+    box-shadow: 0 4px 12px rgba(139, 115, 85, 0.15);
+}
+
+/* Responsywność */
+@media (max-width: 768px) {
+    .header-top {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+        grid-template-areas: 
+            "logo toolbar"
+            "nav nav";
+        gap: 16px;
+        align-items: center;
+        width: 100%;
+    }
+    
+    .header-left {
+        display: contents;
+    }
+    
+    .logo {
+        grid-area: logo;
+        justify-content: flex-start;
+        display: flex;
+        align-items: center;
+    }
+    
+    .primary-nav {
+        grid-area: nav;
+        width: 100%;
+        justify-content: center;
+        box-sizing: border-box;
+    }
+    
+    .primary-nav-button {
+        flex: 1 1 auto;
+        text-align: center;
+    }
+    
+    .toolbar {
+        grid-area: toolbar;
+        justify-content: flex-end;
+        gap: 10px;
+        margin-right: 0;
+    }
+    
+    /* Zabezpieczenie przed nakładaniem się na przycisk debuggera fab */
+    body:has(#qe-debugger) .toolbar {
+        margin-right: 52px;
+    }
 }
 
 .icon {
@@ -774,16 +962,25 @@ input:checked + .slider:before {
     border-color: var(--primary-color);
 }
 
+/* Pasek postępu synchronizacji wyświetlany jako pełny widget pod nagłówkiem */
 #upload-progress-container {
-    margin-top: 0;
+    margin-top: 14px;
     display: flex;
     align-items: center;
-    gap: 8px;
-    min-width: 0;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in srgb, var(--card-bg) 95%, var(--primary-color) 4%);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+    width: 100%;
+    box-sizing: border-box;
 }
 
 .upload-progress {
-    width: 140px;
+    width: 100%;
+    max-width: 220px; /* Elastyczna szerokość paska postępu */
     height: 8px;
     border-radius: 4px;
     overflow: hidden;
@@ -791,7 +988,7 @@ input:checked + .slider:before {
     -webkit-appearance: none;
     border: 1px solid var(--border-color);
     background: var(--card-gradient);
-    flex: 0 0 auto;
+    flex: 0 1 auto;
 }
 
 .upload-progress::-webkit-progress-bar {
@@ -1565,11 +1762,11 @@ button.result-driver-badge {
     
 }
 
-/* File Preview */
+/* Nagłówek podglądu pliku - wyrównanie etykiet (badge) w pionie do środka */
 #preview-filename {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
 }
 
@@ -2079,19 +2276,21 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 .qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
-    top: 10px;
-    bottom: 10px;
-    right: var(--qe-driver-separator-right);
-    width: 3px;
-    opacity: 0.7;
-    border-radius: 999px;
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--qe-driver-separator-core) 18%, transparent), var(--qe-driver-separator-core), color-mix(in srgb, var(--qe-driver-separator-core) 18%, transparent));
-    box-shadow:
-        0 0 0 1px var(--qe-driver-separator-edge),
-        0 0 10px var(--qe-driver-separator-glow),
-        0 0 22px color-mix(in srgb, var(--qe-driver-separator-glow) 70%, transparent);
-    transform: scaleY(0.92);
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    /* Szerokość kieszeni na badge pokrywająca dokładnie ich strefę (szerokość + offsety) */
+    width: calc(var(--qe-driver-badge-width) + (var(--qe-driver-badge-offset) * 2));
+    /* Subtelne, półprzezroczyste tło dopasowujące się do motywu jasnego/ciemnego */
+    background: color-mix(in srgb, var(--text-color) 4.5%, transparent);
+    /* Delikatna, minimalistyczna lewa krawędź pełniąca rolę separatora */
+    border-left: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
+    opacity: 0.85;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 0.24s ease, background 0.24s ease;
 }
 
 .qe-driver-tile__title {
@@ -2252,8 +2451,8 @@ button.qe-driver-tile__route-badge:focus-visible {
 
 .qe-driver-tile--with-route-badges:hover .qe-driver-tile__trigger::after,
 .qe-driver-tile--with-route-badges:focus-within .qe-driver-tile__trigger::after {
-    opacity: 1;
-    transform: scaleY(1);
+    opacity: 1; /* Pełna widoczność kieszeni bocznej na hover */
+    background: color-mix(in srgb, var(--text-color) 6.5%, transparent); /* Subtelne rozświetlenie tła kieszeni */
 }
 
 .qe-driver-tile:hover .qe-driver-tile__route-badges,
@@ -3605,9 +3804,13 @@ button.qe-driver-tile__route-badge:focus-visible {
 }
 
 @media (max-width: 768px) {
+    /* Zmiana szerokości na 100% rodzica (zamiast sztywnego calc(100vw - 16px)),
+       co zapobiega wystawaniu i ucinaniu paska filtrów (toolbar) z prawej strony. */
     #schedule-view {
-        width: calc(100vw - 16px);
-        max-width: calc(100vw - 16px);
+        width: 100%;
+        max-width: 100%;
+        min-width: 0; /* Uniemożliwia rozpychanie w poziomie przez tabelę grafiku */
+        overflow: hidden; /* Przechwytuje nadmiar szerokości dzieci i zapobiega ucinaniu toolbaru */
         --schedule-mobile-gutter: 8px;
         --driver-col-width: 98px;
         --day-col-width: 68px;

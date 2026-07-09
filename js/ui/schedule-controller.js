@@ -755,6 +755,11 @@ function createScheduleGrid(cfg = {}) {
                     ? 'route-badge route-badge--marker'
                     : ['route-badge', item.category ? `route-badge--${item.category}` : ''].filter(Boolean).join(' ');
                 badge.textContent = item.code;
+                
+                // Ustawiamy kod markera, aby dopasować specyficzne style (np. kolor dla 'UŻ') zdefiniowane w CSS
+                if (item.kind === 'marker') {
+                    badge.dataset.markerCode = item.code.toUpperCase();
+                }
                 option.title = item.kind === 'marker' && item.meaning ? `${item.code}: ${item.meaning}` : item.code;
                 option.appendChild(badge);
 

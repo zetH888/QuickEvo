@@ -72,26 +72,24 @@
                 <div class="toolbar">
                     <!-- Grupa akcji synchronizacji z Google Drive -->
                     <div class="toolbar-group toolbar-group--imports" role="group" aria-label="Synchronizacja z Google Drive">
-                        <button id="import-google-drive-button" class="loading-sync-button" type="button" aria-label="Google Drive — synchronizuj folder">
+                        <button id="import-google-drive-button" class="tool-btn" type="button" aria-label="Google Drive — synchronizuj folder" data-tooltip="Synchronizuj z Google Drive">
                             <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true">
                                 <path d="M9.5 3h5L22 16l-3.2 5H5.2L2 16l7.5-13zm1.16 2L5.26 14h3.71l3.19-9zm2.49 0L16.34 14h3.71L14.65 5h-1.5zM8.97 16H4.38l1.9 3h12.44l1.9-3H8.97z"></path>
                             </svg>
-                            Google Drive
                         </button>
                     </div>
-                    <div id="upload-progress-container" class="hidden">
-                        <span id="upload-status">Wysyłanie...</span>
-                        <progress id="upload-progress" class="upload-progress" max="100" value="0"></progress>
-                    </div>
-
-                    <div class="theme-switch-container">
-                    <label class="switch">
-                        <input type="checkbox" id="theme-toggle" checked>
-                        <span class="slider"></span>
-                    </label>
-                    <span id="theme-icon">🌙</span>
+                    <div class="theme-switch-container" data-tooltip="Zmień motyw">
+                        <label class="theme-btn" for="theme-toggle">
+                            <input type="checkbox" id="theme-toggle" checked class="hidden-checkbox">
+                            <span id="theme-icon">🌙</span>
+                        </label>
                     </div>
                 </div>
+            </div>
+            <!-- Pasek postępu synchronizacji z Google Drive wyświetlany na pełną szerokość bezpośrednio pod nagłówkiem -->
+            <div id="upload-progress-container" class="hidden">
+                <span id="upload-status">Wysyłanie...</span>
+                <progress id="upload-progress" class="upload-progress" max="100" value="0"></progress>
             </div>
         </header>
 

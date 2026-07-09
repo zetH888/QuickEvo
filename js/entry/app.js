@@ -2691,7 +2691,12 @@ function scrollDocumentToTop() {
  * @param {{ skipPush?: boolean, contextIsoDate?: (string|null), scrollToTop?: boolean }} [options]
  * @returns {void}
  */
-function showFilePreview(fileName, highlightRowIndex, options = { skipPush: false, contextIsoDate: null, scrollToTop: false }) {
+function showFilePreview(fileName, highlightRowIndex, options = {}) {
+    const opts = options || {};
+    const skipPush = opts.skipPush === true;
+    const contextIsoDate = opts.contextIsoDate ?? null;
+    const scrollToTop = opts.scrollToTop === true;
+
     trackVisibleView('preview');
     if (scheduleView) scheduleView.classList.add('view-hidden');
     if (routesView) routesView.classList.add('view-hidden');
@@ -2700,10 +2705,12 @@ function showFilePreview(fileName, highlightRowIndex, options = { skipPush: fals
     ensurePreviewApplication().openPreview({
         fileName: String(fileName || ''),
         rowIndex: Number.isInteger(highlightRowIndex) ? highlightRowIndex : null,
-        contextIsoDate: options?.contextIsoDate ?? null,
-        skipPush: Boolean(options?.skipPush)
+        contextIsoDate,
+        skipPush
     });
-    if (options?.scrollToTop) scrollDocumentToTop();
+    
+    // Jeśli zażądano przewinięcia, wykonaj scroll strony na samą górę.
+    if (scrollToTop) scrollDocumentToTop();
 }
 
 function ensurePreviewApplication() {
@@ -3102,6 +3109,9 @@ function ensureLoadingApplication() {
     return loadingApplication;
 }
 
+let currentActiveNavKey = null;
+let isNavResizeListenerAdded = false;
+
 function setPrimaryNavActive(activeKey) {
     const items = [
         { key: 'routes', el: navRoutesButton },
@@ -3114,11 +3124,46 @@ function setPrimaryNavActive(activeKey) {
         try { it.el.removeAttribute('aria-current'); } catch { }
     }
     const key = String(activeKey || '').trim();
-    if (!key) return;
+    currentActiveNavKey = key || null;
+    const nav = document.querySelector('.primary-nav');
+    if (!key) {
+        if (nav) {
+            nav.style.setProperty('--nav-active-opacity', '0');
+        }
+        return;
+    }
     const target = items.find(i => i.key === key);
-    if (!target?.el) return;
+    if (!target?.el) {
+        if (nav) {
+            nav.style.setProperty('--nav-active-opacity', '0');
+        }
+        return;
+    }
     try { target.el.classList.add('is-active'); } catch { }
     try { target.el.setAttribute('aria-current', 'page'); } catch { }
+
+    if (nav) {
+        const offsetLeft = target.el.offsetLeft;
+        const offsetWidth = target.el.offsetWidth;
+        nav.style.setProperty('--nav-active-left', `${offsetLeft}px`);
+        nav.style.setProperty('--nav-active-width', `${offsetWidth}px`);
+        nav.style.setProperty('--nav-active-opacity', '1');
+    }
+
+    // Dodanie jednorazowego nasłuchiwania na zmianę rozmiaru okna
+    if (!isNavResizeListenerAdded) {
+        isNavResizeListenerAdded = true;
+        window.addEventListener('resize', () => {
+            if (currentActiveNavKey) {
+                const activeEl = items.find(i => i.key === currentActiveNavKey)?.el;
+                const navContainer = document.querySelector('.primary-nav');
+                if (activeEl && navContainer) {
+                    navContainer.style.setProperty('--nav-active-left', `${activeEl.offsetLeft}px`);
+                    navContainer.style.setProperty('--nav-active-width', `${activeEl.offsetWidth}px`);
+                }
+            }
+        }, { passive: true });
+    }
 }
 
 /**
@@ -3921,7 +3966,9 @@ function renderDriverTileGrid(containerEl, items, { emptyText = 'Brak danych.', 
         }
     }
 
-    document.addEventListener('pointerdown', (event) => {
+    // Używamy zdarzenia 'click' zamiast 'pointerdown', aby zapobiec zamykaniu panelu
+    // szczegółów kierowcy podczas przewijania (scrollowania) ekranu na urządzeniach mobilnych.
+    document.addEventListener('click', (event) => {
         if (!openedTile) return;
         if (openedTile.contains(event.target)) return;
         closeOpenedTile();
@@ -4264,7 +4311,12 @@ function openRouteFromSchedule(routeCode, isoDate) {
     const code = normalizeRouteCodeForLookup(routeCode);
     const fileName = routeFileIndexByCode.get(code);
     if (!fileName) return;
-    showFilePreview(fileName, null, { contextIsoDate: String(isoDate || '').trim() || null });
+    
+    // Otwieramy podgląd trasy z przekazaniem parametru przewinięcia strony na samą górę
+    showFilePreview(fileName, null, {
+        contextIsoDate: String(isoDate || '').trim() || null,
+        scrollToTop: true
+    });
 }
 
 /**
