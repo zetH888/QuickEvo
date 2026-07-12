@@ -1,0 +1,909 @@
+/**
+ * Style siatek i kafelków widoków tras oraz kierowców (Drivers View).
+ * Obsługuje kafelki tras (standardowe, wieczorowe, weekendowe), układ sekcji alfabetycznych kierowców,
+ * kieszenie z odznakami tras na kafelkach kierowców, otwierany panel szczegółów,
+ * tablice rejestracyjne, numery telefonów oraz responsywne zachowanie kafelków.
+ */
+
+.qe-view-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.qe-view-title {
+    margin: 0;
+    font-size: 1.35rem;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+}
+
+.qe-view-subtitle {
+    margin: 0 0 10px 0;
+    font-size: 1.05rem;
+    font-weight: 800;
+    color: var(--secondary-text);
+}
+
+.routes-sections {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+}
+
+.routes-section--bottom {
+    grid-column: 1 / -1;
+}
+
+.qe-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+    gap: 12px;
+}
+
+.qe-tile {
+    --qe-tile-color: var(--border-color);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    border: 1px solid var(--border-color);
+    background: var(--card-gradient);
+    color: var(--text-color);
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    text-align: center;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    transition: transform 0.1s, border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+}
+
+.qe-tile--STANDARD { --qe-tile-color: var(--secondary-text); }
+.qe-tile--WIECZOREK { --qe-tile-color: var(--primary-color); }
+.qe-tile--SOBOTA { --qe-tile-color: var(--state-warning); }
+.qe-tile--NIEDZIELA { --qe-tile-color: var(--state-success); }
+
+.qe-tile--STANDARD,
+.qe-tile--WIECZOREK,
+.qe-tile--SOBOTA,
+.qe-tile--NIEDZIELA {
+    border-color: color-mix(in srgb, var(--qe-tile-color) 55%, var(--border-color));
+    background:
+        linear-gradient(
+            0deg,
+            color-mix(in srgb, var(--qe-tile-color) 14%, transparent),
+            color-mix(in srgb, var(--qe-tile-color) 14%, transparent)
+        ),
+        var(--card-gradient);
+}
+
+.qe-tile:hover {
+    transform: translateY(-1px);
+    border-color: var(--qe-tile-color);
+}
+
+.qe-tile:active {
+    transform: translateY(0px);
+}
+
+.qe-tile:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 3px;
+}
+
+.qe-tile.is-passive {
+    cursor: default;
+}
+
+.qe-driver-tile {
+    position: relative;
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    min-width: 0;
+}
+
+.qe-role-sections {
+    display: grid;
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.qe-driver-group {
+    display: grid;
+    gap: 10px;
+}
+
+.qe-role-segment {
+    display: grid;
+    gap: 10px;
+}
+
+.qe-driver-group__heading {
+    margin: 0;
+}
+
+.qe-driver-group__heading--view {
+    width: 100%;
+}
+
+.qe-role-segment__title {
+    margin: 0;
+}
+
+.qe-driver-group__toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--secondary-text);
+    cursor: pointer;
+    text-align: left;
+}
+
+.qe-driver-group__toggle:hover .qe-driver-group__toggle-label,
+.qe-driver-group__toggle:focus-visible .qe-driver-group__toggle-label {
+    color: var(--text-color);
+}
+
+.qe-driver-group__toggle:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 4px;
+    border-radius: 10px;
+}
+
+.qe-driver-group__toggle-label {
+    flex: 0 1 auto;
+    font-size: 1.05rem;
+    font-weight: 800;
+    letter-spacing: 0.2px;
+    line-height: 1.2;
+}
+
+.qe-driver-group__toggle-chevron {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: rotate(45deg);
+    transform-origin: center;
+    transition: transform 0.18s ease, border-color 0.18s ease;
+    opacity: 0.75;
+}
+
+.qe-driver-group__toggle:hover .qe-driver-group__toggle-chevron,
+.qe-driver-group__toggle:focus-visible .qe-driver-group__toggle-chevron {
+    border-color: var(--primary-color);
+}
+
+.qe-driver-group__toggle.is-collapsed .qe-driver-group__toggle-chevron {
+    transform: rotate(-45deg);
+}
+
+.qe-driver-group__content {
+    overflow: hidden;
+    max-height: var(--qe-driver-group-max, none);
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, visibility 0ms linear 0ms;
+    will-change: max-height, opacity;
+}
+
+.qe-driver-group__content.is-collapsed {
+    max-height: 0px;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: max-height 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease, visibility 0ms linear 280ms;
+}
+
+.qe-driver-group__content[hidden] {
+    display: none !important;
+}
+
+.qe-driver-role-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    padding-left: 60px;
+}
+
+.qe-driver-sections {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    align-content: start;
+}
+
+.qe-driver-group__content.qe-driver-sections {
+    margin-top: 0;
+}
+
+.qe-driver-section {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    column-gap: 14px;
+    row-gap: 0;
+}
+
+.qe-driver-section + .qe-driver-section {
+    margin-top: 14px;
+}
+
+.qe-driver-section__header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Litera sekcji ma być przypięta do pierwszego rzędu kafelków,
+       a nie do środka całej sekcji po rozwinięciu panelu. */
+    align-self: start;
+    min-height: 78px;
+    padding-top: 0;
+    position: relative;
+    z-index: 1;
+    pointer-events: none;
+}
+
+.qe-driver-section__letter {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 16%, transparent);
+    background: color-mix(in srgb, var(--primary-color) 4%, transparent);
+    color: color-mix(in srgb, var(--text-color) 52%, var(--primary-color));
+    font-size: 1.08rem;
+    font-weight: 900;
+    letter-spacing: 0.06em;
+    box-shadow: var(--driver-section-shadow-inset);
+    opacity: 0.42;
+    pointer-events: none;
+    user-select: none;
+}
+
+.qe-driver-section__grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+    margin-top: 0;
+    min-width: 0;
+}
+
+.qe-driver-tile__trigger {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    width: 100%;
+    min-height: 78px;
+    align-items: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+    padding-right: var(--qe-driver-content-right-gap, 5rem);
+    transition:
+        transform 0.16s cubic-bezier(0.22, 1, 0.36, 1),
+        border-color 0.28s ease,
+        background 0.32s ease,
+        box-shadow 0.32s ease,
+        filter 0.32s ease;
+}
+
+.qe-driver-tile__trigger::before,
+.qe-driver-tile__trigger::after {
+    content: '';
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.24s ease, transform 0.24s ease, filter 0.24s ease;
+}
+
+.qe-driver-tile__trigger::before {
+    inset: 1px;
+    border-radius: inherit;
+    background: var(--driver-tile-trigger-overlay);
+    transform: translateY(2px);
+}
+
+.qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    /* Szerokość kieszeni na badge pokrywająca dokładnie ich strefę (szerokość + offsety) */
+    width: calc(var(--qe-driver-badge-width) + (var(--qe-driver-badge-offset) * 2));
+    /* Subtelne, półprzezroczyste tło dopasowujące się do motywu jasnego/ciemnego */
+    background: color-mix(in srgb, var(--text-color) 4.5%, transparent);
+    /* Delikatna, minimalistyczna lewa krawędź pełniąca rolę separatora */
+    border-left: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
+    opacity: 0.85;
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity 0.24s ease, background 0.24s ease;
+}
+
+.qe-driver-tile__title {
+    display: grid;
+    gap: 2px;
+    width: 100%;
+    max-width: calc(100% - var(--qe-driver-content-right-gap, 5rem));
+    font-size: 0.98rem;
+    line-height: 1.2;
+    text-wrap: nowrap;
+}
+
+.qe-driver-tile__title--compact {
+    font-size: 0.92rem;
+}
+
+.qe-driver-tile__title--dense {
+    font-size: 0.86rem;
+}
+
+.qe-driver-tile {
+    --qe-driver-badge-width: 42px;
+    --qe-driver-badge-offset: 10px;
+    --qe-driver-separator-gap: 10px;
+    --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 18px);
+    --qe-driver-separator-right: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap));
+    /* Ustala lokalny kontekst pozycjonowania dla badge'y tras na kafelku kierowcy. */
+    position: relative;
+    flex: 0 0 min(var(--qe-driver-section-tile-width, 16rem), 100%);
+    width: min(var(--qe-driver-section-tile-width, 16rem), 100%);
+    max-width: 100%;
+    min-width: 0;
+}
+
+.qe-driver-tile__main {
+    /* Ogranicza pozycjonowanie badge'y do frontowej warstwy kafelka. */
+    position: relative;
+}
+
+.qe-driver-tile--flash .qe-driver-tile__trigger,
+.qe-driver-tile--flash .qe-driver-tile__panel {
+    animation: qeDriverTileFlash 1.45s ease;
+}
+
+@keyframes qeDriverTileFlash {
+    0% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 0%, transparent);
+    }
+    18% {
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 26%, transparent);
+    }
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary-color) 0%, transparent);
+    }
+}
+
+.qe-driver-tile__line {
+    display: block;
+    width: 100%;
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+    hyphens: none;
+    text-wrap: nowrap;
+}
+
+.qe-driver-tile__route-badges {
+    position: absolute;
+    top: var(--qe-driver-badge-offset);
+    right: var(--qe-driver-badge-offset);
+    bottom: var(--qe-driver-badge-offset);
+    z-index: 2;
+    width: var(--qe-driver-badge-width);
+    pointer-events: none;
+    transition: transform 0.16s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.16s ease, filter 0.24s ease;
+}
+
+.qe-driver-tile__route-badge {
+    position: absolute;
+    right: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 42px;
+    min-width: 42px;
+    max-width: 42px;
+    height: 28px;
+    padding: 0 8px;
+    border-radius: 8px;
+    border: 1px solid var(--route-badge-default-border);
+    background: var(--route-badge-default-bg);
+    box-shadow: var(--route-badge-text-shadow);
+    color: var(--route-badge-default-text);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1;
+    white-space: nowrap;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
+}
+
+button.qe-driver-tile__route-badge {
+    pointer-events: auto;
+    cursor: pointer;
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+button.qe-driver-tile__route-badge:hover,
+button.qe-driver-tile__route-badge:focus-visible {
+    box-shadow:
+        var(--route-badge-text-shadow),
+        0 10px 24px rgba(0, 0, 0, 0.2);
+    border-color: color-mix(in srgb, var(--primary-color) 48%, var(--route-badge-default-border));
+}
+
+button.qe-driver-tile__route-badge:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--primary-color) 72%, var(--route-badge-default-text));
+    outline-offset: 2px;
+}
+
+.qe-driver-tile__route-badge.is-unavailable {
+    cursor: default;
+}
+
+.qe-driver-tile__route-badge--slot-top {
+    top: 0;
+}
+
+.qe-driver-tile__route-badge--slot-bottom {
+    bottom: 0;
+}
+
+.qe-driver-tile:hover .qe-driver-tile__route-badges,
+.qe-driver-tile:focus-within .qe-driver-tile__route-badges {
+    transform: translateY(-1px);
+}
+
+.qe-driver-tile:active .qe-driver-tile__route-badges {
+    transform: translateY(0);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__trigger,
+.qe-driver-tile:focus-within .qe-driver-tile__trigger {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
+    box-shadow: var(--driver-tile-trigger-shadow);
+    filter: saturate(1.04);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__trigger::before,
+.qe-driver-tile:focus-within .qe-driver-tile__trigger::before {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.qe-driver-tile--with-route-badges:hover .qe-driver-tile__trigger::after,
+.qe-driver-tile--with-route-badges:focus-within .qe-driver-tile__trigger::after {
+    opacity: 1; /* Pełna widoczność kieszeni bocznej na hover */
+    background: color-mix(in srgb, var(--text-color) 6.5%, transparent); /* Subtelne rozświetlenie tła kieszeni */
+}
+
+.qe-driver-tile:hover .qe-driver-tile__route-badges,
+.qe-driver-tile:focus-within .qe-driver-tile__route-badges {
+    filter: saturate(1.05) brightness(1.02);
+}
+
+.qe-driver-tile:active .qe-driver-tile__trigger {
+    transform: translateY(0);
+    box-shadow: var(--shadow);
+}
+
+.qe-driver-tile__route-badge--STANDARD {
+    background: color-mix(in srgb, var(--secondary-text) 18%, transparent);
+    border-color: color-mix(in srgb, var(--secondary-text) 30%, var(--route-badge-default-border));
+}
+
+.qe-driver-tile__route-badge--WIECZOREK {
+    background: color-mix(in srgb, var(--primary-color) 22%, transparent);
+    border-color: color-mix(in srgb, var(--primary-color) 36%, var(--route-badge-default-border));
+}
+
+.qe-driver-tile__route-badge--SOBOTA {
+    background: color-mix(in srgb, var(--state-warning) 16%, transparent);
+    border-color: color-mix(in srgb, var(--state-warning) 32%, var(--route-badge-default-border));
+}
+
+.qe-driver-tile__route-badge--NIEDZIELA {
+    background: color-mix(in srgb, var(--state-success) 18%, transparent);
+    border-color: color-mix(in srgb, var(--state-success) 34%, var(--route-badge-default-border));
+}
+
+.qe-driver-tile__route-badge--marker {
+    cursor: default;
+    background: rgba(121, 72, 191, 0.24);
+    border-color: rgba(160, 112, 235, 0.34);
+    box-shadow:
+        var(--route-badge-text-shadow),
+        0 0 0 1px rgba(103, 63, 168, 0.12);
+}
+
+.qe-driver-tile__route-badge--marker[data-marker-code="UŻ"] {
+    background: rgba(128, 40, 58, 0.28);
+    border-color: rgba(183, 91, 110, 0.4);
+    box-shadow:
+        var(--route-badge-text-shadow),
+        0 0 0 1px rgba(98, 30, 44, 0.16);
+}
+
+.qe-driver-tile__line--surname {
+    font-weight: 900;
+}
+
+.qe-driver-tile__line--given {
+    font-weight: 800;
+}
+
+.qe-driver-tile__role-wrap {
+    display: flex;
+    justify-content: center;
+}
+
+.qe-driver-tile__role-badge {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 0 9px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 30%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+    color: color-mix(in srgb, var(--text-color) 88%, var(--primary-color));
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.qe-driver-tile__panel {
+    /* Na desktopie panel pozostaje w normalnym flow,
+       aby sekcja mogła zwiększyć wysokość i nie ucinała szczegółów. */
+    position: static;
+    z-index: auto;
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+    padding: 0 12px;
+    margin-top: 8px;
+    border-radius: 14px;
+    border: 0 solid color-mix(in srgb, var(--primary-color) 30%, var(--border-color));
+    background: color-mix(in srgb, var(--card-bg) 92%, rgba(12, 18, 26, 0.88));
+    box-shadow: none;
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+    transform-origin: top center;
+    pointer-events: none;
+    overflow: hidden;
+    max-height: 0;
+    transition: opacity 0.22s ease, transform 0.22s ease, border-width 0.22s ease, max-height 0.26s ease, padding 0.22s ease;
+    backdrop-filter: blur(10px);
+}
+
+.qe-driver-tile.is-open .qe-driver-tile__panel {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+    max-height: 360px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    border-width: 1px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+}
+
+.qe-driver-tile__row {
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+}
+
+.qe-driver-tile__row-label {
+    color: var(--secondary-text);
+    font-size: 0.73rem;
+    font-weight: 800;
+    letter-spacing: 0.18px;
+    text-transform: uppercase;
+    text-align: center;
+}
+
+.qe-driver-tile__row-value {
+    font-size: 0.96rem;
+    font-weight: 800;
+    color: var(--text-color);
+    line-height: 1.25;
+    text-align: center;
+}
+
+.qe-driver-tile__row-value.is-muted {
+    color: var(--secondary-text);
+}
+
+.qe-driver-tile__plate {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    width: fit-content;
+    min-height: 32px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 28%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 12%, transparent);
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.qe-driver-tile__plate.has-tooltip {
+    outline: none;
+}
+
+.qe-driver-tile__plate.has-tooltip::before,
+.qe-driver-tile__plate.has-tooltip::after {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.qe-driver-tile__plate.has-tooltip:hover,
+.qe-driver-tile__plate.has-tooltip:focus-visible {
+    border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 16%, var(--state-hover));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary-color) 22%, transparent);
+}
+
+.qe-driver-tile__plate-text {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.qe-driver-tile__plate.has-tooltip::before {
+    content: attr(data-tooltip);
+    position: absolute;
+    z-index: 35;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    transform: translate(-50%, 4px);
+    min-width: max-content;
+    max-width: min(240px, 80vw);
+    padding: 7px 10px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: color-mix(in srgb, var(--card-bg) 90%, rgba(12, 16, 24, 0.95));
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+    font-size: 0.78rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    line-height: 1.25;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.qe-driver-tile__plate.has-tooltip.is-current::before {
+    color: #53d88d;
+    border-color: color-mix(in srgb, #53d88d 40%, transparent);
+}
+
+.qe-driver-tile__plate.has-tooltip.is-stale::before {
+    color: #ffb454;
+    border-color: color-mix(in srgb, #ffb454 42%, transparent);
+}
+
+.qe-driver-tile__plate.has-tooltip:hover::before,
+.qe-driver-tile__plate.has-tooltip:focus-visible::before {
+    opacity: 1;
+}
+
+.qe-driver-tile__plate.has-tooltip:hover::before,
+.qe-driver-tile__plate.has-tooltip:focus-visible::before {
+    transform: translate(-50%, 0);
+}
+
+.qe-driver-tile__actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.qe-driver-tile__actions--inline {
+    grid-template-columns: repeat(2, auto);
+    justify-content: center;
+}
+
+.qe-driver-tile__phone-list {
+    display: grid;
+    gap: 10px;
+    justify-items: center;
+}
+
+.qe-driver-tile__phone-entry {
+    display: grid;
+    gap: 8px;
+    justify-items: center;
+    padding: 10px;
+    border-radius: 12px;
+    border: 1px solid color-mix(in srgb, var(--primary-color) 16%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 6%, transparent);
+}
+
+.qe-driver-tile__action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--state-hover);
+    color: var(--text-color);
+    font-weight: 800;
+    text-decoration: none;
+    transition: transform 0.1s ease, border-color 0.2s ease, background 0.2s ease;
+    cursor: pointer;
+}
+
+.qe-driver-tile__action--icon {
+    min-width: 40px;
+    width: 40px;
+    padding: 0;
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.qe-driver-tile__action:hover:not(:disabled),
+.qe-driver-tile__action:focus-visible:not(:disabled) {
+    border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 16%, var(--state-hover));
+}
+
+.qe-driver-tile__action:active:not(:disabled) {
+    transform: translateY(1px);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__route-badges,
+.qe-driver-tile:focus-within .qe-driver-tile__route-badges {
+    transform: translateY(-1px);
+}
+
+.qe-driver-tile:active .qe-driver-tile__route-badges {
+    transform: translateY(0);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__trigger,
+.qe-driver-tile:focus-within .qe-driver-tile__trigger {
+    transform: translateY(-1px);
+    border-color: color-mix(in srgb, var(--primary-color) 24%, var(--border-color));
+    box-shadow: var(--driver-tile-trigger-shadow);
+    filter: saturate(1.04);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__trigger::before,
+.qe-driver-tile:focus-within .qe-driver-tile__trigger::before {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.qe-driver-tile--with-route-badges:hover .qe-driver-tile__trigger::after,
+.qe-driver-tile--with-route-badges:focus-within .qe-driver-tile__trigger::after {
+    opacity: 1;
+    background: color-mix(in srgb, var(--text-color) 6.5%, transparent);
+}
+
+.qe-driver-tile:hover .qe-driver-tile__route-badges,
+.qe-driver-tile:focus-within .qe-driver-tile__route-badges {
+    filter: saturate(1.05) brightness(1.02);
+}
+
+.qe-driver-tile:active .qe-driver-tile__trigger {
+    transform: translateY(0);
+    box-shadow: var(--shadow);
+}
+
+.qe-driver-tile__action:disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
+}
+
+.qe-driver-tile__action--primary {
+    border-color: color-mix(in srgb, var(--primary-color) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--primary-color) 18%, transparent);
+}
+
+@media (max-width: 860px) {
+    .routes-sections {
+        grid-template-columns: 1fr;
+    }
+
+    .qe-driver-section {
+        grid-template-columns: 1fr;
+        row-gap: 10px;
+    }
+
+    .qe-driver-section__header {
+        justify-content: flex-start;
+        align-self: start;
+        min-height: auto;
+        padding-top: 0;
+    }
+
+    .qe-driver-role-grid {
+        padding-left: 0;
+    }
+
+    .qe-driver-group__toggle-label {
+        font-size: 1rem;
+    }
+
+    .qe-driver-tile__panel {
+        position: static;
+        margin-top: 8px;
+        opacity: 1;
+        transform: none;
+        pointer-events: none;
+        max-height: 0;
+        overflow: hidden;
+        padding-top: 0;
+        padding-bottom: 0;
+        border-width: 0;
+        box-shadow: none;
+        transition: max-height 0.22s ease, padding 0.22s ease, border-width 0.22s ease, opacity 0.18s ease;
+    }
+
+    .qe-driver-tile.is-open .qe-driver-tile__panel {
+        pointer-events: auto;
+        max-height: 520px;
+        padding-top: 12px;
+        padding-bottom: 12px;
+        border-width: 1px;
+        box-shadow: var(--shadow);
+    }
+
+    .qe-driver-tile__trigger {
+        min-height: 68px;
+        padding-right: var(--qe-driver-content-right-gap, 4.25rem);
+    }
+
+    .qe-driver-tile {
+        --qe-driver-badge-width: 34px;
+        --qe-driver-badge-offset: 8px;
+        --qe-driver-separator-gap: 8px;
+        --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 14px);
+        --qe-driver-separator-right: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap));
+    }
+
+    .qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
+        top: 8px;
+        bottom: 8px;
+        width: 2px;
+    }
+
+    .qe-driver-tile__route-badge {
+        width: 34px;
+        min-width: 34px;
+        max-width: 34px;
+        flex-basis: 34px;
+        height: 24px;
+        padding: 0 5px;
+        font-size: 10px;
+        border-radius: 7px;
+    }
+}

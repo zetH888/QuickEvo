@@ -215,7 +215,14 @@
                             aria-pressed="false"
                             title="Włącz pełny ekran grafiku"
                         >
-                            <span class="schedule-fullscreen-icon" aria-hidden="true"></span>
+                            <!-- Ikona wejścia w pełny ekran (grube narożniki blisko krawędzi, styl YouTube) -->
+                            <svg class="schedule-fullscreen-svg schedule-fullscreen-svg--enter" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M2 7V2h5 M17 2h5v5 M2 17v5h5 M17 22h5v-5"/>
+                            </svg>
+                            <!-- Ikona wyjścia z pełnego ekranu (grube narożniki skierowane do środka, styl YouTube) -->
+                            <svg class="schedule-fullscreen-svg schedule-fullscreen-svg--exit" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M7 2v5H2 M17 2v5h5 M7 22v-5H2 M17 22v-5h5"/>
+                            </svg>
                         </button>
                     </div>
                     <div class="schedule-toolbar-section schedule-toolbar-section--filters">

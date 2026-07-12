@@ -1,0 +1,362 @@
+/**
+ * Style pola wyszukiwania (Search Container) oraz powiązanych kontrolek.
+ * Zawiera style dla przełącznika suwakowego (sortowanie), autouzupełniania/podpowiedzi (ghost-text),
+ * strefy upuszczania plików (drop-zone) i paska postępu synchronizacji z GDrive.
+ */
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 50px;
+    height: 24px;
+    /* Izolacja i clipping zapobiegają „wyciekaniu” warstwy suwaka podczas animacji widoków. */
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 24px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .slider {
+    background-color: var(--primary-color);
+}
+
+input:checked + .slider:before {
+    transform: translateX(26px);
+}
+
+/* Search Box */
+.search-container {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+#search-input-wrap,
+.search-input-wrap {
+    position: relative;
+    width: 100%;
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--card-gradient);
+    box-shadow: var(--shadow);
+    transition: border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out;
+    box-sizing: border-box;
+}
+
+.search-input-wrap--with-sort #search-input,
+.search-input-wrap--with-sort .qe-ghost {
+    padding-right: 132px;
+}
+
+.search-sort-switch {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 4;
+    pointer-events: auto;
+}
+
+.search-sort-switch .switch {
+    transform: scale(0.86);
+    transform-origin: center;
+}
+
+.search-sort-switch-label {
+    font-size: 0.78rem;
+    color: var(--secondary-text);
+    font-weight: 600;
+    user-select: none;
+    white-space: nowrap;
+}
+
+.search-sort-switch input:focus-visible + .slider {
+    box-shadow: 0 0 0 3px var(--state-hover);
+}
+
+#search-input-wrap:focus-within,
+.search-input-wrap:focus-within {
+    border-color: var(--primary-color);
+}
+
+.qe-ghost {
+    position: absolute;
+    inset: 0;
+    padding: 15px 20px;
+    font-size: 1.1rem;
+    line-height: 1.15;
+    font-family: inherit;
+    letter-spacing: normal;
+    font-variant-ligatures: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    display: flex;
+    align-items: center;
+    white-space: pre;
+    overflow: hidden;
+    box-sizing: border-box;
+    pointer-events: none;
+    user-select: none;
+    z-index: 2;
+    transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.qe-ghost.is-hidden {
+    opacity: 0;
+    visibility: hidden;
+}
+
+.qe-ghost-prefix {
+    color: transparent;
+}
+
+.qe-ghost-suffix {
+    color: var(--qe-ghost-suffix-color);
+    display: inline-block;
+    overflow: hidden;
+    vertical-align: top;
+    animation: qe-ghost-fade-in 0.25s ease-out;
+}
+
+.qe-ghost-hint {
+    position: absolute;
+    top: 50%;
+    right: 114px;
+    min-width: 42px;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid var(--ghost-hint-border);
+    border-radius: 999px;
+    background: var(--ghost-hint-bg);
+    color: var(--ghost-hint-color);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    visibility: hidden;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    z-index: 5;
+    box-shadow: 0 0 0 rgba(77, 166, 255, 0);
+    transform: translateY(-50%);
+    transition: opacity 0.22s ease-out, box-shadow 0.22s ease-out, background-color 0.22s ease-out, border-color 0.22s ease-out, color 0.22s ease-out;
+}
+
+.qe-ghost-hint.is-visible {
+    opacity: 0.78;
+    visibility: visible;
+    box-shadow: var(--ghost-hint-hover-shadow, 0 0 10px rgba(77, 166, 255, 0.10));
+    animation: none;
+}
+
+.qe-ghost-hint:hover,
+.qe-ghost-hint:focus-visible {
+    opacity: 1;
+    background: var(--ghost-hint-hover-bg);
+    border-color: var(--ghost-hint-hover-border);
+    color: var(--ghost-hint-hover-color);
+    box-shadow: var(--ghost-hint-hover-shadow, 0 0 14px rgba(77, 166, 255, 0.18));
+    outline: none;
+}
+
+.qe-ghost-hint:disabled {
+    pointer-events: none;
+}
+
+@keyframes qe-ghost-fade-in {
+    from { opacity: 0; transform: translateX(2px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+.qe-ghost-loading::after {
+    content: '';
+    width: 12px;
+    height: 12px;
+    margin-left: 10px;
+    border: 2px solid var(--qe-ghost-suffix-color);
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: qe-spin 0.6s linear infinite;
+    display: inline-block;
+}
+
+#search-input {
+    width: 100%;
+    padding: 15px 20px;
+    font-size: 1.1rem;
+    line-height: 1.15;
+    font-family: inherit;
+    letter-spacing: normal;
+    font-variant-ligatures: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-color);
+    outline: none;
+    transition: border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out;
+    box-sizing: border-box;
+    position: relative;
+    z-index: 1;
+}
+
+#search-input:focus {
+    border-color: transparent;
+}
+
+#search-input::placeholder {
+    color: var(--secondary-text);
+}
+
+.status {
+    font-size: 0.85rem;
+    color: var(--secondary-text);
+    margin-top: 5px;
+    text-align: right;
+    transition: color 0.4s ease-in-out;
+}
+
+.status--hint {
+    color: var(--primary-color);
+    font-weight: 600;
+}
+
+.drop-zone {
+    border: 2px dashed var(--border-color);
+    border-radius: 8px;
+    padding: 30px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--card-gradient);
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.drop-zone:hover, .drop-zone--over {
+    background: var(--drop-zone-hover-bg);
+    border-color: var(--primary-color);
+}
+
+/* Pasek postępu synchronizacji wyświetlany jako pełny widget pod nagłówkiem */
+#upload-progress-container {
+    margin-top: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    background: color-mix(in srgb, var(--card-bg) 95%, var(--primary-color) 4%);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+    width: 100%;
+    box-sizing: border-box;
+}
+
+.upload-progress {
+    width: 100%;
+    max-width: 220px; /* Elastyczna szerokość paska postępu */
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    appearance: none;
+    -webkit-appearance: none;
+    border: 1px solid var(--border-color);
+    background: var(--card-gradient);
+    flex: 0 1 auto;
+}
+
+.upload-progress::-webkit-progress-bar {
+    background: var(--card-gradient);
+}
+
+.upload-progress::-webkit-progress-value {
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--upload-progress-fill-end) 100%);
+}
+
+.upload-progress::-moz-progress-bar {
+    background: linear-gradient(90deg, var(--primary-color) 0%, var(--upload-progress-fill-end) 100%);
+}
+
+#upload-status {
+    font-size: 0.8rem;
+    color: var(--secondary-text);
+    display: flex;
+    align-items: center;
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1), transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: opacity, transform;
+}
+
+.qe-upload-status-prefix {
+    flex: 0 0 auto;
+    margin-right: 0.25rem;
+}
+
+.qe-upload-status-dynamic {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: opacity 180ms cubic-bezier(0.4, 0, 0.2, 1), transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: opacity, transform;
+}
+
+#upload-status.qe-text-swap-out {
+    opacity: 0;
+    transform: translateY(-2px);
+}
+
+#upload-status.qe-text-swap-in {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.qe-upload-status-dynamic.qe-text-swap-out {
+    opacity: 0;
+    transform: translateY(-2px);
+}
+
+.qe-upload-status-dynamic.qe-text-swap-in {
+    opacity: 1;
+    transform: translateY(0);
+}

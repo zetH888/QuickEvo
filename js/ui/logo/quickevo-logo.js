@@ -666,27 +666,28 @@ function getLogoPalette() {
         };
     }
     if (!isDark) {
+        /* Paleta barw logotypu dostosowana do nowego, kontrastowego motywu Sleek Slate/Blue */
         return {
             primary,
-            accentStart: '#8A6F4D',
-            accentMid: '#9B7D58',
-            accentEnd: '#B39168',
-            accentSoft: '#C9AD88',
-            wordmarkStrong: '#FBF8F3',
-            wordmarkSoft: 'rgba(240, 232, 222, 0.99)',
-            wordmarkStroke: 'rgba(171, 154, 133, 0.98)',
-            wordmarkStrokeWidth: 2.08,
-            wordmarkShadow: 'rgba(132, 112, 88, 0.72)',
-            wordmarkShadowOpacity: 0.5,
-            accentStroke: 'rgba(112, 86, 55, 0.32)',
-            accentStrokeWidth: 1.18,
-            shadowColor: 'rgba(134, 114, 88, 0.42)',
-            panelStroke: 'rgba(193, 178, 160, 0.76)',
-            panelLineStrong: 'rgba(160, 136, 105, 0.62)',
-            panelLineSoft: 'rgba(191, 174, 151, 0.54)',
-            nodeHalo: 'rgba(139, 115, 85, 0.12)',
-            lineSoft: 'rgba(214, 202, 188, 0.92)',
-            lineGhost: 'rgba(206, 192, 176, 0.66)'
+            accentStart: '#0055C4', /* Żywy niebieski jako początek gradientu akcentowego */
+            accentMid: '#1EA3FF', /* Jasnoniebieski pośrodku gradientu */
+            accentEnd: '#0066FF', /* Czysty niebieski na końcu gradientu */
+            accentSoft: '#7CCEFF', /* Miękki błękit do linii obwodowych */
+            wordmarkStrong: '#1A253C', /* Głęboki granat dla napisu "Quick" (zwiększa kontrast na jasnym tle) */
+            wordmarkSoft: 'rgba(55, 71, 90, 0.99)', /* Nieco jaśniejszy granat dla płynnego gradientu liter */
+            wordmarkStroke: 'rgba(216, 226, 239, 0.98)', /* Czysta, bardzo jasna ramka tekstu loga */
+            wordmarkStrokeWidth: 1.5, /* Szerokość obrysu liter */
+            wordmarkShadow: 'rgba(26, 37, 60, 0.15)', /* Cień napisu */
+            wordmarkShadowOpacity: 0.25, /* Przezroczystość cienia tekstu */
+            accentStroke: 'rgba(0, 85, 196, 0.12)', /* Obrys akcentu "Ev" */
+            accentStrokeWidth: 0.8, /* Szerokość obrysu akcentu */
+            shadowColor: 'rgba(26, 37, 60, 0.10)', /* Główny kolor cienia loga */
+            panelStroke: 'rgba(216, 226, 239, 0.88)', /* Ramki kart na ekranie powitalnym */
+            panelLineStrong: 'rgba(0, 85, 196, 0.44)', /* Wyraziste linie danych na kartach powitalnych */
+            panelLineSoft: 'rgba(90, 101, 122, 0.38)', /* Pomocnicze linie danych na kartach */
+            nodeHalo: 'rgba(0, 85, 196, 0.08)', /* Aura wokół węzłów obwodu */
+            lineSoft: 'rgba(184, 202, 218, 0.92)', /* Główne ścieżki obwodu kompasu */
+            lineGhost: 'rgba(203, 213, 225, 0.66)' /* Dodatkowe ścieżki dekoracyjne */
         };
     }
     return {

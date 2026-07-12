@@ -1,0 +1,329 @@
+/**
+ * Zmienne motywów graficznych (Dark i Light Theme) dla aplikacji QuickEvo.
+ * Zawiera kolory podstawowe, kolory stanów, parametry animacji oraz zmienne komponentów.
+ */
+
+:root {
+    /* Dark Theme (Default) */
+    --primary-color: #2f8cff; /* Deep blue */
+    --bg-color: #12141a;
+    --text-color: #e0e0e0;
+    --card-bg: rgba(30, 32, 40, 0.9);
+    --border-color: #30343f;
+    --highlight-color: rgba(47, 140, 255, 0.15); /* Subtelny niebieski z przezroczystością 15% */
+    --accent-color: #30343f;
+    --secondary-text: #a19f9d;
+    --text-muted: var(--secondary-text);
+    --qe-ghost-suffix-color: rgba(224, 224, 224, 0.38);
+    --shadow: 0 4px 12px rgba(0,0,0,0.4);
+    --bg-gradient: radial-gradient(1200px 600px at 15% 10%, rgba(77, 166, 255, 0.08), transparent 55%),
+                   radial-gradient(900px 500px at 85% 0%, rgba(255, 193, 7, 0.05), transparent 55%),
+                   linear-gradient(180deg, #0f1116 0%, #12141a 100%);
+    --card-gradient: linear-gradient(180deg, rgba(40, 44, 55, 0.95) 0%, rgba(30, 32, 40, 0.9) 100%);
+    --grid-row: rgba(255, 255, 255, 0.03);
+    --grid-col: rgba(255, 255, 255, 0.02);
+    --grid-row-col: rgba(255, 255, 255, 0.04);
+    --grid-border: rgba(255, 255, 255, 0.08);
+    --overlay-bg: rgba(0, 0, 0, 0.65);
+    
+    /* State colors */
+    --state-hover: rgba(77, 166, 255, 0.1);
+    --state-active: rgba(77, 166, 255, 0.2);
+    --state-error: #ff6b6b;
+    --state-success: #51cf66;
+    --state-warning: #fcc419;
+    --qe-diff-surface: color-mix(in srgb, var(--card-bg) 90%, transparent);
+    --qe-diff-surface-strong: color-mix(in srgb, var(--card-bg) 96%, var(--bg-color));
+    --qe-diff-surface-muted: color-mix(in srgb, var(--card-bg) 82%, transparent);
+    --qe-diff-border: color-mix(in srgb, var(--border-color) 76%, transparent);
+    --qe-diff-header-bg: color-mix(in srgb, var(--card-bg) 92%, var(--bg-color));
+    --qe-diff-switch-bg: color-mix(in srgb, var(--accent-color) 44%, transparent);
+    --qe-diff-switch-active-bg: color-mix(in srgb, var(--primary-color) 18%, transparent);
+    --qe-diff-switch-active-border: color-mix(in srgb, var(--primary-color) 52%, var(--border-color));
+    --qe-diff-added-bg: color-mix(in srgb, var(--state-success) 14%, transparent);
+    --qe-diff-added-border: color-mix(in srgb, var(--state-success) 34%, var(--border-color));
+    --qe-diff-added-text: color-mix(in srgb, var(--text-color) 80%, var(--state-success));
+    --qe-diff-removed-bg: color-mix(in srgb, var(--state-error) 14%, transparent);
+    --qe-diff-removed-border: color-mix(in srgb, var(--state-error) 34%, var(--border-color));
+    --qe-diff-removed-text: color-mix(in srgb, var(--text-color) 82%, var(--state-error));
+    --qe-diff-modified-bg: color-mix(in srgb, var(--primary-color) 14%, transparent);
+    --qe-diff-modified-border: color-mix(in srgb, var(--primary-color) 34%, var(--border-color));
+    --qe-diff-modified-text: color-mix(in srgb, var(--text-color) 80%, var(--primary-color));
+
+    /* Loader progress */
+    --progress-track: rgba(77, 166, 255, 0.15);
+    --progress-track-border: rgba(77, 166, 255, 0.3);
+    --progress-fill-start: #2f8cff;
+    --progress-fill-end: #7cc6ff;
+    --progress-glint: rgba(124, 198, 255, 0.4);
+
+    /* Parametry orbity kulek w logo */
+    --qe-orbit-radius-header: 53;
+    --qe-orbit-radius-welcome: 53;
+    --qe-orbit-period-header: 18;
+    --qe-orbit-period-welcome: 3.2;
+    --qe-orbit-direction-header: 1;
+    --qe-orbit-direction-welcome: -1;
+
+    --qe-welcome-overlay-bg: radial-gradient(900px 600px at 18% 12%, rgba(47, 140, 255, 0.12), transparent 58%),
+        radial-gradient(820px 560px at 86% 8%, rgba(124, 198, 255, 0.08), transparent 55%),
+        rgba(0, 0, 0, 0.52);
+
+    --qe-glass-card-bg: linear-gradient(185deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.05) 100%);
+    --qe-glass-border: rgba(255, 255, 255, 0.14);
+    --qe-glass-border-strong: rgba(255, 255, 255, 0.40);
+    --qe-glass-inner-stroke: rgba(0, 0, 0, 0.12);
+    --qe-glass-highlight: rgba(255, 255, 255, 0.20);
+    --qe-glass-edge-fog: rgba(0, 0, 0, 0.26);
+    --qe-glass-shadow: 0 26px 64px rgba(0, 0, 0, 0.28);
+    --qe-glass-blur: 22px;
+
+    /* Soft Containers: wyniki wyszukiwania (sekcje/grupy/wiersze) */
+    --qe-soft-separator: rgba(255, 255, 255, 0.08);
+    --qe-soft-group-bg: rgba(255, 255, 255, 0.035);
+    --qe-soft-group-border: rgba(255, 255, 255, 0.06);
+    /* Cień kafelków wyników: osłabiony, aby nie przyciemniał tła między kafelkami */
+    --qe-soft-group-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    --qe-soft-row-hover: rgba(255, 255, 255, 0.04);
+    --qe-soft-row-active: rgba(255, 255, 255, 0.06);
+
+    /* Badge LAB: obrys bez tła (czytelny na ciemnych kontenerach) */
+    --qe-lab-badge-bg: transparent;
+    --qe-lab-badge-text: rgba(255, 255, 255, 0.92);
+    --qe-lab-badge-border: rgba(255, 255, 255, 0.32);
+    --qe-driver-separator-core: rgba(66, 156, 255, 0.94);
+    --qe-driver-separator-glow: rgba(66, 156, 255, 0.24);
+    --qe-driver-separator-edge: rgba(153, 211, 255, 0.16);
+
+    /* Theme adaptive variables */
+    --primary-accent-color: #2f8cff;
+    --primary-accent-glow: rgba(47, 140, 255, 0.15);
+    --primary-accent-active-shadow: rgba(0, 102, 204, 0.35);
+    --drop-zone-hover-bg: rgba(0, 102, 204, 0.05);
+
+    --ghost-hint-border: rgba(77, 166, 255, 0.24);
+    --ghost-hint-bg: rgba(77, 166, 255, 0.07);
+    --ghost-hint-color: rgba(95, 179, 255, 0.88);
+    --ghost-hint-hover-bg: rgba(77, 166, 255, 0.14);
+    --ghost-hint-hover-border: rgba(77, 166, 255, 0.40);
+    --ghost-hint-hover-color: #7ec5ff;
+
+    --upload-progress-fill-end: rgba(0, 102, 204, 0.55);
+
+    --sync-btn-bg: linear-gradient(135deg, rgba(47, 140, 255, 0.98) 0%, rgba(110, 80, 255, 0.92) 55%, rgba(47, 140, 255, 0.9) 100%);
+    --sync-btn-border: rgba(110, 80, 255, 0.45);
+    --sync-btn-shadow: 0 10px 26px rgba(47, 140, 255, 0.18), 0 6px 18px rgba(110, 80, 255, 0.12);
+    --sync-btn-hover-shadow: 0 14px 30px rgba(47, 140, 255, 0.22), 0 10px 22px rgba(110, 80, 255, 0.16);
+
+    --continue-btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
+    --continue-btn-border: rgba(255, 255, 255, 0.12);
+    --continue-btn-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
+    --continue-btn-hover-bg: linear-gradient(180deg, rgba(47, 140, 255, 0.14) 0%, rgba(110, 80, 255, 0.08) 100%);
+    --continue-btn-hover-border: rgba(47, 140, 255, 0.55);
+    --continue-btn-hover-shadow: 0 14px 28px rgba(0, 0, 0, 0.22), 0 10px 22px rgba(47, 140, 255, 0.10);
+
+    --modal-gdrive-bg: linear-gradient(135deg, rgba(47, 140, 255, 0.18), rgba(47, 140, 255, 0.06));
+    --modal-gdrive-shadow: 0 10px 22px rgba(47, 140, 255, 0.10);
+    --modal-gdrive-text: rgba(255, 255, 255, 0.94);
+    --modal-gdrive-shadow-active: 0 10px 22px rgba(47, 140, 255, 0.08);
+    --modal-gdrive-shadow-active-50: 0 12px 28px rgba(47, 140, 255, 0.18);
+
+    --expandall-hover-shadow: 0 12px 26px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(47, 140, 255, 0.16) inset, 0 10px 22px rgba(47, 140, 255, 0.10);
+
+    --orbit-dot-shadow: rgba(0, 102, 204, 0.25);
+
+    --schedule-selection-bg: rgba(45, 145, 255, 0.06);
+    --schedule-selection-border: rgba(45, 145, 255, 0.55);
+    --schedule-selection-header-bg: rgba(45, 145, 255, 0.12);
+    --schedule-selection-intersection: radial-gradient(circle at center, rgba(45, 145, 255, 0.16) 0%, rgba(45, 145, 255, 0.125) 52%, rgba(45, 145, 255, 0.1) 100%);
+    --schedule-weekend-bg: rgba(255, 150, 0, 0.08); /* Jednolite tło kolumn weekendowych w motywie ciemnym */
+    --schedule-weekend-header-bg: rgba(255, 150, 0, 0.16); /* Jednolite tło nagłówków weekendowych w motywie ciemnym */
+    --schedule-weekend-selected-bg: rgba(255, 150, 0, 0.16); /* Podświetlenie zaznaczonej kolumny weekendowej w motywie ciemnym */
+    --schedule-weekend-selected-header-bg: rgba(255, 150, 0, 0.26); /* Nagłówek zaznaczonego weekendu w motywie ciemnym */
+
+    --scrollbar-thumb-bg: rgba(255, 255, 255, 0.18);
+    --scrollbar-track-bg: rgba(255, 255, 255, 0.04);
+    --scrollbar-thumb-border: 2px solid rgba(15, 18, 26, 0.9);
+    --scrollbar-thumb-hover: rgba(45, 145, 255, 0.45);
+
+    --active-row-outline: rgba(255, 255, 255, 0.10);
+
+    --route-badge-default-bg: rgba(255, 255, 255, 0.09);
+    --route-badge-default-border: rgba(255, 255, 255, 0.18);
+    --route-badge-default-text: rgba(255, 255, 255, 0.92);
+    --route-badge-text-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+    --driver-tile-trigger-overlay: radial-gradient(120px 42px at 14% 8%, rgba(255, 255, 255, 0.08), transparent 72%), linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
+    --driver-tile-trigger-shadow: 0 18px 34px rgba(3, 10, 24, 0.32), 0 8px 18px rgba(0, 0, 0, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    --driver-section-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+    --driver-cell-divider: rgba(255, 255, 255, 0.08);
+
+    --phonepoint-bg: rgba(0, 0, 0, 0.10);
+}
+
+body.light-theme {
+    /* Motyw Sleek Slate/Blue - Chłodny, nowoczesny, zoptymalizowany pod kątem kontrastu w pełnym słońcu */
+    --bg-color: #F4F6F9; /* Jasnoszare tło z lekkim odcieniem niebieskawym */
+    --text-color: #1A253C; /* Głęboki granat zapewniający wysoki kontrast i czytelność tekstu głównego */
+    --primary-color: #0055C4; /* Wyrazisty niebieski jako kolor wiodący dla akcji i wyróżnień */
+    --card-bg: #FFFFFF; /* Czyste białe tło dla kart - eliminacja przezroczystego szkła dla czytelności */
+    --border-color: #D8E2EF; /* Wyraźne, zdefiniowane obramowanie kart i kontenerów */
+    --highlight-color: rgba(0, 85, 196, 0.08); /* Subtelne tło zaznaczenia w kolorze jasnoniebieskim */
+    --accent-color: #0055C4; /* Kolor akcentów */
+    --secondary-text: #5A657A; /* Ciemniejszy szaroniebieski tekst pomocniczy o wysokim kontraście */
+    --qe-ghost-suffix-color: rgba(26, 37, 60, 0.45); /* Podpowiedź w wyszukiwarce */
+    --shadow: 0 4px 14px rgba(26, 37, 60, 0.08); /* Zdefiniowany, ciemniejszy cień dla lepszej głębi */
+    --bg-gradient: linear-gradient(180deg, #F4F6F9 0%, #E9ECF2 100%); /* Gradient tła aplikacji */
+    --card-gradient: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%); /* Gradient tła karty */
+    --grid-row: rgba(0, 85, 196, 0.03); /* Tła wierszy siatki */
+    --grid-col: rgba(0, 85, 196, 0.015); /* Tła kolumn siatki */
+    --grid-row-col: rgba(0, 85, 196, 0.04); /* Skrzyżowanie wierszy i kolumn */
+    --grid-border: #D8E2EF; /* Krawędzie siatki */
+    --overlay-bg: rgba(26, 37, 60, 0.45); /* Przyciemnienie tła pod modalami */
+
+    /* Kolory stanów */
+    --state-hover: rgba(0, 85, 196, 0.06); /* Stan najechania */
+    --state-active: rgba(0, 85, 196, 0.12); /* Stan aktywny */
+    --state-error: #D32F2F; /* Żywa, wyraźna czerwień dla błędów */
+    --state-success: #2E7D32; /* Wyraźna zieleń dla sukcesów */
+    --state-warning: #EF6C00; /* Głęboki pomarańcz dla ostrzeżeń */
+    
+    /* Zmienne do wizualizacji różnic (diff) w motywie jasnym */
+    --qe-diff-surface: color-mix(in srgb, var(--card-bg) 96%, white);
+    --qe-diff-surface-strong: color-mix(in srgb, var(--card-bg) 98%, white);
+    --qe-diff-surface-muted: color-mix(in srgb, var(--card-bg) 88%, var(--bg-color));
+    --qe-diff-border: color-mix(in srgb, var(--border-color) 88%, white);
+    --qe-diff-header-bg: color-mix(in srgb, var(--card-bg) 98%, var(--bg-color));
+    --qe-diff-switch-bg: color-mix(in srgb, var(--accent-color) 12%, white);
+    --qe-diff-switch-active-bg: color-mix(in srgb, var(--primary-color) 16%, white);
+    --qe-diff-switch-active-border: color-mix(in srgb, var(--primary-color) 44%, var(--border-color));
+    --qe-diff-added-bg: color-mix(in srgb, var(--state-success) 10%, white);
+    --qe-diff-added-border: color-mix(in srgb, var(--state-success) 30%, var(--border-color));
+    --qe-diff-added-text: var(--state-success);
+    --qe-diff-removed-bg: color-mix(in srgb, var(--state-error) 10%, white);
+    --qe-diff-removed-border: color-mix(in srgb, var(--state-error) 30%, var(--border-color));
+    --qe-diff-removed-text: var(--state-error);
+    --qe-diff-modified-bg: color-mix(in srgb, var(--primary-color) 10%, white);
+    --qe-diff-modified-border: color-mix(in srgb, var(--primary-color) 30%, var(--border-color));
+    --qe-diff-modified-text: var(--primary-color);
+
+    /* Paski postępu ładowania (Loader progress) */
+    --progress-track: #E9ECF2;
+    --progress-track-border: #D8E2EF;
+    --progress-fill-start: #0055C4;
+    --progress-fill-end: #3b82f6;
+    --progress-glint: rgba(255, 255, 255, 0.45);
+
+    /* Tło ekranu powitalnego */
+    --qe-welcome-overlay-bg: radial-gradient(900px 600px at 18% 10%, rgba(0, 85, 196, 0.08), transparent 60%),
+        radial-gradient(780px 520px at 88% 12%, rgba(0, 85, 196, 0.05), transparent 58%),
+        rgba(26, 37, 60, 0.3);
+
+    /* Styl kart szklanych w motywie jasnym - przekształcony w solidne, wysoce kontrastowe karty */
+    --qe-glass-card-bg: #FFFFFF;
+    --qe-glass-border: #D8E2EF;
+    --qe-glass-border-strong: #B8CADA;
+    --qe-glass-inner-stroke: rgba(0, 85, 196, 0.06);
+    --qe-glass-highlight: #FFFFFF;
+    --qe-glass-edge-fog: rgba(26, 37, 60, 0.03);
+    --qe-glass-shadow: 0 10px 30px rgba(26, 37, 60, 0.08);
+    --qe-glass-blur: 0px; /* Wyłączenie rozmycia tła dla maksymalnej czytelności kart */
+
+    /* Kontenery wyników wyszukiwania (sekcje/grupy/wiersze) */
+    --qe-soft-separator: #E2E8F0;
+    --qe-soft-group-bg: #F8FAFC;
+    --qe-soft-group-border: #E2E8F0;
+    --qe-soft-group-shadow: 0 4px 12px rgba(26, 37, 60, 0.04);
+    --qe-soft-row-hover: rgba(0, 85, 196, 0.04);
+    --qe-soft-row-active: rgba(0, 85, 196, 0.08);
+
+    /* Odznaka wersji LAB */
+    --qe-lab-badge-bg: #F1F5F9;
+    --qe-lab-badge-text: #1A253C;
+    --qe-lab-badge-border: #CBD5E1;
+    
+    /* Separatory w widoku pracowników */
+    --qe-driver-separator-core: #0055C4;
+    --qe-driver-separator-glow: rgba(0, 85, 196, 0.15);
+    --qe-driver-separator-edge: rgba(0, 85, 196, 0.08);
+
+    /* Zmienne adaptacyjne koloru wiodącego */
+    --primary-accent-color: #0055C4;
+    --primary-accent-glow: rgba(0, 85, 196, 0.15);
+    --primary-accent-active-shadow: rgba(0, 85, 196, 0.25);
+    --drop-zone-hover-bg: rgba(0, 85, 196, 0.05);
+
+    /* Podpowiedzi w polu wyszukiwania (ghost hint) */
+    --ghost-hint-border: #B8CADA;
+    --ghost-hint-bg: #F1F5F9;
+    --ghost-hint-color: #5A657A;
+    --ghost-hint-hover-bg: #E2E8F0;
+    --ghost-hint-hover-border: #0055C4;
+    --ghost-hint-hover-color: #1A253C;
+
+    /* Pasek postępu wysyłania (upload progress) */
+    --upload-progress-fill-end: #0055C4;
+
+    /* Przyciski synchronizacji z Google Drive */
+    --sync-btn-bg: #0055C4;
+    --sync-btn-border: #0044A0;
+    --sync-btn-shadow: 0 4px 12px rgba(0, 85, 196, 0.2);
+    --sync-btn-hover-shadow: 0 6px 18px rgba(0, 85, 196, 0.3);
+
+    /* Przycisk kontynuacji (np. na ekranie startowym) */
+    --continue-btn-bg: #FFFFFF;
+    --continue-btn-border: #D8E2EF;
+    --continue-btn-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+    --continue-btn-hover-bg: rgba(0, 85, 196, 0.06);
+    --continue-btn-hover-border: #0055C4;
+    --continue-btn-hover-shadow: 0 6px 14px rgba(0, 85, 196, 0.15);
+
+    /* Tła i cienie w oknach dialogowych dysku Google */
+    --modal-gdrive-bg: linear-gradient(135deg, rgba(0, 85, 196, 0.08), rgba(0, 85, 196, 0.03));
+    --modal-gdrive-shadow: 0 4px 12px rgba(26, 37, 60, 0.05);
+    --modal-gdrive-text: #1A253C;
+    --modal-gdrive-shadow-active: 0 4px 12px rgba(0, 85, 196, 0.08);
+    --modal-gdrive-shadow-active-50: 0 6px 16px rgba(0, 85, 196, 0.15);
+
+    /* Przycisk rozwiń wszystko */
+    --expandall-hover-shadow: 0 6px 16px rgba(26, 37, 60, 0.08), 0 0 0 1px rgba(0, 85, 196, 0.15) inset;
+
+    /* Cienie kropek na orbicie */
+    --orbit-dot-shadow: rgba(0, 85, 196, 0.15);
+
+    /* Wybór i zaznaczenie w grafiku */
+    --schedule-selection-bg: rgba(0, 85, 196, 0.08);
+    --schedule-selection-border: #0055C4;
+    --schedule-selection-header-bg: rgba(0, 85, 196, 0.12);
+    --schedule-selection-intersection: radial-gradient(circle at center, rgba(0, 85, 196, 0.16) 0%, rgba(0, 85, 196, 0.10) 100%);
+    --schedule-panel-strong: #E2E8F0; /* Wyraźne, jasnoszare tło dla pierwszego wiersza (nagłówka) w motywie jasnym */
+    --schedule-border-strong: #94A3B8; /* Grubsze obramowanie pod nagłówkiem w motywie jasnym */
+    --schedule-weekend-bg: #FFF5E6; /* Ciepłe, jednolite tło dla komórek weekendowych w motywie jasnym */
+    --schedule-weekend-header-bg: #FFE5CC; /* Nieco ciemniejsze tło dla nagłówków weekendów w motywie jasnym */
+    --schedule-weekend-selected-bg: #FFE3C2; /* Nasycony bursztyn dla zaznaczonej kolumny weekendowej w motywie jasnym */
+    --schedule-weekend-selected-header-bg: #FFD4A3; /* Ciemniejszy nasycony bursztyn dla nagłówka zaznaczonej kolumny weekendowej */
+
+    /* Paski przewijania (Scrollbar) */
+    --scrollbar-thumb-bg: #CBD5E1;
+    --scrollbar-track-bg: #F1F5F9;
+    --scrollbar-thumb-border: 2px solid #F4F6F9;
+    --scrollbar-thumb-hover: #94A3B8;
+
+    /* Aktywny wiersz w tabelach */
+    --active-row-outline: rgba(0, 85, 196, 0.15);
+
+    /* Domyślne etykiety tras (Route Badges) */
+    --route-badge-default-bg: #E2E8F0;
+    --route-badge-default-border: #CBD5E1;
+    --route-badge-default-text: #1A253C;
+    --route-badge-text-shadow: none;
+
+    /* Wyzwalacze kafelków kierowców */
+    --driver-tile-trigger-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent);
+    --driver-tile-trigger-shadow: 0 4px 12px rgba(26, 37, 60, 0.05);
+    --driver-section-shadow-inset: none;
+    --driver-cell-divider: #E2E8F0;
+
+    /* Punkt kontaktu telefonu w szczegółach kierowców */
+    --phonepoint-bg: rgba(26, 37, 60, 0.05);
+}
