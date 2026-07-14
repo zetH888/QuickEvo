@@ -2072,11 +2072,12 @@ function getRouteCategoriesForFile(fileName) {
 
 /**
  * Pobiera rekordy plików tras z bazy, razem z metadanymi kategorii pochodzącymi z Google Drive.
+ * Funkcja nie modyfikuje bezpośrednio `statusIndicator`, aby uniknąć niepotrzebnego pozostawiania
+ * stanu "Sprawdzanie plików..." po zakończeniu renderowania widoków.
  *
  * @returns {Promise<Array<{ name: string, size: number, updatedAt: number, driveModifiedAt: (number|null), routeCategory?: string, topLevelFolderName?: string }>>}
  */
 async function getRouteFileRecords() {
-    statusIndicator.textContent = 'Sprawdzanie plików...';
     const files = await docsListFiles();
     const routeRecords = Array.isArray(files)
         ? files.filter(f => {
