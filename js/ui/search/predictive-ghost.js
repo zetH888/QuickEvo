@@ -37,7 +37,12 @@ export function createPredictiveGhostController(cfg) {
         try { syncScroll(); } catch { }
     }
 
+    /**
+     * Ukrywa nakładkę podpowiedzi i czyści zawartość węzłów DOM.
+     * Ustawia flagę ukrycia w stanie wewnętrznym, chroniąc przed niepożądanym ponownym renderem.
+     */
     function hide() {
+        state.hidden = true;
         if (!ghostOverlay || !ghostPrefix || !ghostSuffix) return;
         ghostPrefix.textContent = '';
         ghostSuffix.textContent = '';
@@ -46,6 +51,15 @@ export function createPredictiveGhostController(cfg) {
         }
         ghostOverlay.classList.remove('qe-ghost-loading');
         ghostOverlay.classList.add('is-hidden');
+    }
+
+    /**
+     * Całkowicie resetuje stan wewnętrzny kontrolera podpowiedzi ghost-autocomplete
+     * oraz czyszcząc elementy nakładki w drzewie DOM.
+     */
+    function reset() {
+        state = { raw: '', norm: '', options: [], index: 0, hidden: true };
+        hide();
     }
 
     function syncScroll() {
@@ -221,7 +235,7 @@ export function createPredictiveGhostController(cfg) {
     }
 
     function onViewportResize() {
-        if (!ghostOverlay || ghostOverlay.classList.contains('is-hidden')) return;
+        if (!ghostOverlay || ghostOverlay.classList.contains('is-hidden') || state.hidden) return;
         render();
     }
 
@@ -248,5 +262,5 @@ export function createPredictiveGhostController(cfg) {
     }
     try { window.addEventListener('resize', onViewportResize, { passive: true }); } catch { }
 
-    return { update, onKeydown, onScroll, onBlur, onCompositionStart, onCompositionEnd, hide };
+    return { update, onKeydown, onScroll, onBlur, onCompositionStart, onCompositionEnd, hide, reset };
 }

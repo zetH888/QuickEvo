@@ -419,6 +419,9 @@ let debouncedSearchRef = null;
 /** @type {Function|null} Referencja do debounce dla logowania wyszukiwań. */
 let debouncedLogSearchRef = null; 
 
+/** @type {Function|null} Referencja do debounce dla predykcyjnych podpowiedzi ghost. */
+let debouncedPredictiveRef = null; 
+
 /**
  * Kontroler animacji paska postępu na ekranie ładowania.
  */
@@ -807,6 +810,7 @@ function setupSearchListeners() {
     const debouncedPredictive = debounce((query, source) => ensurePredictiveGhostController().update(query, { source }), 150);
     debouncedSearchRef = debouncedSearch;
     debouncedLogSearchRef = debouncedLogSearch;
+    debouncedPredictiveRef = debouncedPredictive;
 
     searchInput.addEventListener('input', (e) => {
         if (!isSearchEnabled) return;
@@ -881,7 +885,17 @@ function ensureNavigationApplication() {
         showScheduleView: ({ ym, selectedIsoDate, skipPush, source } = {}) => openScheduleView({ ym: String(ym || ''), selectedIsoDate: selectedIsoDate ?? null, skipPush: Boolean(skipPush), source: String(source || '') }),
         showRoutesView: ({ skipPush, source } = {}) => openRoutesView({ skipPush: Boolean(skipPush), source: String(source || '') }),
         showDriversView: ({ skipPush, source } = {}) => openDriversView({ skipPush: Boolean(skipPush), source: String(source || '') }),
-        setSearchInputValue: (value) => { if (searchInput) searchInput.value = String(value ?? ''); },
+        setSearchInputValue: (value) => {
+            const val = String(value ?? '');
+            if (searchInput) searchInput.value = val;
+            if (debouncedPredictiveRef?.cancel) debouncedPredictiveRef.cancel();
+            const ghost = ensurePredictiveGhostController();
+            if (val.trim()) {
+                ghost.update(val, { source: 'programmatic' });
+            } else {
+                ghost.reset();
+            }
+        },
         performSearch: (q) => performSearch(String(q || '')),
         getIsSearchEnabled: () => Boolean(isSearchEnabled),
         clearSearchUi: () => {
@@ -2935,16 +2949,22 @@ function prepareManualContinue() {
 
 /**
  * Włącza lub wyłącza wyszukiwarkę.
+ * Gdy wyszukiwarka zostaje wyłączona, czyści stan predykcyjnych podpowiedzi ghost.
  */
 function setSearchEnabled(enabled) {
     isSearchEnabled = enabled; searchInput.disabled = !enabled;
     searchInput.setAttribute('aria-disabled', (!enabled).toString());
+    if (!enabled) {
+        if (debouncedPredictiveRef?.cancel) debouncedPredictiveRef.cancel();
+        try { ensurePredictiveGhostController().reset(); } catch { }
+    }
 }
 
 /**
- * Czyści wyniki wyszukiwania.
+ * Czyści wyniki wyszukiwania oraz resetuje nakładkę podpowiedzi ghost.
  */
 function clearResults() {
+    if (debouncedPredictiveRef?.cancel) debouncedPredictiveRef.cancel();
     dataStore.clearLastQuery();
     dataStore.clearMatchedResults();
     dataStore.clearCurrentResults();
@@ -2954,6 +2974,7 @@ function clearResults() {
     clearActiveResultRow();
     cancelResultsScrollRestore();
     pendingResultsScrollRestore = null;
+    try { ensurePredictiveGhostController().reset(); } catch { }
 }
 
 /**
@@ -3179,6 +3200,16 @@ function trackVisibleView(nextView) {
 
     if (prev === 'schedule' && next !== 'schedule' && scheduleController && typeof scheduleController.getViewState === 'function') {
         try { lastScheduleViewState = scheduleController.getViewState(); } catch { }
+    }
+
+    if (next !== 'home' && next !== 'search') {
+        if (debouncedPredictiveRef?.cancel) debouncedPredictiveRef.cancel();
+        try { ensurePredictiveGhostController().reset(); } catch { }
+    } else {
+        const val = String(searchInput?.value || '').trim();
+        if (!val) {
+            try { ensurePredictiveGhostController().reset(); } catch { }
+        }
     }
 
     currentViewEnteredFrom = prev;
@@ -4424,8 +4455,12 @@ async function handleBackFromSchedule() {
  */
 function resetToInitialState({ source } = {}) {
     const now = Date.now(); if (now - lastHomeResetTs < 450) return; lastHomeResetTs = now;
-    if (debouncedSearchRef?.cancel) debouncedSearchRef.cancel(); if (debouncedLogSearchRef?.cancel) debouncedLogSearchRef.cancel();
-    if (searchInput) searchInput.value = ''; clearResults();
+    if (debouncedSearchRef?.cancel) debouncedSearchRef.cancel();
+    if (debouncedLogSearchRef?.cancel) debouncedLogSearchRef.cancel();
+    if (debouncedPredictiveRef?.cancel) debouncedPredictiveRef.cancel();
+    if (searchInput) searchInput.value = '';
+    clearResults();
+    try { ensurePredictiveGhostController().reset(); } catch { }
     const thead = previewTableHeader, tbody = previewTableBody;
     clearElement(thead); clearElement(tbody);
     if (previewMeta) { previewMeta.textContent = ''; previewMeta.classList.add('hidden'); }
