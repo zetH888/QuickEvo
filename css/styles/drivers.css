@@ -60,7 +60,7 @@
     text-align: center;
     font-weight: 800;
     letter-spacing: 0.2px;
-    transition: transform 0.1s, border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out, box-shadow 0.4s ease-in-out;
+    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s ease-in-out, background 0.25s ease-in-out, color 0.25s ease-in-out, box-shadow 0.25s ease-in-out;
 }
 
 .qe-tile--STANDARD { --qe-tile-color: var(--secondary-text); }
@@ -83,8 +83,9 @@
 }
 
 .qe-tile:hover {
-    transform: translateY(-1px);
+    transform: translateY(-2px);
     border-color: var(--qe-tile-color);
+    box-shadow: 0 10px 24px -4px color-mix(in srgb, var(--qe-tile-color) 35%, transparent), var(--shadow);
 }
 
 .qe-tile:active {
@@ -326,14 +327,19 @@
     right: 0;
     /* Szerokość kieszeni na badge pokrywająca dokładnie ich strefę (szerokość + offsety) */
     width: calc(var(--qe-driver-badge-width) + (var(--qe-driver-badge-offset) * 2));
-    /* Subtelne, półprzezroczyste tło dopasowujące się do motywu jasnego/ciemnego */
-    background: color-mix(in srgb, var(--text-color) 4.5%, transparent);
-    /* Delikatna, minimalistyczna lewa krawędź pełniąca rolę separatora */
-    border-left: 1px solid color-mix(in srgb, var(--border-color) 35%, transparent);
-    opacity: 0.85;
+    /* Subtelne, półprzezroczyste tło dopasowujące się do motywu */
+    background: color-mix(in srgb, var(--primary-color) 6%, transparent);
+    /* Wyrazista, akcentowa lewa krawędź pełniąca rolę widocznego separatora */
+    border-left: 1px solid color-mix(in srgb, var(--primary-color) 35%, var(--border-color));
+    opacity: 1;
     pointer-events: none;
     z-index: 1;
-    transition: opacity 0.24s ease, background 0.24s ease;
+    transition: opacity 0.24s ease, background 0.24s ease, border-color 0.24s ease;
+}
+
+body.light-theme .qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
+    background: rgba(37, 99, 235, 0.04);
+    border-left: 1px solid #CBD5E1;
 }
 
 .qe-driver-tile__title {
@@ -885,15 +891,21 @@ button.qe-driver-tile__route-badge:focus-visible {
     .qe-driver-tile {
         --qe-driver-badge-width: 34px;
         --qe-driver-badge-offset: 8px;
-        --qe-driver-separator-gap: 8px;
-        --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 14px);
+        --qe-driver-separator-gap: 6px;
+        --qe-driver-content-right-gap: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap) + 12px);
         --qe-driver-separator-right: calc(var(--qe-driver-badge-width) + var(--qe-driver-badge-offset) + var(--qe-driver-separator-gap));
+        flex: 0 0 calc(50% - 6px);
+        width: calc(50% - 6px);
+        max-width: calc(50% - 6px);
+        min-width: 130px;
+        box-sizing: border-box;
     }
 
     .qe-driver-tile--with-route-badges .qe-driver-tile__trigger::after {
-        top: 8px;
-        bottom: 8px;
-        width: 2px;
+        top: 0;
+        bottom: 0;
+        right: 0;
+        width: calc(var(--qe-driver-badge-width) + (var(--qe-driver-badge-offset) * 2));
     }
 
     .qe-driver-tile__route-badge {

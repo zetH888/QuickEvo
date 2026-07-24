@@ -258,9 +258,15 @@
     border: 1px solid var(--qe-soft-group-border);
     box-shadow: var(--qe-soft-group-shadow);
     overflow: hidden;
-    transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
+    transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), background-color 220ms ease, border-color 220ms ease, box-shadow 220ms ease;
     cursor: pointer;
     position: relative;
+}
+
+.result-group:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary-accent-glow);
+    box-shadow: 0 12px 32px -4px var(--primary-accent-glow), var(--qe-soft-group-shadow);
 }
 
 .qe-result-enter {

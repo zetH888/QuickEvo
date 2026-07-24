@@ -62,12 +62,25 @@ input:checked + .slider:before {
 .search-input-wrap {
     position: relative;
     width: 100%;
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
     background: var(--card-gradient);
     box-shadow: var(--shadow);
-    transition: border-color 0.4s ease-in-out, background 0.4s ease-in-out, color 0.4s ease-in-out;
+    transition: border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     box-sizing: border-box;
+}
+
+#search-input-wrap:hover,
+.search-input-wrap:hover {
+    border-color: var(--primary-accent-glow);
+    box-shadow: 0 8px 24px -4px var(--primary-accent-glow), var(--shadow);
+}
+
+#search-input-wrap:focus-within,
+.search-input-wrap:focus-within {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px var(--primary-accent-glow), var(--shadow);
+    transform: translateY(-1px);
 }
 
 .search-input-wrap--with-sort #search-input,
@@ -102,11 +115,6 @@ input:checked + .slider:before {
 
 .search-sort-switch input:focus-visible + .slider {
     box-shadow: 0 0 0 3px var(--state-hover);
-}
-
-#search-input-wrap:focus-within,
-.search-input-wrap:focus-within {
-    border-color: var(--primary-color);
 }
 
 .qe-ghost {

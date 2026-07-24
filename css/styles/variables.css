@@ -4,34 +4,34 @@
  */
 
 :root {
-    /* Dark Theme (Default) */
-    --primary-color: #2f8cff; /* Deep blue */
-    --bg-color: #12141a;
-    --text-color: #e0e0e0;
-    --card-bg: rgba(30, 32, 40, 0.9);
-    --border-color: #30343f;
-    --highlight-color: rgba(47, 140, 255, 0.15); /* Subtelny niebieski z przezroczystością 15% */
-    --accent-color: #30343f;
-    --secondary-text: #a19f9d;
+    /* Motyw Obsidian Dark (Domyślny) - Aksamitny grafit z podświetleniami krawędziowymi i akcentem cyjanowym */
+    --primary-color: #38bdf8; /* Elektryczny niebieski/cyjan */
+    --bg-color: #0b0d12;
+    --text-color: #f1f5f9;
+    --card-bg: rgba(20, 23, 33, 0.85);
+    --border-color: rgba(255, 255, 255, 0.08);
+    --highlight-color: rgba(56, 189, 248, 0.15); /* Subtelne podświetlenie cyjanowe */
+    --accent-color: rgba(56, 189, 248, 0.2);
+    --secondary-text: #94a3b8;
     --text-muted: var(--secondary-text);
-    --qe-ghost-suffix-color: rgba(224, 224, 224, 0.38);
-    --shadow: 0 4px 12px rgba(0,0,0,0.4);
-    --bg-gradient: radial-gradient(1200px 600px at 15% 10%, rgba(77, 166, 255, 0.08), transparent 55%),
-                   radial-gradient(900px 500px at 85% 0%, rgba(255, 193, 7, 0.05), transparent 55%),
-                   linear-gradient(180deg, #0f1116 0%, #12141a 100%);
-    --card-gradient: linear-gradient(180deg, rgba(40, 44, 55, 0.95) 0%, rgba(30, 32, 40, 0.9) 100%);
-    --grid-row: rgba(255, 255, 255, 0.03);
-    --grid-col: rgba(255, 255, 255, 0.02);
-    --grid-row-col: rgba(255, 255, 255, 0.04);
-    --grid-border: rgba(255, 255, 255, 0.08);
-    --overlay-bg: rgba(0, 0, 0, 0.65);
+    --qe-ghost-suffix-color: rgba(241, 245, 249, 0.38);
+    --shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    --bg-gradient: radial-gradient(1200px 600px at 15% 10%, rgba(56, 189, 248, 0.07), transparent 60%),
+                   radial-gradient(900px 500px at 85% 0%, rgba(99, 102, 241, 0.06), transparent 55%),
+                   linear-gradient(180deg, #08090d 0%, #0d0f16 100%);
+    --card-gradient: linear-gradient(180deg, rgba(28, 32, 45, 0.90) 0%, rgba(20, 23, 33, 0.85) 100%);
+    --grid-row: rgba(255, 255, 255, 0.025);
+    --grid-col: rgba(255, 255, 255, 0.015);
+    --grid-row-col: rgba(255, 255, 255, 0.035);
+    --grid-border: rgba(255, 255, 255, 0.07);
+    --overlay-bg: rgba(5, 7, 11, 0.75);
     
-    /* State colors */
-    --state-hover: rgba(77, 166, 255, 0.1);
-    --state-active: rgba(77, 166, 255, 0.2);
-    --state-error: #ff6b6b;
-    --state-success: #51cf66;
-    --state-warning: #fcc419;
+    /* Kolory stanów w motywie ciemnym Obsidian */
+    --state-hover: rgba(56, 189, 248, 0.12);
+    --state-active: rgba(56, 189, 248, 0.22);
+    --state-error: #f87171;
+    --state-success: #34d399;
+    --state-warning: #fbbf24;
     --qe-diff-surface: color-mix(in srgb, var(--card-bg) 90%, transparent);
     --qe-diff-surface-strong: color-mix(in srgb, var(--card-bg) 96%, var(--bg-color));
     --qe-diff-surface-muted: color-mix(in srgb, var(--card-bg) 82%, transparent);
@@ -50,12 +50,12 @@
     --qe-diff-modified-border: color-mix(in srgb, var(--primary-color) 34%, var(--border-color));
     --qe-diff-modified-text: color-mix(in srgb, var(--text-color) 80%, var(--primary-color));
 
-    /* Loader progress */
-    --progress-track: rgba(77, 166, 255, 0.15);
-    --progress-track-border: rgba(77, 166, 255, 0.3);
-    --progress-fill-start: #2f8cff;
-    --progress-fill-end: #7cc6ff;
-    --progress-glint: rgba(124, 198, 255, 0.4);
+    /* Paski postępu ładowania */
+    --progress-track: rgba(56, 189, 248, 0.15);
+    --progress-track-border: rgba(56, 189, 248, 0.3);
+    --progress-fill-start: #38bdf8;
+    --progress-fill-end: #818cf8;
+    --progress-glint: rgba(129, 140, 248, 0.4);
 
     /* Parametry orbity kulek w logo */
     --qe-orbit-radius-header: 53;
@@ -65,92 +65,92 @@
     --qe-orbit-direction-header: 1;
     --qe-orbit-direction-welcome: -1;
 
-    --qe-welcome-overlay-bg: radial-gradient(900px 600px at 18% 12%, rgba(47, 140, 255, 0.12), transparent 58%),
-        radial-gradient(820px 560px at 86% 8%, rgba(124, 198, 255, 0.08), transparent 55%),
-        rgba(0, 0, 0, 0.52);
+    --qe-welcome-overlay-bg: radial-gradient(900px 600px at 18% 12%, rgba(56, 189, 248, 0.14), transparent 58%),
+        radial-gradient(820px 560px at 86% 8%, rgba(129, 140, 248, 0.09), transparent 55%),
+        rgba(5, 7, 11, 0.65);
 
-    --qe-glass-card-bg: linear-gradient(185deg, rgba(255, 255, 255, 0.10) 0%, rgba(255, 255, 255, 0.05) 100%);
-    --qe-glass-border: rgba(255, 255, 255, 0.14);
-    --qe-glass-border-strong: rgba(255, 255, 255, 0.40);
-    --qe-glass-inner-stroke: rgba(0, 0, 0, 0.12);
-    --qe-glass-highlight: rgba(255, 255, 255, 0.20);
-    --qe-glass-edge-fog: rgba(0, 0, 0, 0.26);
-    --qe-glass-shadow: 0 26px 64px rgba(0, 0, 0, 0.28);
-    --qe-glass-blur: 22px;
+    /* Styl kart szklanych w motywie Obsidian Dark (3-poziomowy glassmorphism z krawędziowym micro-glow) */
+    --qe-glass-card-bg: linear-gradient(185deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+    --qe-glass-border: rgba(255, 255, 255, 0.08);
+    --qe-glass-border-strong: rgba(255, 255, 255, 0.18);
+    --qe-glass-inner-stroke: rgba(255, 255, 255, 0.05);
+    --qe-glass-highlight: rgba(255, 255, 255, 0.12);
+    --qe-glass-edge-fog: rgba(0, 0, 0, 0.35);
+    --qe-glass-shadow: 0 20px 48px rgba(0, 0, 0, 0.5);
+    --qe-glass-blur: 16px;
 
-    /* Soft Containers: wyniki wyszukiwania (sekcje/grupy/wiersze) */
-    --qe-soft-separator: rgba(255, 255, 255, 0.08);
-    --qe-soft-group-bg: rgba(255, 255, 255, 0.035);
+    /* Kontenery wyników wyszukiwania */
+    --qe-soft-separator: rgba(255, 255, 255, 0.07);
+    --qe-soft-group-bg: rgba(255, 255, 255, 0.025);
     --qe-soft-group-border: rgba(255, 255, 255, 0.06);
-    /* Cień kafelków wyników: osłabiony, aby nie przyciemniał tła między kafelkami */
-    --qe-soft-group-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
-    --qe-soft-row-hover: rgba(255, 255, 255, 0.04);
-    --qe-soft-row-active: rgba(255, 255, 255, 0.06);
+    --qe-soft-group-shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+    --qe-soft-row-hover: rgba(56, 189, 248, 0.06);
+    --qe-soft-row-active: rgba(56, 189, 248, 0.12);
 
-    /* Badge LAB: obrys bez tła (czytelny na ciemnych kontenerach) */
+    /* Odznaka wersji LAB */
     --qe-lab-badge-bg: transparent;
-    --qe-lab-badge-text: rgba(255, 255, 255, 0.92);
-    --qe-lab-badge-border: rgba(255, 255, 255, 0.32);
-    --qe-driver-separator-core: rgba(66, 156, 255, 0.94);
-    --qe-driver-separator-glow: rgba(66, 156, 255, 0.24);
-    --qe-driver-separator-edge: rgba(153, 211, 255, 0.16);
+    --qe-lab-badge-text: rgba(241, 245, 249, 0.92);
+    --qe-lab-badge-border: rgba(255, 255, 255, 0.25);
+    --qe-driver-separator-core: rgba(56, 189, 248, 0.94);
+    --qe-driver-separator-glow: rgba(56, 189, 248, 0.24);
+    --qe-driver-separator-edge: rgba(129, 140, 248, 0.16);
 
-    /* Theme adaptive variables */
-    --primary-accent-color: #2f8cff;
-    --primary-accent-glow: rgba(47, 140, 255, 0.15);
-    --primary-accent-active-shadow: rgba(0, 102, 204, 0.35);
-    --drop-zone-hover-bg: rgba(0, 102, 204, 0.05);
+    /* Adaptacyjne akcenty kolorystyczne */
+    --primary-accent-color: #38bdf8;
+    --primary-accent-glow: rgba(56, 189, 248, 0.22);
+    --primary-accent-active-shadow: rgba(56, 189, 248, 0.35);
+    --drop-zone-hover-bg: rgba(56, 189, 248, 0.06);
 
-    --ghost-hint-border: rgba(77, 166, 255, 0.24);
-    --ghost-hint-bg: rgba(77, 166, 255, 0.07);
-    --ghost-hint-color: rgba(95, 179, 255, 0.88);
-    --ghost-hint-hover-bg: rgba(77, 166, 255, 0.14);
-    --ghost-hint-hover-border: rgba(77, 166, 255, 0.40);
-    --ghost-hint-hover-color: #7ec5ff;
+    --ghost-hint-border: rgba(56, 189, 248, 0.28);
+    --ghost-hint-bg: rgba(56, 189, 248, 0.08);
+    --ghost-hint-color: #38bdf8;
+    --ghost-hint-hover-bg: rgba(56, 189, 248, 0.16);
+    --ghost-hint-hover-border: rgba(56, 189, 248, 0.48);
+    --ghost-hint-hover-color: #7dd3fc;
 
-    --upload-progress-fill-end: rgba(0, 102, 204, 0.55);
+    --upload-progress-fill-end: rgba(56, 189, 248, 0.65);
 
-    --sync-btn-bg: linear-gradient(135deg, rgba(47, 140, 255, 0.98) 0%, rgba(110, 80, 255, 0.92) 55%, rgba(47, 140, 255, 0.9) 100%);
-    --sync-btn-border: rgba(110, 80, 255, 0.45);
-    --sync-btn-shadow: 0 10px 26px rgba(47, 140, 255, 0.18), 0 6px 18px rgba(110, 80, 255, 0.12);
-    --sync-btn-hover-shadow: 0 14px 30px rgba(47, 140, 255, 0.22), 0 10px 22px rgba(110, 80, 255, 0.16);
+    --sync-btn-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.98) 0%, rgba(99, 102, 241, 0.92) 55%, rgba(56, 189, 248, 0.9) 100%);
+    --sync-btn-border: rgba(99, 102, 241, 0.45);
+    --sync-btn-shadow: 0 10px 26px rgba(56, 189, 248, 0.22), 0 6px 18px rgba(99, 102, 241, 0.15);
+    --sync-btn-hover-shadow: 0 14px 30px rgba(56, 189, 248, 0.32), 0 10px 22px rgba(99, 102, 241, 0.22);
 
     --continue-btn-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.03) 100%);
     --continue-btn-border: rgba(255, 255, 255, 0.12);
-    --continue-btn-shadow: 0 10px 22px rgba(0, 0, 0, 0.18);
-    --continue-btn-hover-bg: linear-gradient(180deg, rgba(47, 140, 255, 0.14) 0%, rgba(110, 80, 255, 0.08) 100%);
-    --continue-btn-hover-border: rgba(47, 140, 255, 0.55);
-    --continue-btn-hover-shadow: 0 14px 28px rgba(0, 0, 0, 0.22), 0 10px 22px rgba(47, 140, 255, 0.10);
+    --continue-btn-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+    --continue-btn-hover-bg: linear-gradient(180deg, rgba(56, 189, 248, 0.14) 0%, rgba(99, 102, 241, 0.08) 100%);
+    --continue-btn-hover-border: rgba(56, 189, 248, 0.55);
+    --continue-btn-hover-shadow: 0 14px 28px rgba(0, 0, 0, 0.30), 0 10px 22px rgba(56, 189, 248, 0.15);
 
-    --modal-gdrive-bg: linear-gradient(135deg, rgba(47, 140, 255, 0.18), rgba(47, 140, 255, 0.06));
-    --modal-gdrive-shadow: 0 10px 22px rgba(47, 140, 255, 0.10);
-    --modal-gdrive-text: rgba(255, 255, 255, 0.94);
-    --modal-gdrive-shadow-active: 0 10px 22px rgba(47, 140, 255, 0.08);
-    --modal-gdrive-shadow-active-50: 0 12px 28px rgba(47, 140, 255, 0.18);
+    --modal-gdrive-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.06));
+    --modal-gdrive-shadow: 0 10px 22px rgba(56, 189, 248, 0.10);
+    --modal-gdrive-text: rgba(241, 245, 249, 0.94);
+    --modal-gdrive-shadow-active: 0 10px 22px rgba(56, 189, 248, 0.08);
+    --modal-gdrive-shadow-active-50: 0 12px 28px rgba(56, 189, 248, 0.18);
 
-    --expandall-hover-shadow: 0 12px 26px rgba(0, 0, 0, 0.28), 0 0 0 1px rgba(47, 140, 255, 0.16) inset, 0 10px 22px rgba(47, 140, 255, 0.10);
+    --expandall-hover-shadow: 0 12px 26px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(56, 189, 248, 0.2) inset;
 
-    --orbit-dot-shadow: rgba(0, 102, 204, 0.25);
+    --orbit-dot-shadow: rgba(56, 189, 248, 0.3);
 
-    --schedule-selection-bg: rgba(45, 145, 255, 0.06);
-    --schedule-selection-border: rgba(45, 145, 255, 0.55);
-    --schedule-selection-header-bg: rgba(45, 145, 255, 0.12);
-    --schedule-selection-intersection: radial-gradient(circle at center, rgba(45, 145, 255, 0.16) 0%, rgba(45, 145, 255, 0.125) 52%, rgba(45, 145, 255, 0.1) 100%);
-    --schedule-weekend-bg: rgba(255, 150, 0, 0.08); /* Jednolite tło kolumn weekendowych w motywie ciemnym */
-    --schedule-weekend-header-bg: rgba(255, 150, 0, 0.16); /* Jednolite tło nagłówków weekendowych w motywie ciemnym */
-    --schedule-weekend-selected-bg: rgba(255, 150, 0, 0.16); /* Podświetlenie zaznaczonej kolumny weekendowej w motywie ciemnym */
-    --schedule-weekend-selected-header-bg: rgba(255, 150, 0, 0.26); /* Nagłówek zaznaczonego weekendu w motywie ciemnym */
+    --schedule-selection-bg: rgba(56, 189, 248, 0.08);
+    --schedule-selection-border: rgba(56, 189, 248, 0.65);
+    --schedule-selection-header-bg: rgba(56, 189, 248, 0.16);
+    --schedule-selection-intersection: radial-gradient(circle at center, rgba(56, 189, 248, 0.2) 0%, rgba(56, 189, 248, 0.12) 100%);
+    --schedule-weekend-bg: rgba(245, 158, 11, 0.08); /* Aksamitny bursztynowy cień weekendów */
+    --schedule-weekend-header-bg: rgba(245, 158, 11, 0.18);
+    --schedule-weekend-selected-bg: rgba(245, 158, 11, 0.2);
+    --schedule-weekend-selected-header-bg: rgba(245, 158, 11, 0.32);
 
-    --scrollbar-thumb-bg: rgba(255, 255, 255, 0.18);
-    --scrollbar-track-bg: rgba(255, 255, 255, 0.04);
-    --scrollbar-thumb-border: 2px solid rgba(15, 18, 26, 0.9);
-    --scrollbar-thumb-hover: rgba(45, 145, 255, 0.45);
+    --scrollbar-thumb-bg: rgba(255, 255, 255, 0.16);
+    --scrollbar-track-bg: rgba(255, 255, 255, 0.03);
+    --scrollbar-thumb-border: 2px solid rgba(11, 13, 18, 0.9);
+    --scrollbar-thumb-hover: rgba(56, 189, 248, 0.5);
 
-    --active-row-outline: rgba(255, 255, 255, 0.10);
+    --active-row-outline: rgba(56, 189, 248, 0.2);
 
-    --route-badge-default-bg: rgba(255, 255, 255, 0.09);
-    --route-badge-default-border: rgba(255, 255, 255, 0.18);
-    --route-badge-default-text: rgba(255, 255, 255, 0.92);
+    --route-badge-default-bg: rgba(255, 255, 255, 0.08);
+    --route-badge-default-border: rgba(255, 255, 255, 0.15);
+    --route-badge-default-text: rgba(241, 245, 249, 0.92);
     --route-badge-text-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 
     --driver-tile-trigger-overlay: radial-gradient(120px 42px at 14% 8%, rgba(255, 255, 255, 0.08), transparent 72%), linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
@@ -158,37 +158,37 @@
     --driver-section-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.025);
     --driver-cell-divider: rgba(255, 255, 255, 0.08);
 
-    --phonepoint-bg: rgba(0, 0, 0, 0.10);
+    --phonepoint-bg: rgba(0, 0, 0, 0.15);
 }
 
 body.light-theme {
-    /* Motyw Sleek Slate/Blue - Chłodny, nowoczesny, zoptymalizowany pod kątem kontrastu w pełnym słońcu */
-    --bg-color: #F4F6F9; /* Jasnoszare tło z lekkim odcieniem niebieskawym */
-    --text-color: #1A253C; /* Głęboki granat zapewniający wysoki kontrast i czytelność tekstu głównego */
-    --primary-color: #0055C4; /* Wyrazisty niebieski jako kolor wiodący dla akcji i wyróżnień */
-    --card-bg: #FFFFFF; /* Czyste białe tło dla kart - eliminacja przezroczystego szkła dla czytelności */
-    --border-color: #D8E2EF; /* Wyraźne, zdefiniowane obramowanie kart i kontenerów */
-    --highlight-color: rgba(0, 85, 196, 0.08); /* Subtelne tło zaznaczenia w kolorze jasnoniebieskim */
-    --accent-color: #0055C4; /* Kolor akcentów */
-    --secondary-text: #5A657A; /* Ciemniejszy szaroniebieski tekst pomocniczy o wysokim kontraście */
-    --qe-ghost-suffix-color: rgba(26, 37, 60, 0.45); /* Podpowiedź w wyszukiwarce */
-    --shadow: 0 4px 14px rgba(26, 37, 60, 0.08); /* Zdefiniowany, ciemniejszy cień dla lepszej głębi */
-    --bg-gradient: linear-gradient(180deg, #F4F6F9 0%, #E9ECF2 100%); /* Gradient tła aplikacji */
-    --card-gradient: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%); /* Gradient tła karty */
-    --grid-row: rgba(0, 85, 196, 0.03); /* Tła wierszy siatki */
-    --grid-col: rgba(0, 85, 196, 0.015); /* Tła kolumn siatki */
-    --grid-row-col: rgba(0, 85, 196, 0.04); /* Skrzyżowanie wierszy i kolumn */
-    --grid-border: #D8E2EF; /* Krawędzie siatki */
-    --overlay-bg: rgba(26, 37, 60, 0.45); /* Przyciemnienie tła pod modalami */
+    /* Motyw Nordic Frost Light - Mroźna skandynawska porcelana, napowietrzony układ z cieniami typu Cloud Shadows */
+    --bg-color: #F8FAFC; /* Jasna porcelana z ultra-delikatnym odcieniem szaro-błękitu */
+    --text-color: #0F172A; /* Głęboki, skandynawski granat tekstu głównego */
+    --primary-color: #2563EB; /* Czysty kobalt jako kolor wiodący i akcentowy */
+    --card-bg: #FFFFFF; /* Czyste białe karty unoszące się na skandynawskim tle */
+    --border-color: #E2E8F0; /* Miękkie, subtelne obramowanie kart */
+    --highlight-color: rgba(37, 99, 235, 0.08); /* Subtelne tło zaznaczenia w kolorze kobaltowym */
+    --accent-color: #2563EB;
+    --secondary-text: #475569; /* Czytelny, kontrastowy tekst pomocniczy */
+    --qe-ghost-suffix-color: rgba(15, 23, 42, 0.45);
+    --shadow: 0 4px 20px rgba(15, 23, 42, 0.05); /* Miękki cień obłokowy (Cloud Shadow) */
+    --bg-gradient: linear-gradient(180deg, #F8FAFC 0%, #F1F5F9 100%);
+    --card-gradient: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
+    --grid-row: rgba(37, 99, 235, 0.03);
+    --grid-col: rgba(37, 99, 235, 0.015);
+    --grid-row-col: rgba(37, 99, 235, 0.04);
+    --grid-border: #E2E8F0;
+    --overlay-bg: rgba(15, 23, 42, 0.40);
 
-    /* Kolory stanów */
-    --state-hover: rgba(0, 85, 196, 0.06); /* Stan najechania */
-    --state-active: rgba(0, 85, 196, 0.12); /* Stan aktywny */
-    --state-error: #D32F2F; /* Żywa, wyraźna czerwień dla błędów */
-    --state-success: #2E7D32; /* Wyraźna zieleń dla sukcesów */
-    --state-warning: #EF6C00; /* Głęboki pomarańcz dla ostrzeżeń */
+    /* Kolory stanów w motywie Nordic Frost */
+    --state-hover: rgba(37, 99, 235, 0.06);
+    --state-active: rgba(37, 99, 235, 0.12);
+    --state-error: #DC2626;
+    --state-success: #16A34A;
+    --state-warning: #D97706;
     
-    /* Zmienne do wizualizacji różnic (diff) w motywie jasnym */
+    /* Zmienne wizualizacji różnic (diff) w motywie Nordic Frost */
     --qe-diff-surface: color-mix(in srgb, var(--card-bg) 96%, white);
     --qe-diff-surface-strong: color-mix(in srgb, var(--card-bg) 98%, white);
     --qe-diff-surface-muted: color-mix(in srgb, var(--card-bg) 88%, var(--bg-color));
@@ -208,122 +208,119 @@ body.light-theme {
     --qe-diff-modified-text: var(--primary-color);
 
     /* Paski postępu ładowania (Loader progress) */
-    --progress-track: #E9ECF2;
-    --progress-track-border: #D8E2EF;
-    --progress-fill-start: #0055C4;
-    --progress-fill-end: #3b82f6;
-    --progress-glint: rgba(255, 255, 255, 0.45);
+    --progress-track: #E2E8F0;
+    --progress-track-border: #CBD5E1;
+    --progress-fill-start: #2563EB;
+    --progress-fill-end: #3B82F6;
+    --progress-glint: rgba(255, 255, 255, 0.5);
 
     /* Tło ekranu powitalnego */
-    --qe-welcome-overlay-bg: radial-gradient(900px 600px at 18% 10%, rgba(0, 85, 196, 0.08), transparent 60%),
-        radial-gradient(780px 520px at 88% 12%, rgba(0, 85, 196, 0.05), transparent 58%),
-        rgba(26, 37, 60, 0.3);
+    --qe-welcome-overlay-bg: radial-gradient(900px 600px at 18% 10%, rgba(37, 99, 235, 0.08), transparent 60%),
+        radial-gradient(780px 520px at 88% 12%, rgba(37, 99, 235, 0.05), transparent 58%),
+        rgba(15, 23, 42, 0.25);
 
-    /* Styl kart szklanych w motywie jasnym - przekształcony w solidne, wysoce kontrastowe karty */
+    /* Styl kart szklanych / solidnych w motywie Nordic Frost */
     --qe-glass-card-bg: #FFFFFF;
-    --qe-glass-border: #D8E2EF;
-    --qe-glass-border-strong: #B8CADA;
-    --qe-glass-inner-stroke: rgba(0, 85, 196, 0.06);
+    --qe-glass-border: #E2E8F0;
+    --qe-glass-border-strong: #CBD5E1;
+    --qe-glass-inner-stroke: rgba(37, 99, 235, 0.04);
     --qe-glass-highlight: #FFFFFF;
-    --qe-glass-edge-fog: rgba(26, 37, 60, 0.03);
-    --qe-glass-shadow: 0 10px 30px rgba(26, 37, 60, 0.08);
-    --qe-glass-blur: 0px; /* Wyłączenie rozmycia tła dla maksymalnej czytelności kart */
+    --qe-glass-edge-fog: rgba(15, 23, 42, 0.02);
+    --qe-glass-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+    --qe-glass-blur: 0px;
 
-    /* Kontenery wyników wyszukiwania (sekcje/grupy/wiersze) */
+    /* Kontenery wyników wyszukiwania */
     --qe-soft-separator: #E2E8F0;
     --qe-soft-group-bg: #F8FAFC;
     --qe-soft-group-border: #E2E8F0;
-    --qe-soft-group-shadow: 0 4px 12px rgba(26, 37, 60, 0.04);
-    --qe-soft-row-hover: rgba(0, 85, 196, 0.04);
-    --qe-soft-row-active: rgba(0, 85, 196, 0.08);
+    --qe-soft-group-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+    --qe-soft-row-hover: rgba(37, 99, 235, 0.04);
+    --qe-soft-row-active: rgba(37, 99, 235, 0.08);
 
     /* Odznaka wersji LAB */
     --qe-lab-badge-bg: #F1F5F9;
-    --qe-lab-badge-text: #1A253C;
+    --qe-lab-badge-text: #0F172A;
     --qe-lab-badge-border: #CBD5E1;
     
     /* Separatory w widoku pracowników */
-    --qe-driver-separator-core: #0055C4;
-    --qe-driver-separator-glow: rgba(0, 85, 196, 0.15);
-    --qe-driver-separator-edge: rgba(0, 85, 196, 0.08);
+    --qe-driver-separator-core: #2563EB;
+    --qe-driver-separator-glow: rgba(37, 99, 235, 0.15);
+    --qe-driver-separator-edge: rgba(37, 99, 235, 0.08);
 
     /* Zmienne adaptacyjne koloru wiodącego */
-    --primary-accent-color: #0055C4;
-    --primary-accent-glow: rgba(0, 85, 196, 0.15);
-    --primary-accent-active-shadow: rgba(0, 85, 196, 0.25);
-    --drop-zone-hover-bg: rgba(0, 85, 196, 0.05);
+    --primary-accent-color: #2563EB;
+    --primary-accent-glow: rgba(37, 99, 235, 0.15);
+    --primary-accent-active-shadow: rgba(37, 99, 235, 0.25);
+    --drop-zone-hover-bg: rgba(37, 99, 235, 0.05);
 
     /* Podpowiedzi w polu wyszukiwania (ghost hint) */
-    --ghost-hint-border: #B8CADA;
+    --ghost-hint-border: #CBD5E1;
     --ghost-hint-bg: #F1F5F9;
-    --ghost-hint-color: #5A657A;
+    --ghost-hint-color: #475569;
     --ghost-hint-hover-bg: #E2E8F0;
-    --ghost-hint-hover-border: #0055C4;
-    --ghost-hint-hover-color: #1A253C;
+    --ghost-hint-hover-border: #2563EB;
+    --ghost-hint-hover-color: #0F172A;
 
-    /* Pasek postępu wysyłania (upload progress) */
-    --upload-progress-fill-end: #0055C4;
+    /* Pasek postępu wysyłania */
+    --upload-progress-fill-end: #2563EB;
 
     /* Przyciski synchronizacji z Google Drive */
-    --sync-btn-bg: #0055C4;
-    --sync-btn-border: #0044A0;
-    --sync-btn-shadow: 0 4px 12px rgba(0, 85, 196, 0.2);
-    --sync-btn-hover-shadow: 0 6px 18px rgba(0, 85, 196, 0.3);
+    --sync-btn-bg: #2563EB;
+    --sync-btn-border: #1D4ED8;
+    --sync-btn-shadow: 0 4px 14px rgba(37, 99, 235, 0.25);
+    --sync-btn-hover-shadow: 0 6px 20px rgba(37, 99, 235, 0.35);
 
-    /* Przycisk kontynuacji (np. na ekranie startowym) */
+    /* Przycisk kontynuacji */
     --continue-btn-bg: #FFFFFF;
-    --continue-btn-border: #D8E2EF;
-    --continue-btn-shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
-    --continue-btn-hover-bg: rgba(0, 85, 196, 0.06);
-    --continue-btn-hover-border: #0055C4;
-    --continue-btn-hover-shadow: 0 6px 14px rgba(0, 85, 196, 0.15);
+    --continue-btn-border: #E2E8F0;
+    --continue-btn-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    --continue-btn-hover-bg: rgba(37, 99, 235, 0.06);
+    --continue-btn-hover-border: #2563EB;
+    --continue-btn-hover-shadow: 0 6px 16px rgba(37, 99, 235, 0.15);
 
-    /* Tła i cienie w oknach dialogowych dysku Google */
-    --modal-gdrive-bg: linear-gradient(135deg, rgba(0, 85, 196, 0.08), rgba(0, 85, 196, 0.03));
-    --modal-gdrive-shadow: 0 4px 12px rgba(26, 37, 60, 0.05);
-    --modal-gdrive-text: #1A253C;
-    --modal-gdrive-shadow-active: 0 4px 12px rgba(0, 85, 196, 0.08);
-    --modal-gdrive-shadow-active-50: 0 6px 16px rgba(0, 85, 196, 0.15);
+    /* Otwieranie pliku z dysku Google */
+    --modal-gdrive-bg: linear-gradient(135deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0.03));
+    --modal-gdrive-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+    --modal-gdrive-text: #0F172A;
+    --modal-gdrive-shadow-active: 0 4px 12px rgba(37, 99, 235, 0.08);
+    --modal-gdrive-shadow-active-50: 0 6px 16px rgba(37, 99, 235, 0.15);
 
-    /* Przycisk rozwiń wszystko */
-    --expandall-hover-shadow: 0 6px 16px rgba(26, 37, 60, 0.08), 0 0 0 1px rgba(0, 85, 196, 0.15) inset;
+    --expandall-hover-shadow: 0 6px 16px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(37, 99, 235, 0.15) inset;
 
-    /* Cienie kropek na orbicie */
-    --orbit-dot-shadow: rgba(0, 85, 196, 0.15);
+    --orbit-dot-shadow: rgba(37, 99, 235, 0.15);
 
     /* Wybór i zaznaczenie w grafiku */
-    --schedule-selection-bg: rgba(0, 85, 196, 0.08);
-    --schedule-selection-border: #0055C4;
-    --schedule-selection-header-bg: rgba(0, 85, 196, 0.12);
-    --schedule-selection-intersection: radial-gradient(circle at center, rgba(0, 85, 196, 0.16) 0%, rgba(0, 85, 196, 0.10) 100%);
-    --schedule-panel-strong: #E2E8F0; /* Wyraźne, jasnoszare tło dla pierwszego wiersza (nagłówka) w motywie jasnym */
-    --schedule-border-strong: #94A3B8; /* Grubsze obramowanie pod nagłówkiem w motywie jasnym */
-    --schedule-weekend-bg: #FFF5E6; /* Ciepłe, jednolite tło dla komórek weekendowych w motywie jasnym */
-    --schedule-weekend-header-bg: #FFE5CC; /* Nieco ciemniejsze tło dla nagłówków weekendów w motywie jasnym */
-    --schedule-weekend-selected-bg: #FFE3C2; /* Nasycony bursztyn dla zaznaczonej kolumny weekendowej w motywie jasnym */
-    --schedule-weekend-selected-header-bg: #FFD4A3; /* Ciemniejszy nasycony bursztyn dla nagłówka zaznaczonej kolumny weekendowej */
+    --schedule-selection-bg: rgba(37, 99, 235, 0.08);
+    --schedule-selection-border: #2563EB;
+    --schedule-selection-header-bg: rgba(37, 99, 235, 0.12);
+    --schedule-selection-intersection: radial-gradient(circle at center, rgba(37, 99, 235, 0.16) 0%, rgba(37, 99, 235, 0.10) 100%);
+    --schedule-panel-strong: #F1F5F9;
+    --schedule-border-strong: #CBD5E1;
+    --schedule-weekend-bg: #FFF7ED; /* Ciepłe, bursztynowo-kremowe tło weekendów w motywie Nordic Frost */
+    --schedule-weekend-header-bg: #FFEDD5;
+    --schedule-weekend-selected-bg: #FED7AA;
+    --schedule-weekend-selected-header-bg: #FDBA74;
 
-    /* Paski przewijania (Scrollbar) */
+    /* Paski przewijania */
     --scrollbar-thumb-bg: #CBD5E1;
     --scrollbar-track-bg: #F1F5F9;
-    --scrollbar-thumb-border: 2px solid #F4F6F9;
+    --scrollbar-thumb-border: 2px solid #F8FAFC;
     --scrollbar-thumb-hover: #94A3B8;
 
-    /* Aktywny wiersz w tabelach */
-    --active-row-outline: rgba(0, 85, 196, 0.15);
+    /* Aktywny wiersz */
+    --active-row-outline: rgba(37, 99, 235, 0.15);
 
-    /* Domyślne etykiety tras (Route Badges) */
+    /* Etykiety tras */
     --route-badge-default-bg: #E2E8F0;
     --route-badge-default-border: #CBD5E1;
-    --route-badge-default-text: #1A253C;
+    --route-badge-default-text: #0F172A;
     --route-badge-text-shadow: none;
 
     /* Wyzwalacze kafelków kierowców */
-    --driver-tile-trigger-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent);
-    --driver-tile-trigger-shadow: 0 4px 12px rgba(26, 37, 60, 0.05);
+    --driver-tile-trigger-overlay: linear-gradient(180deg, rgba(255, 255, 255, 0.6), transparent);
+    --driver-tile-trigger-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
     --driver-section-shadow-inset: none;
     --driver-cell-divider: #E2E8F0;
 
-    /* Punkt kontaktu telefonu w szczegółach kierowców */
-    --phonepoint-bg: rgba(26, 37, 60, 0.05);
+    --phonepoint-bg: rgba(15, 23, 42, 0.05);
 }

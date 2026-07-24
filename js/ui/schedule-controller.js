@@ -1064,6 +1064,10 @@ function createScheduleGrid(cfg = {}) {
 
         const wrap = document.createElement('div');
         wrap.className = 'schedule-cell-inner';
+        
+        // Zliczanie prawidłowych tokenów i przypisanie liczby badge'y do dataset w celu reaktywnego skalowania w CSS
+        const validTokens = list.filter((t) => String(t?.code ?? '').trim().length > 0);
+        wrap.dataset.badgeCount = String(validTokens.length);
 
         for (let index = 0; index < list.length; index += 1) {
             const token = list[index];

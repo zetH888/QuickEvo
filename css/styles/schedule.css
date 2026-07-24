@@ -8,9 +8,12 @@
 #schedule-view {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    width: min(88vw, 1720px);
+    gap: 12px;
+    width: 100%;
     max-width: 100%;
+    height: calc(100dvh - 170px);
+    max-height: calc(100dvh - 170px);
+    box-sizing: border-box;
     margin-inline: auto;
     --schedule-table-gutter: 30px;
     --schedule-bg: color-mix(in srgb, var(--card-bg) 88%, transparent);
@@ -33,18 +36,61 @@
     position: relative;
     z-index: 40;
     isolation: isolate;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(260px, 1.18fr) minmax(0, 1fr);
-    width: min(88vw, 1720px);
+    display: flex;
+    flex-direction: column;
+    width: 100%;
     max-width: 100%;
+    box-sizing: border-box;
     margin-inline: auto;
-    gap: 14px;
-    padding: 14px 16px;
+    gap: 10px;
+    padding: 10px 12px;
     border: 1px solid var(--schedule-border);
-    border-radius: 18px;
+    border-radius: 16px;
     background: var(--schedule-panel);
     backdrop-filter: blur(18px) saturate(140%);
-    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 16px 36px rgba(0, 0, 0, 0.2);
+}
+
+/* Układ wiersza górnego w nagłówku grafiku na dekstopie (Powrót po lewej | Wyczyść po prawej) */
+#schedule-view .schedule-toolbar-top-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+}
+
+#schedule-view .schedule-toolbar-top-row .schedule-back-btn {
+    flex: 0 0 auto;
+    margin: 0;
+}
+
+#schedule-view #schedule-clear-filters {
+    flex: 0 0 auto;
+    margin-left: auto !important;
+    margin-right: 0 !important;
+}
+
+/* Układ wiersza dolnego w nagłówku grafiku na dekstopie (3 filtry: Miesiąc 33% | Kierowca 33% | Trasa / symbol 33%) */
+#schedule-view .schedule-toolbar-bottom-row {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 14px;
+    width: 100%;
+}
+
+#schedule-view .schedule-toolbar-bottom-row .schedule-filter-field {
+    flex: 1 1 0;
+    min-width: 0;
+    width: calc(33.333% - 10px);
+    margin: 0;
+}
+
+#schedule-view .schedule-filter-field--month .schedule-filter-dropdown--month {
+    width: 100%;
+    max-width: 100%;
 }
 
 #schedule-view .schedule-toolbar-section {
@@ -546,10 +592,13 @@
     isolation: isolate;
     width: calc(100vw - (var(--schedule-table-gutter) * 2));
     max-width: none;
-    align-self: flex-start;
+    align-self: stretch;
     margin-left: calc(50% - 50vw + var(--schedule-table-gutter));
     margin-right: 0;
-    max-height: min(70vh, 760px);
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    max-height: none;
     border-radius: 18px;
     border: 1px solid var(--schedule-border);
     background: var(--schedule-panel);
@@ -874,10 +923,11 @@ body.light-theme #schedule-view .schedule-day-weekday {
 
 #schedule-view .schedule-cell-inner {
     display: flex;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    flex-wrap: wrap;
+    gap: 3px;
+    flex-wrap: nowrap !important; /* Wszystkie trasy tego samego dnia wyświetlane obok siebie w poziomie */
     width: 100%;
     min-height: 30px;
 }
@@ -1024,93 +1074,199 @@ body.light-theme #schedule-view .schedule-day-weekday {
 }
 
 @media (max-width: 768px) {
-    /* Zmiana szerokości na 100% rodzica (zamiast sztywnego calc(100vw - 16px)),
-       co zapobiega wystawaniu i ucinaniu paska filtrów (toolbar) z prawej strony. */
+    /* Całkowite zablokowanie przewijania całej strony podczas wyświetlania grafiku na mobilce */
+    html:has(#schedule-view:not(.view-hidden)),
+    body:has(#schedule-view:not(.view-hidden)) {
+        overflow: hidden !important;
+        position: fixed !important;
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    /* Dopasowanie wysokości widoku grafiku bez ucinania wierszy za dolną nawigacją */
     #schedule-view {
         width: 100%;
         max-width: 100%;
-        min-width: 0; /* Uniemożliwia rozpychanie w poziomie przez tabelę grafiku */
-        overflow: hidden; /* Przechwytuje nadmiar szerokości dzieci i zapobiega ucinaniu toolbaru */
-        --schedule-mobile-gutter: 8px;
-        --driver-col-width: 98px;
-        --day-col-width: 68px;
+        min-width: 0;
+        height: calc(100dvh - 172px - env(safe-area-inset-bottom, 0px));
+        max-height: calc(100dvh - 172px - env(safe-area-inset-bottom, 0px));
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        margin-bottom: 0;
+        --schedule-mobile-gutter: 4px;
+        --driver-col-width: 96px;
+        --day-col-width: 66px;
     }
 
-    /* Na mobile toolbar i tabela korzystaja z identycznego oddechu po bokach. */
+    /* Zwięzły, 2-wierszowy pasek narzędziowy grafiku */
     #schedule-view .schedule-toolbar {
-        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        display: flex;
+        flex-direction: column;
         width: 100%;
         margin-inline: 0;
-        padding: 12px 10px;
-        gap: 10px;
+        padding: 6px 8px;
+        gap: 6px;
+        box-sizing: border-box;
+        flex: 0 0 auto;
+        border-radius: 12px;
     }
 
-    #schedule-view .schedule-toolbar-section--status,
-    #schedule-view .schedule-toolbar-nav-row {
-        display: none;
-    }
-
-    #schedule-view .schedule-toolbar-section--nav,
-    #schedule-view .schedule-toolbar-section--filters {
-        align-items: stretch;
-    }
-
-    #schedule-view .schedule-toolbar-section--nav {
-        position: relative;
-        justify-content: flex-start;
-        min-height: 36px;
-    }
-
-    #schedule-view .schedule-toolbar-group {
-        min-width: 0;
+    /* Wiersz 1: Przycisk Powrót (lewa strona), Wybór Miesiąca (środek), Przycisk Wyczyść (prawa strona) */
+    #schedule-view .schedule-toolbar-top-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
         width: 100%;
-        gap: 0;
-    }
-
-    #schedule-view .schedule-toolbar-select-row {
-        width: 100%;
-        justify-content: center;
-    }
-
-    #schedule-view .schedule-toolbar-section--filters {
-        justify-content: flex-start;
     }
 
     #schedule-view .schedule-back-btn {
-        position: absolute;
-        top: 0;
-        left: 0;
+        position: relative;
+        top: auto;
+        left: auto;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 36px;
-        min-width: 36px;
-        height: 36px;
-        min-height: 36px;
-        padding: 0;
-        border-radius: 10px;
-        font-size: 0;
-        line-height: 1;
-        z-index: 2;
+        padding: 0 10px;
+        height: 32px;
+        min-height: 32px;
+        border-radius: 8px;
+        font-size: 0.82rem;
+        flex: 0 0 auto;
+        margin: 0;
     }
 
-    #schedule-view .schedule-back-btn::before {
-        content: "←";
-        font-size: 18px;
-        font-weight: 900;
+    #schedule-view .schedule-filter-dropdown--month {
+        flex: 1 1 auto;
+        width: 100%;
+        max-width: 100%;
+        margin-inline: 0;
+    }
+
+    #schedule-view .schedule-filter-dropdown--month .schedule-filter-menu {
+        left: 0 !important;
+        transform: none !important;
+        width: 220px !important;
+    }
+
+    /* Przycisk Czyszczenia Filtrów - zbalansowana szerokość i neutralny styl zgodny z przyciskiem Powrót */
+    #schedule-view #schedule-clear-filters {
+        height: 32px;
+        min-height: 32px;
+        padding: 0 10px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--schedule-bg) 90%, transparent);
+        border: 1px solid var(--schedule-border);
+        color: var(--schedule-text);
+        font-size: 0.82rem;
+        font-weight: 700;
+        margin: 0 0 0 auto;
+        flex: 0 0 auto;
+    }
+
+    #schedule-view #schedule-clear-filters:hover {
+        background: color-mix(in srgb, var(--schedule-accent) 8%, var(--schedule-bg));
+        border-color: color-mix(in srgb, var(--schedule-accent) 30%, var(--schedule-border));
+    }
+
+    #schedule-view .schedule-clear-text {
+        display: inline-block;
+        font-size: 0.8rem;
+    }
+
+    #schedule-view .schedule-clear-icon {
+        display: inline-block;
+        font-size: 0.92rem;
+        line-height: 1;
+    }
+
+    /* Wiersz 2 na mobilce: 3 filtry obok siebie (Miesiąc 33% | Kierowca 33% | Trasa 33%) */
+    #schedule-view .schedule-toolbar-bottom-row {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: space-between !important;
+        gap: 4px !important;
+        width: 100% !important;
     }
 
     #schedule-view .schedule-filter-field {
-        min-width: 0;
-        flex: 1 1 0;
+        min-width: 0 !important;
+        flex: 1 1 0 !important;
+        width: calc(33.333% - 3px) !important;
+        max-width: calc(33.333% - 3px) !important;
+        margin: 0 !important;
+        box-sizing: border-box !important;
     }
 
+    #schedule-view .schedule-filter-dropdown {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    #schedule-view .schedule-filter-label {
+        display: none;
+    }
+
+    #schedule-view .schedule-filter-control {
+        display: flex;
+        align-items: stretch;
+        width: 100%;
+    }
+
+    #schedule-view .schedule-filter-select-trigger,
+    #schedule-view .schedule-filter-input {
+        appearance: none;
+        flex: 1 1 auto;
+        min-width: 0;
+        width: 100%;
+        height: 32px !important;
+        min-height: 32px !important;
+        padding: 0 8px;
+        font-size: 0.82rem;
+        font-weight: 700;
+        border-top-left-radius: 8px !important;
+        border-bottom-left-radius: 8px !important;
+        border-top-right-radius: 0 !important;
+        border-bottom-right-radius: 0 !important;
+        border-right: 0 !important;
+        box-sizing: border-box;
+    }
+
+    #schedule-view .schedule-filter-toggle {
+        flex: 0 0 34px !important;
+        width: 34px !important;
+        min-width: 34px !important;
+        height: 32px !important;
+        min-height: 32px !important;
+        border-top-left-radius: 0 !important;
+        border-bottom-left-radius: 0 !important;
+        border-top-right-radius: 8px !important;
+        border-bottom-right-radius: 8px !important;
+        border-left: 0 !important;
+        box-sizing: border-box;
+    }
+
+    /* Kontener tabeli z przewijaniem wewnątrz */
     #schedule-view .schedule-table-container {
         width: 100%;
         max-width: 100%;
         align-self: stretch;
         margin-left: 0;
         margin-right: 0;
+        flex: 1 1 auto;
+        min-height: 0;
+        height: 100%;
+        overflow: auto;
+        overscroll-behavior: contain;
+        touch-action: pan-x pan-y;
+        border-radius: 14px;
     }
 
     #schedule-view .schedule-filter-menu {
@@ -1146,14 +1302,40 @@ body.light-theme #schedule-view .schedule-day-weekday {
         font-size: 0.78rem;
     }
 
-    #schedule-view .route-badge {
-        width: 30px;
-        min-width: 30px;
+    /* Wyrównanie i elastyczne skalowanie badge'y tras w komórkach grafiku na mobilce */
+    #schedule-view .schedule-cell-inner {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        width: 100%;
+        min-width: 0;
+        overflow: hidden;
+    }
+
+    #schedule-view .schedule-cell-inner .route-badge {
+        flex: 1 1 0;
+        min-width: 0;
         max-width: 30px;
-        flex-basis: 30px;
+        width: 100%;
         height: 20px;
         font-size: 9px;
-        padding: 0 4px;
+        padding: 0 2px;
+        box-sizing: border-box;
+    }
+
+    /* Reaktywne dostosowanie czcionki i paddingu w komórce przy 2 lub 3+ badge'ach tras */
+    #schedule-view .schedule-cell-inner[data-badge-count="2"] .route-badge {
+        font-size: 8.5px;
+        padding: 0 1px;
+    }
+
+    #schedule-view .schedule-cell-inner[data-badge-count="3"] .route-badge,
+    #schedule-view .schedule-cell-inner[data-badge-count="4"] .route-badge {
+        font-size: 8px;
+        padding: 0 1px;
+        letter-spacing: -0.3px;
     }
 
     #schedule-view .schedule-filter-menu .route-badge {

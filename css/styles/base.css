@@ -51,7 +51,7 @@ body::-webkit-scrollbar {
 
 .app-shell {
     opacity: 1;
-    filter: blur(0px);
+    filter: none;
     transition: opacity 0.7s ease-out, filter 0.7s ease-out;
 }
 
@@ -70,11 +70,15 @@ body::-webkit-scrollbar {
 }
 
 .view-hidden {
+    display: none !important;
     opacity: 0 !important;
     transform: scale(0.95) !important;
     pointer-events: none !important;
     position: absolute !important;
     visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
 }
 
 /* Podczas opuszczania widoku wyszukiwania wyłączamy render przełącznika sortowania,
@@ -92,10 +96,17 @@ body::-webkit-scrollbar {
 }
 
 footer {
-    margin-top: 40px;
+    margin-top: 36px;
     text-align: center;
     font-size: 0.85rem;
     color: var(--secondary-text);
     border-top: 1px solid var(--border-color);
-    padding-top: 20px;
+    padding-top: 18px;
+    padding-bottom: 20px;
+}
+
+@media (max-width: 768px) {
+    footer {
+        padding-bottom: calc(68px + env(safe-area-inset-bottom, 0px));
+    }
 }

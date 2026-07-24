@@ -288,50 +288,80 @@ body.light-theme [data-tooltip]::after {
     box-shadow: 0 4px 12px rgba(139, 115, 85, 0.15);
 }
 
-/* Responsywność nagłówka */
+/* Responsywność nagłówka i mobilna nawigacja dolna (Bottom Navigation Dock) */
 @media (max-width: 768px) {
+    header {
+        margin-bottom: 16px;
+    }
+
     .header-top {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        grid-template-rows: auto auto;
-        grid-template-areas: 
-            "logo toolbar"
-            "nav nav";
-        gap: 16px;
+        display: flex;
+        justify-content: space-between;
         align-items: center;
         width: 100%;
+        gap: 12px;
     }
     
     .header-left {
-        display: contents;
+        display: flex;
+        align-items: center;
+        gap: 12px;
     }
     
     .logo {
-        grid-area: logo;
         justify-content: flex-start;
         display: flex;
         align-items: center;
     }
     
+    /* Mobilna Nawigacja Dolna (Full-Width Bottom App Bar - Ostre Krawędzie) */
     .primary-nav {
-        grid-area: nav;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
         width: 100%;
-        justify-content: center;
+        max-width: 100%;
+        transform: none;
+        z-index: 1000;
+        padding: 6px 12px calc(6px + env(safe-area-inset-bottom, 0px));
+        border-radius: 0; /* Ostre krawędzie obudowy paska dolnego */
+        background: var(--card-bg);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: none;
+        border-top: 1px solid var(--border-color);
+        box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.45);
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
         box-sizing: border-box;
     }
     
+    body.light-theme .primary-nav {
+        border-top: 1px solid var(--border-color);
+        box-shadow: 0 -6px 20px rgba(15, 23, 42, 0.08);
+    }
+
     .primary-nav-button {
         flex: 1 1 auto;
         text-align: center;
+        padding: 10px 12px;
+        font-size: 0.82rem;
+        letter-spacing: 0.5px;
     }
     
     .toolbar {
-        grid-area: toolbar;
         justify-content: flex-end;
-        gap: 10px;
+        gap: 8px;
         margin-right: 0;
     }
     
+    /* Odstęp od dolnej krawędzi dla głównego obszaru roboczego na mobilce */
+    main {
+        padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+    }
+
     /* Zabezpieczenie przed nakładaniem się na przycisk debuggera fab */
     body:has(#qe-debugger) .toolbar {
         margin-right: 52px;
