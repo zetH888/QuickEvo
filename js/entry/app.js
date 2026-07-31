@@ -600,6 +600,21 @@ function ensurePredictiveGhostController() {
 // FUNKCJE INICJALIZACYJNE
 //////////////////////////////////////////////////
 
+const SKIP_WELCOME_STORAGE_KEY = 'qe_skip_welcome';
+
+/**
+ * Sprawdza, czy włączona jest opcja automatycznego pomijania ekranu powitalnego (localStorage).
+ *
+ * @returns {boolean}
+ */
+function shouldSkipWelcomeScreen() {
+    try {
+        return localStorage.getItem(SKIP_WELCOME_STORAGE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Główna funkcja startowa aplikacji.
  */
@@ -610,15 +625,28 @@ async function init() {
     setupLoadingContinueHandlers();
     setupResultsListLayoutObservers();
     compileKeyLabTokenSets();
-    ensureWelcomeLoadingOverlayController().setupParallax();
 
-    ensureLogoRenderer().lazyLoadWelcomeGraphic(welcomeGraphic);
+    const skipWelcome = shouldSkipWelcomeScreen();
+
+    if (!skipWelcome) {
+        ensureWelcomeLoadingOverlayController().setupParallax();
+        ensureLogoRenderer().lazyLoadWelcomeGraphic(welcomeGraphic);
+    }
+
     ensureLogoRenderer().renderHeaderLogo(appHeaderLogo);
 
     setSearchEnabled(false);
-    startLoadingScreen();
+    if (skipWelcome) {
+        const overlay = document.getElementById('loading-overlay');
+        if (overlay) {
+            overlay.classList.add('hidden');
+            overlay.setAttribute('aria-hidden', 'true');
+        }
+    } else {
+        startLoadingScreen();
+    }
     loadingStartedAt = performance.now();
-    logAction('boot', { phase: 'start' });
+    logAction('boot', { phase: 'start', skipWelcome });
 
     if (bootWatchdogTimer !== null) {
         window.clearTimeout(bootWatchdogTimer);
@@ -679,6 +707,11 @@ function finalizeBoot() {
     prepareManualContinue();
     const totalMs = Math.round(performance.now() - loadingStartedAt);
     logAction('boot', { phase: 'done', ms: totalMs });
+
+    // Jeśli włączenie ekranu powitalnego zostało wyłączone w debuggerze, przechodzimy natychmiast do aplikacji
+    if (shouldSkipWelcomeScreen()) {
+        continueToApp();
+    }
 }
 
 /**
@@ -1871,6 +1904,63 @@ async function openDriverFromPreviewBadge(driverName) {
 }
 
 /**
+ * Automatycznie odświeża dane i aktywny widok aplikacji w miejscu po synchronizacji z dyskiem.
+ * Zapobiega konieczności odświeżania całej strony (Ctrl+F5) lub przełączania nawigacji.
+ */
+async function refreshAppDataAndActiveViewInPlace() {
+    try {
+        const routeRecords = await getRouteFileRecords();
+        refreshRouteMetaIndex(routeRecords);
+        dataStore.rebuildRouteFileIndex(routeRecords);
+        fileCountSpan.textContent = String(routeRecords.length);
+
+        const activeView = String(currentVisibleView || 'home');
+
+        // 1. Odświeżenie widoku grafiku jeśli kontroler został utworzony
+        if (scheduleController) {
+            const allFiles = await docsListFiles();
+            const scheduleFileNames = Array.isArray(allFiles)
+                ? allFiles.map(f => String(f?.name ?? '')).filter(n => isScheduleFileName(n))
+                : [];
+
+            const monthEntries = [];
+            const uniqueMonthKeys = [];
+            for (const name of scheduleFileNames) {
+                const meta = ensureScheduleService().parseScheduleFileNameYearMonth(name);
+                if (!meta) continue;
+                if (!uniqueMonthKeys.includes(meta.key)) {
+                    uniqueMonthKeys.push(meta.key);
+                    monthEntries.push({ key: meta.key, label: meta.displayLabel });
+                }
+            }
+            uniqueMonthKeys.sort();
+            monthEntries.sort((a, b) => a.key.localeCompare(b.key));
+
+            const savedState = typeof scheduleController.getViewState === 'function' ? scheduleController.getViewState() : null;
+            scheduleController.setAvailableMonthsList(monthEntries);
+            if (savedState?.monthKey && typeof scheduleController.restoreViewState === 'function') {
+                scheduleController.restoreViewState(savedState);
+            }
+        }
+
+        // 2. Odświeżenie widoków Trasy lub Pracownicy w miejscu
+        if (activeView === 'routes') {
+            showRoutesView({ skipPush: true, source: 'auto_refresh' });
+        } else if (activeView === 'drivers') {
+            showDriversView({ skipPush: true, source: 'auto_refresh' });
+        }
+
+        // 3. Wyniki wyszukiwania
+        const q = String(dataStore.getLastQuery() || '').trim();
+        if (q.length >= 3 && Boolean(isSearchEnabled)) {
+            performSearch(q);
+        }
+    } catch (err) {
+        logAction('sync', { phase: 'auto_refresh_error', message: err?.message ? String(err.message) : 'Błąd odświeżenia danych' }, 'WARN');
+    }
+}
+
+/**
  * Finalizuje import plików po synchronizacji z Google Drive.
  * To wydzielony wariant wspólny dla ścieżki synchronizacji, po usunięciu importu lokalnego.
  *
@@ -1890,10 +1980,8 @@ async function finalizeImportedFiles(summary, before) {
     try { fileCountSpan.textContent = String((await getRouteFileRecords()).length); } catch { }
     try { setSearchEnabled(after > 0); } catch { }
 
-    const q = String(dataStore.getLastQuery() || '').trim();
-    if (q.length >= 3 && Boolean(isSearchEnabled)) {
-        try { performSearch(q); } catch { }
-    }
+    // Automatyczne odświeżenie danych i aktualnego widoku bez przeładowania strony
+    await refreshAppDataAndActiveViewInPlace();
 
     try { schedulePredictiveIndexRebuild({ reason: 'drive_sync_done' }); } catch { }
 }
@@ -3116,6 +3204,20 @@ function continueToApp() {
     ensureLoadingApplication().continueToApp();
 }
 
+/**
+ * Sprawdza, czy układ strony jest mobilny (szerokość ekranu poniżej 769px).
+ * Służy m.in. do pomijania wymuszonego automatycznego nadawania fokusu na polach tekstowych.
+ *
+ * @returns {boolean}
+ */
+function isMobileViewport() {
+    try {
+        return Boolean(window.matchMedia && window.matchMedia('(max-width: 768px)').matches);
+    } catch {
+        return false;
+    }
+}
+
 function ensureLoadingApplication() {
     if (loadingApplication) return loadingApplication;
     loadingApplication = createLoadingApplication({
@@ -3126,7 +3228,10 @@ function ensureLoadingApplication() {
         setTimeout: (fn, ms) => window.setTimeout(fn, ms),
         requestAnimationFrame: (fn) => window.requestAnimationFrame(fn),
         showAppShell: () => { if (appShell) { appShell.classList.remove('app-shell-hidden'); appShell.setAttribute('aria-hidden', 'false'); } },
-        focusSearchIfEnabled: () => { if (isSearchEnabled) searchInput.focus(); }
+        focusSearchIfEnabled: () => {
+            // Automatyczny focus tylko na desktopie, aby zapobiec wyskakiwaniu klawiatury na mobilce
+            if (isSearchEnabled && !isMobileViewport()) searchInput.focus();
+        }
     });
     return loadingApplication;
 }
@@ -3237,7 +3342,8 @@ function goHome() {
     if (driversView) driversView.classList.add('view-hidden');
     if (searchView) searchView.classList.remove('view-hidden');
     setPrimaryNavActive(null);
-    if (isSearchEnabled) searchInput.focus();
+    // Automatyczny focus pola wyszukiwania tylko na ekranie desktopowym
+    if (isSearchEnabled && !isMobileViewport()) searchInput.focus();
     requestResultsScrollRestore({ reason: 'go_home' });
 }
 

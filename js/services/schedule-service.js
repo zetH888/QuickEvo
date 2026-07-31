@@ -385,21 +385,41 @@ export function createScheduleService(cfg = {}) {
         return Array.from(new Set(routes));
     }
 
-    function findScheduleHeaderRowIndex(matrix) {
+    /**
+     * Wyszukuje w macierzy arkusza wiersz nagłówka oraz wskaźnik kolumny z danymi kierowcy ("IMIE I NAZWISKO").
+     * Ignoruje ewentualne kolumny pomocnicze dodane przed danymi kierowców.
+     *
+     * @param {any[][]} matrix
+     * @returns {{ headerRowIdx: number, driverColIdx: number } | null}
+     */
+    function findScheduleHeaderAndDriverCol(matrix) {
         const rows = Array.isArray(matrix) ? matrix : [];
         for (let i = 0; i < rows.length; i++) {
             const row = Array.isArray(rows[i]) ? rows[i] : [];
-            const first = row[0] === null || row[0] === undefined ? '' : String(row[0]);
-            const norm = fuzzyNormalizeText(first);
-            if (norm.includes('imie') && (norm.includes('nazw') || norm.includes('nazwisko'))) return i;
+            for (let col = 0; col < row.length; col++) {
+                const cell = row[col] === null || row[col] === undefined ? '' : String(row[col]);
+                const norm = fuzzyNormalizeText(cell);
+                if (norm.includes('imie') && (norm.includes('nazw') || norm.includes('nazwisko'))) {
+                    return { headerRowIdx: i, driverColIdx: col };
+                }
+            }
         }
-        return -1;
+        return null;
     }
 
-    function buildScheduleDayColumnMap(headerRow) {
+    /**
+     * Buduje mapowanie numerów dni (1..31) na indeksy kolumn w arkuszu.
+     * Uwzględnia przesunięcie o kolumnę kierowcy.
+     *
+     * @param {any[]} headerRow
+     * @param {number} [driverColIdx=0]
+     * @returns {Map<number, number>}
+     */
+    function buildScheduleDayColumnMap(headerRow, driverColIdx = 0) {
         const row = Array.isArray(headerRow) ? headerRow : [];
         const map = new Map();
-        for (let col = 1; col < row.length; col++) {
+        const startCol = Math.max(1, Number(driverColIdx || 0) + 1);
+        for (let col = startCol; col < row.length; col++) {
             const cell = row[col];
             const n = Number(String(cell ?? '').trim());
             if (Number.isInteger(n) && n >= 1 && n <= 31 && !map.has(n)) map.set(n, col);
@@ -437,20 +457,21 @@ export function createScheduleService(cfg = {}) {
         const worksheet = workbook.Sheets[firstSheetName];
         const matrix = sheetToMatrix(worksheet);
 
-        const headerIdx = findScheduleHeaderRowIndex(matrix);
-        if (headerIdx < 0) throw new Error('Nie znaleziono wiersza nagłówka grafiku ("IMIE I NAZWISKO")');
+        const headerInfo = findScheduleHeaderAndDriverCol(matrix);
+        if (!headerInfo) throw new Error('Nie znaleziono wiersza nagłówka grafiku ("IMIE I NAZWISKO")');
 
-        const headerRow = matrix[headerIdx];
-        const dayToCol = buildScheduleDayColumnMap(headerRow);
+        const { headerRowIdx, driverColIdx } = headerInfo;
+        const headerRow = matrix[headerRowIdx];
+        const dayToCol = buildScheduleDayColumnMap(headerRow, driverColIdx);
         const maxDays = daysInMonth(year, month);
         const byIsoDate = new Map();
         const driverRows = [];
         const routeCatalog = await loadRouteCatalogForSchedule();
         const tokenSets = buildScheduleTokenSets(routeCatalog);
 
-        for (let rowIdx = headerIdx + 1; rowIdx < matrix.length; rowIdx++) {
+        for (let rowIdx = headerRowIdx + 1; rowIdx < matrix.length; rowIdx++) {
             const row = Array.isArray(matrix[rowIdx]) ? matrix[rowIdx] : [];
-            const driverName = normalizeDriverDisplayName(row[0]);
+            const driverName = normalizeDriverDisplayName(row[driverColIdx]);
             if (!driverName) continue;
 
             const driverRow = { driverName, byIsoDate: new Map() };

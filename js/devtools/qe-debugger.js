@@ -374,6 +374,12 @@
         clearRndBtn.innerHTML = diceIconSvg() + '<span>clear rnd</span>';
         dom.clearRndBtn = clearRndBtn;
 
+        const welcomeToggleBtn = document.createElement('button');
+        welcomeToggleBtn.className = 'btn btn--ghost';
+        welcomeToggleBtn.type = 'button';
+        dom.welcomeToggleBtn = welcomeToggleBtn;
+        updateWelcomeToggleButton();
+
         const closeBtn = document.createElement('button');
         closeBtn.className = 'btn btn--ghost';
         closeBtn.type = 'button';
@@ -381,6 +387,7 @@
         closeBtn.innerHTML = closeIconSvg();
         dom.closeBtn = closeBtn;
 
+        actions.appendChild(welcomeToggleBtn);
         actions.appendChild(clearBtn);
         actions.appendChild(clearDbBtn);
         actions.appendChild(clearRndBtn);
@@ -413,6 +420,7 @@
 
         fab.addEventListener('click', () => setOpen(!state.open));
         closeBtn.addEventListener('click', () => setOpen(false));
+        welcomeToggleBtn.addEventListener('click', () => toggleWelcomeScreenSetting());
         clearBtn.addEventListener('click', onClearClick);
         clearDbBtn.addEventListener('click', onClearDbClick);
         clearRndBtn.addEventListener('click', onClearRndClick);
@@ -733,6 +741,40 @@
 
     function diceIconSvg() {
         return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Zm0 2v10h10V5H7Zm1.5 1.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm-3.5 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm-3.5 3.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>`;
+    }
+
+    function isSkipWelcomeActive() {
+        try { return localStorage.getItem('qe_skip_welcome') === 'true'; } catch { return false; }
+    }
+
+    function updateWelcomeToggleButton() {
+        if (!dom.welcomeToggleBtn) return;
+        const skip = isSkipWelcomeActive();
+        dom.welcomeToggleBtn.setAttribute('aria-label', skip ? 'Włącz ekran powitalny' : 'Wyłącz ekran powitalny');
+        dom.welcomeToggleBtn.innerHTML = welcomeIconSvg() + `<span>Welcome: ${skip ? 'WYŁ' : 'WŁ'}</span>`;
+        dom.welcomeToggleBtn.style.borderColor = skip ? 'rgba(255, 107, 107, 0.45)' : 'rgba(0, 255, 65, 0.45)';
+    }
+
+    function toggleWelcomeScreenSetting() {
+        try {
+            const current = isSkipWelcomeActive();
+            const next = !current;
+            localStorage.setItem('qe_skip_welcome', next ? 'true' : 'false');
+            if (next) {
+                document.documentElement.classList.add('qe-skip-welcome');
+            } else {
+                document.documentElement.classList.remove('qe-skip-welcome');
+            }
+            updateWelcomeToggleButton();
+            showToast(next ? 'Ekran powitalny: WYŁ (pomijany)' : 'Ekran powitalny: WŁ');
+            push('dev_toggle_welcome', { skipWelcome: next }, 'INFO');
+        } catch (err) {
+            showToast('Błąd zapisu ustawienia');
+        }
+    }
+
+    function welcomeIconSvg() {
+        return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>`;
     }
 
     function checkIconSvg() {

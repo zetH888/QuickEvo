@@ -1,4 +1,17 @@
 /**
+ * Wczesna weryfikacja opcji pomijania ekranu powitalnego.
+ * Wykonywana synchronicznie podczas parsowania sekcji <head>,
+ * zapobiegając ułamkowemu mignięciu (flash) ekranu powitalnego przed wyrenderowaniem <body>.
+ */
+(function earlyBootWelcomeCheck() {
+    try {
+        if (localStorage.getItem('qe_skip_welcome') === 'true') {
+            document.documentElement.classList.add('qe-skip-welcome');
+        }
+    } catch { }
+})();
+
+/**
  * Warunkowo doładowuje narzędzia developerskie uruchamiane wyłącznie po flagach URL.
  *
  * Cel:

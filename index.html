@@ -64,9 +64,24 @@
                         </a>
                     </div>
                     <nav class="primary-nav" aria-label="Główna nawigacja">
-                        <button id="nav-routes-button" class="primary-nav-button" type="button">TRASY</button>
-                        <button id="nav-drivers-button" class="primary-nav-button" type="button">PRACOWNICY</button>
-                        <button id="nav-schedule-button" class="primary-nav-button" type="button">GRAFIK</button>
+                        <button id="nav-routes-button" class="primary-nav-button" type="button">
+                            <svg class="primary-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/>
+                            </svg>
+                            <span class="primary-nav-label">TRASY</span>
+                        </button>
+                        <button id="nav-drivers-button" class="primary-nav-button" type="button">
+                            <svg class="primary-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
+                            </svg>
+                            <span class="primary-nav-label">PRACOWNICY</span>
+                        </button>
+                        <button id="nav-schedule-button" class="primary-nav-button" type="button">
+                            <svg class="primary-nav-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M19 4h-2V2h-2v2H9V2H7v2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V9h14v11z"/>
+                            </svg>
+                            <span class="primary-nav-label">GRAFIK</span>
+                        </button>
                     </nav>
                 </div>
                 <div class="toolbar">
@@ -163,9 +178,23 @@
 
             <div id="schedule-view" class="view-transition view-hidden">
                 <div class="schedule-toolbar" aria-label="Pasek narzędzi grafiku">
-                    <!-- Wiersz 1: Przycisk Powrót (lewa strona) oraz Przycisk Wyczyść Filtry (prawa strona) -->
+                    <!-- Wiersz 1: Przycisk Powrót (lewa), Nawigacja po dniach (środek), Przycisk Wyczyść Filtry (prawa) -->
                     <div class="schedule-toolbar-top-row">
                         <button id="back-to-search-from-schedule" class="btn-secondary schedule-back-btn" type="button">← Powrót</button>
+
+                        <div class="schedule-day-nav" role="group" aria-label="Nawigacja po dniach grafiku">
+                            <button id="schedule-prev-month" class="schedule-day-btn" type="button" aria-label="Poprzedni dzień" title="Poprzedni dzień">
+                                <svg class="schedule-day-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+                                </svg>
+                            </button>
+                            <button id="schedule-today" class="schedule-day-btn schedule-day-btn--today" type="button" aria-label="Przejdź do dzisiejszego dnia">Dziś</button>
+                            <button id="schedule-next-month" class="schedule-day-btn" type="button" aria-label="Następny dzień" title="Następny dzień">
+                                <svg class="schedule-day-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 4l-1.41 1.41L16.17 11H4v2h12.17l-5.58 5.59L12 20l8-8z"/>
+                                </svg>
+                            </button>
+                        </div>
 
                         <button id="schedule-clear-filters" class="schedule-nav-btn schedule-nav-btn--ghost" type="button" aria-label="Wyczyść filtry grafiku" title="Wyczyść filtry">
                             <span class="schedule-clear-text">Wyczyść</span>

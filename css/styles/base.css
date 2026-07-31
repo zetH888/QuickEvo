@@ -61,6 +61,35 @@ body::-webkit-scrollbar {
     pointer-events: none;
 }
 
+/* Płynna animacja pojawiania się (fade-in) od 1. klatki bez zakłócania kontekstu position: fixed dolnej nawigacji */
+@keyframes qeFadeIn {
+    0% {
+        opacity: 0;
+    }
+    100% {
+        opacity: 1;
+    }
+}
+
+/* Natychmiastowe ukrycie nakładki powitalnej przy qe_skip_welcome + płynny fade-in przy starcie */
+html.qe-skip-welcome #loading-overlay {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+html.qe-skip-welcome #app-shell {
+    animation: qeFadeIn 0.4s ease-out forwards;
+    pointer-events: auto;
+}
+
+html.qe-skip-welcome .app-shell-hidden {
+    filter: none;
+    opacity: 1;
+    pointer-events: auto;
+}
+
 /* Przejścia między widokami */
 .view-transition {
     opacity: 1;

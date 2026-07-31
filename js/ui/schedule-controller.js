@@ -1014,15 +1014,27 @@ function createScheduleGrid(cfg = {}) {
 
     /**
      * Ustawia stan disabled dla przycisków nawigacji dziennej i akcji `Dziś`.
+     * Uwzględnia możliwości przełączania na sąsiednie miesiące przy granicach.
      */
     function updateDayNavButtons() {
         const days = getVisibleDays();
-        if (prevDayBtn) prevDayBtn.disabled = state.selectedDayIndex <= 0 || days.length === 0;
-        if (nextDayBtn) nextDayBtn.disabled = state.selectedDayIndex < 0 || state.selectedDayIndex >= (days.length - 1);
+        const availableKeys = state.availableMonths.map(m => String(m?.key || '')).filter(Boolean).sort();
+        const currentMonthIdx = availableKeys.indexOf(state.current.key);
+
+        if (prevDayBtn) {
+            const canGoPrev = state.selectedDayIndex > 0 || currentMonthIdx > 0;
+            prevDayBtn.disabled = !canGoPrev || days.length === 0;
+        }
+        if (nextDayBtn) {
+            const canGoNext = (state.selectedDayIndex >= 0 && state.selectedDayIndex < days.length - 1) || (currentMonthIdx >= 0 && currentMonthIdx < availableKeys.length - 1);
+            nextDayBtn.disabled = !canGoNext || days.length === 0;
+        }
 
         if (todayBtn) {
-            const currentMonthExists = state.availableMonths.some(item => String(item?.key || '') === buildIsoDate(new Date().getFullYear(), new Date().getMonth() + 1, 1).slice(0, 7));
-            todayBtn.disabled = !currentMonthExists;
+            const now = new Date();
+            const todayMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            const todayMonthExists = state.availableMonths.some(item => String(item?.key || '') === todayMonthKey);
+            todayBtn.disabled = !todayMonthExists;
         }
     }
 
@@ -1515,6 +1527,68 @@ function createScheduleGrid(cfg = {}) {
     }
 
     /**
+     * Nawiguje do poprzedniego dnia w grafiku.
+     * Na 1. dniu miesiąca (granica) automatycznie przełącza na ostatni dzień poprzedniego miesiąca (jeśli dostępny).
+     */
+    function navigateToPrevDay() {
+        const days = getVisibleDays();
+        if (!days.length) return;
+
+        const currentIndex = state.selectedDayIndex;
+        if (currentIndex > 0) {
+            const prevDay = days[currentIndex - 1];
+            if (prevDay?.isoDate) setSelectedDay(prevDay.isoDate, { shouldScroll: true });
+            return;
+        }
+
+        const availableKeys = state.availableMonths.map(m => String(m?.key || '')).filter(Boolean).sort();
+        const currentMonthIdx = availableKeys.indexOf(state.current.key);
+
+        if (currentMonthIdx > 0) {
+            const prevMonthKey = availableKeys[currentMonthIdx - 1];
+            const meta = parseYearMonth(prevMonthKey);
+            if (!meta) return;
+            const prevTable = getMonthScheduleTable(meta.year, meta.month);
+            const lastDayIso = Array.isArray(prevTable?.days) && prevTable.days.length > 0
+                ? String(prevTable.days[prevTable.days.length - 1]?.isoDate || '')
+                : '';
+
+            setMonthByKey(prevMonthKey, { selectedIsoDate: lastDayIso, scrollBehavior: 'smooth' });
+        }
+    }
+
+    /**
+     * Nawiguje do następnego dnia w grafiku.
+     * Na ostatnim dniu miesiąca (granica) automatycznie przełącza na 1. dzień następnego miesiąca (jeśli dostępny).
+     */
+    function navigateToNextDay() {
+        const days = getVisibleDays();
+        if (!days.length) return;
+
+        const currentIndex = state.selectedDayIndex;
+        if (currentIndex >= 0 && currentIndex < days.length - 1) {
+            const nextDay = days[currentIndex + 1];
+            if (nextDay?.isoDate) setSelectedDay(nextDay.isoDate, { shouldScroll: true });
+            return;
+        }
+
+        const availableKeys = state.availableMonths.map(m => String(m?.key || '')).filter(Boolean).sort();
+        const currentMonthIdx = availableKeys.indexOf(state.current.key);
+
+        if (currentMonthIdx >= 0 && currentMonthIdx < availableKeys.length - 1) {
+            const nextMonthKey = availableKeys[currentMonthIdx + 1];
+            const meta = parseYearMonth(nextMonthKey);
+            if (!meta) return;
+            const nextTable = getMonthScheduleTable(meta.year, meta.month);
+            const firstDayIso = Array.isArray(nextTable?.days) && nextTable.days.length > 0
+                ? String(nextTable.days[0]?.isoDate || '')
+                : '';
+
+            setMonthByKey(nextMonthKey, { selectedIsoDate: firstDayIso, scrollBehavior: 'smooth' });
+        }
+    }
+
+    /**
      * Obsługuje kliknięcia w nagłówku i treści tabeli.
      *
      * @param {MouseEvent} event
@@ -1735,7 +1809,8 @@ function createScheduleGrid(cfg = {}) {
         driverFilterToggleBtn?.addEventListener?.('click', () => {
             const shouldOpen = state.openDropdown !== 'driver';
             toggleFilterDropdown('driver');
-            if (shouldOpen) driverFilterInput?.focus();
+            // Nadajemy focus tylko w widoku desktopowym, aby na urządzeniach mobilnych klawiatura nie przysłaniała opcji
+            if (shouldOpen && !isCompactScheduleLayout()) driverFilterInput?.focus();
         });
 
         routeFilterInput?.addEventListener?.('input', () => {
@@ -1760,7 +1835,8 @@ function createScheduleGrid(cfg = {}) {
         routeFilterToggleBtn?.addEventListener?.('click', () => {
             const shouldOpen = state.openDropdown !== 'route';
             toggleFilterDropdown('route');
-            if (shouldOpen) routeFilterInput?.focus();
+            // Nadajemy focus tylko w widoku desktopowym, aby na urządzeniach mobilnych klawiatura nie przysłaniała opcji
+            if (shouldOpen && !isCompactScheduleLayout()) routeFilterInput?.focus();
         });
 
         monthOptionsEl?.addEventListener?.('click', handleFilterOptionClick);
@@ -1769,6 +1845,18 @@ function createScheduleGrid(cfg = {}) {
 
         clearFiltersBtn?.addEventListener?.('click', () => {
             clearScheduleFilters();
+        });
+
+        prevDayBtn?.addEventListener?.('click', () => {
+            navigateToPrevDay();
+        });
+
+        nextDayBtn?.addEventListener?.('click', () => {
+            navigateToNextDay();
+        });
+
+        todayBtn?.addEventListener?.('click', () => {
+            goToday();
         });
 
         document.addEventListener('pointerdown', (event) => {
