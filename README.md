@@ -154,7 +154,7 @@ QuickEvo/
 │   │   │   ├── drive-changes-modal.js
 │   │   │   └── xlsx-diff-modal.js
 │   │   ├── import/
-   │   │   └── import-summary-renderer.js
+|   │   │   └── import-summary-renderer.js
 │   │   ├── loading/
 │   │   │   ├── loading-overlay-dom.js
 │   │   │   ├── loading-progress-controller.js
@@ -163,7 +163,7 @@ QuickEvo/
 │   │   │   ├── welcome-loading-overlay-controller.js
 │   │   │   └── welcome-progress-renderer.js
 │   │   ├── logo/
-   │   │   └── quickevo-logo.js
+|   │   │   └── quickevo-logo.js
 │   │   ├── preview/
 │   │   │   ├── modal-controller.js
 │   │   │   ├── preview-controller.js
