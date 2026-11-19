@@ -165,12 +165,12 @@ let googleDriveSyncBusyLocks = 0;
 /**
  * Stały folder Google Drive z plikami grafiku.
  */
-const DRIVE_SCHEDULE_FOLDER_ID = '10m4VzgbWqLy3U5V4lP_e-TN-vZVCyhGj';
+const DRIVE_SCHEDULE_FOLDER_ID = '1yxiZyFK7fgOjEhC6cvbn_U4l9gLO9QBp';
 
 /**
  * Stały identyfikator pliku Google Drive z kontaktami kierowców.
  */
-const DRIVE_DRIVER_CONTACTS_FILE_ID = '1Er4pGFK3_5_nsAPKO5xgyWfgO1UUoYws';
+const DRIVE_DRIVER_CONTACTS_FILE_ID = '1wYHgVlI1t9tWFouu_d99dYFCbX3UI_GO';
 
 /**
  * Stały identyfikator pliku Google Drive z rejestracjami pojazdów kierowców.
