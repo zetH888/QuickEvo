@@ -22,65 +22,66 @@ function daysInMonth(year, month) {
     return new Date(y, m, 0).getDate();
 }
 
-/**
- * Parsuje datę w formacie ISO (YYYY-MM-DD) bez użycia `Date`, aby uniknąć problemów ze strefami czasowymi.
- *
- * @param {string} isoDate
- * @returns {{ year: number, month: number, day: number, key: string, iso: string } | null}
- */
 function parseIsoDateStrict(isoDate) {
     const raw = String(isoDate ?? '').trim();
-    const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return null;
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
 
-    const year = Number(m[1]);
-    const month = Number(m[2]);
-    const day = Number(m[3]);
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
     if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
     if (!Number.isInteger(month) || month < 1 || month > 12) return null;
-    const maxDays = daysInMonth(year, month);
-    if (!Number.isInteger(day) || day < 1 || day > maxDays) return null;
+    if (!Number.isInteger(day) || day < 1 || day > daysInMonth(year, month)) return null;
 
     const iso = isoDateFromParts(year, month, day);
     const key = scheduleMonthKey(year, month);
-    if (!iso || !key) return null;
-
-    return { year, month, day, key, iso };
+    return iso && key ? { year, month, day, key, iso } : null;
 }
 
 function getDefaultRouteScheduleConfig() {
-    const cfg = globalThis.QE_RouteScheduleConfig;
-    if (cfg && typeof cfg === 'object') return cfg;
-    return {
-        monthsPl: {},
-        standard: [],
-        wieczorek: [],
-        sobota: [],
-        niedziela: [],
-        dayMarkers: [],
-        normalizeScheduleToken: (t) => String(t ?? '').trim().toUpperCase()
-    };
+    return globalThis.QE_RouteScheduleConfig && typeof globalThis.QE_RouteScheduleConfig === 'object'
+        ? globalThis.QE_RouteScheduleConfig
+        : {
+            monthsPl: {},
+            standard: [],
+            wieczorek: [],
+            sobota: [],
+            niedziela: [],
+            dayMarkers: [],
+            normalizeScheduleToken: (token) => String(token ?? '').trim().toUpperCase()
+        };
 }
 
 export function createScheduleService(cfg = {}) {
-    const fuzzyNormalizeText = typeof cfg?.fuzzyNormalizeText === 'function' ? cfg.fuzzyNormalizeText : ((t) => String(t ?? '').toLowerCase());
-    const readWorkbook = typeof cfg?.readWorkbook === 'function' ? cfg.readWorkbook : (async () => { throw new Error('Brak readWorkbook'); });
-    const sheetToMatrix = typeof cfg?.sheetToMatrix === 'function' ? cfg.sheetToMatrix : (() => { throw new Error('Brak sheetToMatrix'); });
+    const fuzzyNormalizeText = typeof cfg?.fuzzyNormalizeText === 'function'
+        ? cfg.fuzzyNormalizeText
+        : ((text) => String(text ?? '').toLowerCase());
+    const readWorkbook = typeof cfg?.readWorkbook === 'function'
+        ? cfg.readWorkbook
+        : (async () => { throw new Error('Brak readWorkbook'); });
+    const sheetToMatrix = typeof cfg?.sheetToMatrix === 'function'
+        ? cfg.sheetToMatrix
+        : (() => { throw new Error('Brak sheetToMatrix'); });
     const getBlob = typeof cfg?.getBlob === 'function' ? cfg.getBlob : (async () => null);
     const listFiles = typeof cfg?.listFiles === 'function' ? cfg.listFiles : (async () => []);
     const getRouteCatalog = typeof cfg?.getRouteCatalog === 'function' ? cfg.getRouteCatalog : (async () => new Map());
-    const logAction = typeof cfg?.logAction === 'function' ? cfg.logAction : (() => { });
-    const getRouteScheduleConfig = typeof cfg?.getRouteScheduleConfig === 'function' ? cfg.getRouteScheduleConfig : getDefaultRouteScheduleConfig;
+    const logAction = typeof cfg?.logAction === 'function' ? cfg.logAction : (() => {});
+    const getRouteScheduleConfig = typeof cfg?.getRouteScheduleConfig === 'function'
+        ? cfg.getRouteScheduleConfig
+        : getDefaultRouteScheduleConfig;
 
     let scheduleCacheByMonth = new Map();
     let loadedScheduleFiles = new Set();
 
-    /**
-     * Normalizuje kod trasy do postaci używanej w cache (kompakt: bez spacji, ujednolicone myślniki).
-     *
-     * @param {unknown} value
-     * @returns {string}
-     */
+    function normalizeScheduleRouteCode(value) {
+        const config = getRouteScheduleConfig();
+        const token = config.normalizeScheduleToken
+            ? config.normalizeScheduleToken(value)
+            : String(value ?? '').trim().toUpperCase();
+        return String(token || '').trim().toUpperCase();
+    }
+
     function normalizeScheduleRouteCodeForLookup(value) {
         return normalizeScheduleRouteCode(value)
             .replace(/\s+/g, '')
@@ -89,37 +90,18 @@ export function createScheduleService(cfg = {}) {
             .toUpperCase();
     }
 
-    /**
-     * Pobiera wpis cache dla konkretnego miesiąca (YYYY-MM), jeśli został wczytany.
-     *
-     * @param {number} year
-     * @param {number} month
-     * @returns {{ key: string, year: number, month: number, fileName: string, byIsoDate: Map<string, Map<string, Set<string>>>, derived?: any } | null}
-     */
     function getMonthCache(year, month) {
         const key = scheduleMonthKey(year, month);
         if (!key) return null;
         const cache = scheduleCacheByMonth.get(key);
-        if (!cache || !(cache.byIsoDate instanceof Map)) return null;
-        return cache;
+        return cache && cache.byIsoDate instanceof Map ? cache : null;
     }
 
-    /**
-     * Tworzy lub zwraca indeks pochodny dla miesiąca (unikamy wielokrotnego sortowania i agregacji).
-     *
-     * Struktura:
-     * - routesSorted: string[]
-     * - dayRoutesSortedByIso: Map<string, string[]>
-     *
-     * @param {any} monthCache
-     * @returns {{ routesSorted: string[], dayRoutesSortedByIso: Map<string, string[]> }}
-     */
     function ensureMonthDerivedIndex(monthCache) {
         if (!monthCache || !(monthCache.byIsoDate instanceof Map)) {
             return { routesSorted: [], dayRoutesSortedByIso: new Map() };
         }
-
-        if (monthCache.derived && monthCache.derived.routesSorted && monthCache.derived.dayRoutesSortedByIso) {
+        if (monthCache.derived?.routesSorted && monthCache.derived?.dayRoutesSortedByIso) {
             return monthCache.derived;
         }
 
@@ -131,25 +113,19 @@ export function createScheduleService(cfg = {}) {
             const routeList = Array.from(byRoute.keys()).filter(Boolean);
             routeList.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
             dayRoutesSortedByIso.set(iso, routeList);
-            for (const r of routeList) routes.add(r);
+            for (const route of routeList) routes.add(route);
         }
 
         const routesSorted = Array.from(routes);
         routesSorted.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-
         monthCache.derived = { routesSorted, dayRoutesSortedByIso };
         return monthCache.derived;
-    }
-
-    function normalizeScheduleRouteCode(value) {
-        const c = getRouteScheduleConfig();
-        const token = c.normalizeScheduleToken ? c.normalizeScheduleToken(value) : String(value ?? '').trim().toUpperCase();
-        return String(token || '').trim().toUpperCase();
     }
 
     function parseScheduleFileNameYearMonth(fileName) {
         const name = String(fileName || '').trim();
         if (!name) return null;
+
         const extMatch = name.toLowerCase().match(/\.(xlsx|xls|csv)$/);
         if (!extMatch) return null;
 
@@ -157,91 +133,59 @@ export function createScheduleService(cfg = {}) {
         const parts = base.split(/\s+/g).filter(Boolean);
         if (parts.length < 3) return null;
 
-        const yearRaw = parts[parts.length - 1];
+        const year = Number(parts[parts.length - 1]);
         const monthRaw = parts[parts.length - 2];
-        const year = Number(yearRaw);
         if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
 
-        const c = getRouteScheduleConfig();
+        const config = getRouteScheduleConfig();
         const monthKey = String(fuzzyNormalizeText(monthRaw) || '').toUpperCase();
-        const month = Number(c.monthsPl?.[monthKey]);
+        const month = Number(config.monthsPl?.[monthKey]);
         if (!Number.isInteger(month) || month < 1 || month > 12) return null;
 
-        const displayLabel = `${String(monthRaw || '').toUpperCase()} ${String(yearRaw || '').trim()}`;
+        const displayLabel = `${String(monthRaw || '').toUpperCase()} ${String(parts[parts.length - 1] || '').trim()}`;
         return { year, month, key: scheduleMonthKey(year, month), displayLabel, fileName: name };
+    }
+
+    function parseScheduleFileNameYearMonthStrictXlsx(fileName) {
+        const name = String(fileName || '').trim();
+        if (!name || !/\.xlsx$/i.test(name)) return null;
+        return parseScheduleFileNameYearMonth(name);
     }
 
     function isScheduleFileName(fileName) {
         return Boolean(parseScheduleFileNameYearMonth(fileName));
     }
 
-    /**
-     * Wariant „ściśle .xlsx” dla wymagań grafiku pobieranego z Google Drive.
-     *
-     * @param {string} fileName
-     * @returns {{ year: number, month: number, key: string } | null}
-     */
-    function parseScheduleFileNameYearMonthStrictXlsx(fileName) {
-        const name = String(fileName || '').trim();
-        if (!name) return null;
-        if (!/\.xlsx$/i.test(name)) return null;
-        return parseScheduleFileNameYearMonth(name);
-    }
-
-    /**
-     * Sprawdza, czy nazwa pasuje do schematu „MIASTO MIESIĄC ROK.xlsx”.
-     *
-     * @param {string} fileName
-     * @returns {boolean}
-     */
     function isScheduleXlsxFileName(fileName) {
         return Boolean(parseScheduleFileNameYearMonthStrictXlsx(fileName));
     }
 
-    /**
-     * Wybiera nazwę pliku grafiku dla konkretnego miesiąca/roku.
-     * Jeśli istnieje wiele dopasowań, zwraca deterministycznie pierwszy wg sortowania PL.
-     *
-     * @param {string[]} fileNames
-     * @param {{ year: number, month: number, strictXlsx?: boolean }} opts
-     * @returns {string}
-     */
     function selectScheduleFileNameForYearMonth(fileNames, { year, month, strictXlsx = false } = {}) {
         const y = Number(year);
         const m = Number(month);
         if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return '';
 
-        const list = Array.isArray(fileNames) ? fileNames.map(n => String(n ?? '').trim()).filter(Boolean) : [];
         const candidates = [];
-        for (const name of list) {
-            const meta = strictXlsx ? parseScheduleFileNameYearMonthStrictXlsx(name) : parseScheduleFileNameYearMonth(name);
-            if (!meta) continue;
-            if (meta.year === y && meta.month === m) candidates.push(name);
+        const list = Array.isArray(fileNames) ? fileNames : [];
+        for (const fileName of list) {
+            const name = String(fileName ?? '').trim();
+            if (!name) continue;
+            const meta = strictXlsx
+                ? parseScheduleFileNameYearMonthStrictXlsx(name)
+                : parseScheduleFileNameYearMonth(name);
+            if (meta?.year === y && meta?.month === m) candidates.push(name);
         }
-        if (candidates.length === 0) return '';
+
         candidates.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-        return candidates[0];
+        return candidates[0] || '';
     }
 
-    /**
-     * Buduje zestawy pomocnicze do parsowania komórek grafiku.
-     *
-     * Kategorie tras nie pochodzą już z zamkniętej konfiguracji kodów, tylko z katalogu
-     * tras dostępnych w IndexedDB (zasilanego metadanymi folderów z Google Drive).
-     *
-     * @param {Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>} routeCatalog
-     * @returns {{
-     *   routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>,
-     *   markersSet: Set<string>,
-     *   markerDisplayCodes: Map<string, string>,
-     *   fallbackRouteCategories: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
-     * }}
-     */
     function buildScheduleTokenSets(routeCatalog) {
-        const c = getRouteScheduleConfig();
+        const config = getRouteScheduleConfig();
         const markerDisplayCodes = new Map();
         const markersSet = new Set();
-        for (const marker of (c.dayMarkers || [])) {
+
+        for (const marker of (config.dayMarkers || [])) {
             const normalizedMarker = normalizeScheduleRouteCode(marker);
             if (!normalizedMarker) continue;
             markersSet.add(normalizedMarker);
@@ -250,20 +194,18 @@ export function createScheduleService(cfg = {}) {
 
         const fallbackRouteCategories = new Map();
         const registerFallbackRoutes = (codes, category) => {
-            const list = Array.isArray(codes) ? codes : [];
-            const safeCategory = String(category || '').trim();
-            if (!safeCategory) return;
-            for (const code of list) {
+            for (const code of (Array.isArray(codes) ? codes : [])) {
                 const normalizedCode = normalizeScheduleRouteCodeForLookup(code);
-                if (!normalizedCode || fallbackRouteCategories.has(normalizedCode)) continue;
-                fallbackRouteCategories.set(normalizedCode, /** @type {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'} */ (safeCategory));
+                if (normalizedCode && !fallbackRouteCategories.has(normalizedCode)) {
+                    fallbackRouteCategories.set(normalizedCode, category);
+                }
             }
         };
 
-        registerFallbackRoutes(c.standard, 'STANDARD');
-        registerFallbackRoutes(c.wieczorek, 'WIECZOREK');
-        registerFallbackRoutes(c.sobota, 'SOBOTA');
-        registerFallbackRoutes(c.niedziela, 'NIEDZIELA');
+        registerFallbackRoutes(config.standard, 'STANDARD');
+        registerFallbackRoutes(config.wieczorek, 'WIECZOREK');
+        registerFallbackRoutes(config.sobota, 'SOBOTA');
+        registerFallbackRoutes(config.niedziela, 'NIEDZIELA');
 
         return {
             routeCatalog: routeCatalog instanceof Map ? routeCatalog : new Map(),
@@ -273,92 +215,84 @@ export function createScheduleService(cfg = {}) {
         };
     }
 
-    /**
-     * Wyznacza kategorię zastępczą dla trasy, która nie ma pliku na dysku,
-     * ale nadal powinna być widoczna w grafiku i brać udział w przypisaniach.
-     *
-     * @param {string} token
-     * @param {{
-     *   fallbackRouteCategories?: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
-     * }} sets
-     * @returns {'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'}
-     */
     function inferFallbackRouteCategory(token, sets) {
         const normalized = normalizeScheduleRouteCodeForLookup(token);
-        const fallbackRouteCategories = sets?.fallbackRouteCategories instanceof Map
+        const fallback = sets?.fallbackRouteCategories instanceof Map
             ? sets.fallbackRouteCategories
             : new Map();
-        const fromConfig = fallbackRouteCategories.get(normalized);
+        const fromConfig = fallback.get(normalized);
         if (fromConfig) return fromConfig;
-        if (/^S-\d+$/i.test(normalized)) return 'SOBOTA';
-        if (/^N-\d+$/i.test(normalized)) return 'NIEDZIELA';
+        if (/^S-\d+$/.test(normalized)) return 'SOBOTA';
+        if (/^N-\d+$/.test(normalized)) return 'NIEDZIELA';
         return 'STANDARD';
     }
 
-    /**
-     * Klasyfikuje pojedynczy token z grafiku (trasa lub marker).
-     *
-     * @param {string} token
-     * @param {{
-     *   routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>,
-     *   markersSet: Set<string>,
-     *   markerDisplayCodes?: Map<string, string>,
-     *   fallbackRouteCategories?: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
-     * }} sets
-     * @returns {{ kind: 'route'|'marker', code: string, category?: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' } | null}
-     */
     function classifyScheduleToken(token, sets) {
-        const tok = String(token || '').trim();
-        if (!tok) return null;
-        if (sets.markersSet.has(tok)) {
-            const markerCode = sets?.markerDisplayCodes?.get?.(tok) || tok;
-            return { kind: 'marker', code: markerCode };
+        const value = String(token || '').trim();
+        if (!value) return null;
+
+        if (sets.markersSet.has(value)) {
+            return {
+                kind: 'marker',
+                code: sets.markerDisplayCodes?.get(value) || value
+            };
         }
-        const routeMeta = sets.routeCatalog.get(normalizeScheduleRouteCodeForLookup(tok));
+
+        const routeMeta = sets.routeCatalog.get(normalizeScheduleRouteCodeForLookup(value));
         if (routeMeta?.code && routeMeta?.category) {
             return { kind: 'route', code: routeMeta.code, category: routeMeta.category };
         }
-        return { kind: 'route', code: tok, category: inferFallbackRouteCategory(tok, sets) };
+
+        return {
+            kind: 'route',
+            code: value,
+            category: inferFallbackRouteCategory(value, sets)
+        };
     }
 
-    /**
-     * Wyciąga z komórki grafiku uporządkowaną listę kandydatów na tokeny.
-     *
-     * Parser toleruje typowe separatory (`/`, przecinki, średniki, spacje)
-     * oraz zachowuje kody specjalne typu `*P`, `*D`, `UŻ`, `Dk`.
-     *
-     * @param {unknown} cellValue
-     * @returns {string[]}
-     */
     function extractScheduleCellCandidates(cellValue) {
         const raw = cellValue === null || cellValue === undefined ? '' : String(cellValue);
-        const cleaned = normalizeScheduleRouteCode(raw);
+        const cleaned = normalizeScheduleRouteCode(raw)
+            .replace(/[–—]/g, '-')
+            .replace(/\s*-\s*/g, '-')
+            .replace(/\s*\/\s*/g, '/')
+            .trim();
         if (!cleaned) return [];
-        return (cleaned.match(/\*[A-ZĄĆĘŁŃÓŚŹŻ]+|[A-ZĄĆĘŁŃÓŚŹŻ]+-\d+|[A-ZĄĆĘŁŃÓŚŹŻ]+|\d+/gu) || [])
-            .map((token) => normalizeScheduleRouteCode(token))
-            .filter(Boolean);
+
+        // Slash is the route separator. It is never used inside a route code.
+        // Ł1 remains one alphanumeric candidate; Ł/1 produces Ł and 1.
+        const segments = cleaned.split('/').filter((segment) => String(segment).trim());
+        const candidates = [];
+
+        for (const segment of segments) {
+            const compact = String(segment).trim()
+                .replace(/\s+/g, ' ')
+                .replace(/\s*-\s*/g, '-');
+
+            const matches = compact.match(
+                /\*[A-ZĄĆĘŁŃÓŚŹŻ]+|[A-ZĄĆĘŁŃÓŚŹŻ]+\d+|[A-ZĄĆĘŁŃÓŚŹŻ]+-\d+|[A-ZĄĆĘŁŃÓŚŹŻ]+|\d+/gu
+            ) || [];
+
+            for (const match of matches) {
+                const token = normalizeScheduleRouteCode(match);
+                if (token) candidates.push(token);
+            }
+        }
+
+        return candidates;
     }
 
-    /**
-     * Parsuje zawartość komórki grafiku do listy tokenów w zachowanej kolejności (trasy + markery).
-     *
-     * @param {unknown} cellValue
-     * @param {{
-     *   routeCatalog: Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>,
-     *   markersSet: Set<string>,
-     *   markerDisplayCodes?: Map<string, string>,
-     *   fallbackRouteCategories?: Map<string, 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA'>
-     * }} tokenSets
-     * @returns {{ kind: 'route'|'marker', code: string, category?: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }[]}
-     */
     function parseScheduleCellToTokens(cellValue, tokenSets) {
-        const sets = tokenSets && typeof tokenSets === 'object' ? tokenSets : buildScheduleTokenSets(new Map());
+        const sets = tokenSets && typeof tokenSets === 'object'
+            ? tokenSets
+            : buildScheduleTokenSets(new Map());
         const parts = extractScheduleCellCandidates(cellValue);
 
         const out = [];
         const seen = new Set();
-        for (const p of parts) {
-            const normalized = normalizeScheduleRouteCode(p)
+
+        for (const part of parts) {
+            const normalized = normalizeScheduleRouteCode(part)
                 .replace(/\s+/g, '')
                 .replace(/[–—]/g, '-')
                 .replace(/S-?(\d+)/i, 'S-$1')
@@ -366,83 +300,65 @@ export function createScheduleService(cfg = {}) {
                 .trim()
                 .toUpperCase();
             if (!normalized) continue;
+
             const meta = classifyScheduleToken(normalized, sets);
             if (!meta) continue;
+
             const key = `${meta.kind}:${meta.code}:${meta.category || ''}`;
             if (seen.has(key)) continue;
             seen.add(key);
             out.push(Object.freeze(meta));
         }
+
         return out;
     }
 
     function parseScheduleCellToRoutes(cellValue, tokenSets) {
-        const tokens = parseScheduleCellToTokens(cellValue, tokenSets);
-        const routes = tokens
-            .filter((token) => token?.kind === 'route')
-            .map((token) => String(token?.code ?? '').trim())
-            .filter(Boolean);
-        return Array.from(new Set(routes));
+        return Array.from(new Set(
+            parseScheduleCellToTokens(cellValue, tokenSets)
+                .filter((token) => token?.kind === 'route')
+                .map((token) => String(token?.code ?? '').trim())
+                .filter(Boolean)
+        ));
     }
 
-    /**
-     * Wyszukuje w macierzy arkusza wiersz nagłówka oraz wskaźnik kolumny z danymi kierowcy ("IMIE I NAZWISKO").
-     * Ignoruje ewentualne kolumny pomocnicze dodane przed danymi kierowców.
-     *
-     * @param {any[][]} matrix
-     * @returns {{ headerRowIdx: number, driverColIdx: number } | null}
-     */
     function findScheduleHeaderAndDriverCol(matrix) {
         const rows = Array.isArray(matrix) ? matrix : [];
-        for (let i = 0; i < rows.length; i++) {
-            const row = Array.isArray(rows[i]) ? rows[i] : [];
-            for (let col = 0; col < row.length; col++) {
-                const cell = row[col] === null || row[col] === undefined ? '' : String(row[col]);
-                const norm = fuzzyNormalizeText(cell);
-                if (norm.includes('imie') && (norm.includes('nazw') || norm.includes('nazwisko'))) {
-                    return { headerRowIdx: i, driverColIdx: col };
+        for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+            const row = Array.isArray(rows[rowIndex]) ? rows[rowIndex] : [];
+            for (let columnIndex = 0; columnIndex < row.length; columnIndex++) {
+                const normalized = fuzzyNormalizeText(String(row[columnIndex] ?? ''));
+                if (normalized.includes('imie') && (normalized.includes('nazw') || normalized.includes('nazwisko'))) {
+                    return { headerRowIdx: rowIndex, driverColIdx: columnIndex };
                 }
             }
         }
         return null;
     }
 
-    /**
-     * Buduje mapowanie numerów dni (1..31) na indeksy kolumn w arkuszu.
-     * Uwzględnia przesunięcie o kolumnę kierowcy.
-     *
-     * @param {any[]} headerRow
-     * @param {number} [driverColIdx=0]
-     * @returns {Map<number, number>}
-     */
     function buildScheduleDayColumnMap(headerRow, driverColIdx = 0) {
         const row = Array.isArray(headerRow) ? headerRow : [];
         const map = new Map();
-        const startCol = Math.max(1, Number(driverColIdx || 0) + 1);
-        for (let col = startCol; col < row.length; col++) {
-            const cell = row[col];
-            const n = Number(String(cell ?? '').trim());
-            if (Number.isInteger(n) && n >= 1 && n <= 31 && !map.has(n)) map.set(n, col);
+        const startColumn = Math.max(1, Number(driverColIdx || 0) + 1);
+
+        for (let column = startColumn; column < row.length; column++) {
+            const day = Number(String(row[column] ?? '').trim());
+            if (Number.isInteger(day) && day >= 1 && day <= 31 && !map.has(day)) {
+                map.set(day, column);
+            }
         }
         return map;
     }
 
-    function cacheScheduleAssignments({ year, month, key, fileName, byIsoDate, driverRows }) {
-        if (!key) return;
-        scheduleCacheByMonth.set(key, { key, year, month, fileName, byIsoDate, driverRows: Array.isArray(driverRows) ? driverRows : [] });
-    }
-
-    /**
-     * Ładuje katalog tras dostępnych w bazie na potrzeby parsowania grafiku.
-     *
-     * @returns {Promise<Map<string, { code: string, category: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }>>}
-     */
     async function loadRouteCatalogForSchedule() {
         try {
             const catalog = await getRouteCatalog();
             return catalog instanceof Map ? catalog : new Map();
-        } catch (err) {
-            logAction('schedule', { phase: 'route_catalog_failed', message: err?.message ? String(err.message) : 'Błąd katalogu tras' }, 'WARN');
+        } catch (error) {
+            logAction('schedule', {
+                phase: 'route_catalog_failed',
+                message: error?.message ? String(error.message) : 'Błąd katalogu tras'
+            }, 'WARN');
             return new Map();
         }
     }
@@ -450,57 +366,64 @@ export function createScheduleService(cfg = {}) {
     async function parseScheduleSpreadsheet(source, fileName) {
         const meta = parseScheduleFileNameYearMonth(fileName);
         if (!meta) throw new Error('Nieprawidłowa nazwa pliku grafiku');
-        const { year, month, key } = meta;
 
         const workbook = await readWorkbook(source, fileName);
         const firstSheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[firstSheetName];
-        const matrix = sheetToMatrix(worksheet);
-
+        const matrix = sheetToMatrix(workbook.Sheets[firstSheetName]);
         const headerInfo = findScheduleHeaderAndDriverCol(matrix);
         if (!headerInfo) throw new Error('Nie znaleziono wiersza nagłówka grafiku ("IMIE I NAZWISKO")');
 
-        const { headerRowIdx, driverColIdx } = headerInfo;
-        const headerRow = matrix[headerRowIdx];
-        const dayToCol = buildScheduleDayColumnMap(headerRow, driverColIdx);
-        const maxDays = daysInMonth(year, month);
-        const byIsoDate = new Map();
-        const driverRows = [];
+        const dayToColumn = buildScheduleDayColumnMap(
+            matrix[headerInfo.headerRowIdx],
+            headerInfo.driverColIdx
+        );
         const routeCatalog = await loadRouteCatalogForSchedule();
         const tokenSets = buildScheduleTokenSets(routeCatalog);
+        const byIsoDate = new Map();
+        const driverRows = [];
+        const maxDays = daysInMonth(meta.year, meta.month);
 
-        for (let rowIdx = headerRowIdx + 1; rowIdx < matrix.length; rowIdx++) {
-            const row = Array.isArray(matrix[rowIdx]) ? matrix[rowIdx] : [];
-            const driverName = normalizeDriverDisplayName(row[driverColIdx]);
+        for (let rowIndex = headerInfo.headerRowIdx + 1; rowIndex < matrix.length; rowIndex++) {
+            const row = Array.isArray(matrix[rowIndex]) ? matrix[rowIndex] : [];
+            const driverName = normalizeDriverDisplayName(row[headerInfo.driverColIdx]);
             if (!driverName) continue;
 
             const driverRow = { driverName, byIsoDate: new Map() };
+
             for (let day = 1; day <= maxDays; day++) {
-                const col = dayToCol.get(day);
-                if (!Number.isInteger(col)) continue;
-                const tokens = parseScheduleCellToTokens(row[col], tokenSets);
+                const column = dayToColumn.get(day);
+                if (!Number.isInteger(column)) continue;
+
+                const tokens = parseScheduleCellToTokens(row[column], tokenSets);
                 if (tokens.length === 0) continue;
 
-                const iso = isoDateFromParts(year, month, day);
+                const iso = isoDateFromParts(meta.year, meta.month, day);
                 if (!iso) continue;
                 driverRow.byIsoDate.set(iso, tokens);
 
                 if (!byIsoDate.has(iso)) byIsoDate.set(iso, new Map());
                 const byRoute = byIsoDate.get(iso);
-                for (const tok of tokens) {
-                    if (tok?.kind !== 'route') continue;
-                    const routeCode = String(tok.code || '').trim();
+
+                for (const token of tokens) {
+                    if (token?.kind !== 'route') continue;
+                    const routeCode = String(token.code || '').trim();
                     if (!routeCode) continue;
                     if (!byRoute.has(routeCode)) byRoute.set(routeCode, new Set());
-                    const drivers = byRoute.get(routeCode);
-                    if (drivers instanceof Set) drivers.add(driverName);
+                    byRoute.get(routeCode).add(driverName);
                 }
             }
 
             driverRows.push(Object.freeze(driverRow));
         }
 
-        cacheScheduleAssignments({ year, month, key, fileName: String(fileName || ''), byIsoDate, driverRows });
+        scheduleCacheByMonth.set(meta.key, {
+            key: meta.key,
+            year: meta.year,
+            month: meta.month,
+            fileName: String(fileName || ''),
+            byIsoDate,
+            driverRows
+        });
         loadedScheduleFiles.add(String(fileName || '').trim());
     }
 
@@ -521,166 +444,58 @@ export function createScheduleService(cfg = {}) {
     }
 
     async function loadScheduleFiles({ fullReload = false, showProgress = false, onStatusText, formatFileName } = {}) {
-        try {
-            const all = await listFiles();
-            const scheduleFiles = Array.isArray(all)
-                ? all.map(f => String(f?.name ?? '')).filter(n => isScheduleFileName(n))
-                : [];
-            if (scheduleFiles.length === 0) return;
+        const all = await listFiles();
+        const scheduleFiles = Array.isArray(all)
+            ? all.map((record) => String(record?.name ?? '')).filter((name) => isScheduleFileName(name))
+            : [];
 
-            if (fullReload) {
-                scheduleCacheByMonth = new Map();
-                loadedScheduleFiles = new Set();
-            }
+        if (fullReload) {
+            scheduleCacheByMonth = new Map();
+            loadedScheduleFiles = new Set();
+        }
 
-            for (const name of scheduleFiles) {
-                if (!fullReload && loadedScheduleFiles.has(name)) continue;
-                try {
-                    if (showProgress && typeof onStatusText === 'function') {
-                        const label = typeof formatFileName === 'function' ? formatFileName(name) : name;
-                        onStatusText(`Wczytuję grafik: ${label}`);
-                    }
-                    await processScheduleFile(name);
-                } catch (err) {
-                    logAction('schedule', { fileName: name, message: err?.message ? String(err.message) : 'Błąd grafiku' }, 'WARN');
+        for (const name of scheduleFiles) {
+            if (!fullReload && loadedScheduleFiles.has(name)) continue;
+            try {
+                if (showProgress && typeof onStatusText === 'function') {
+                    const label = typeof formatFileName === 'function' ? formatFileName(name) : name;
+                    onStatusText(`Wczytuję grafik: ${label}`);
                 }
+                await processScheduleFile(name);
+            } catch (error) {
+                logAction('schedule', {
+                    fileName: name,
+                    message: error?.message ? String(error.message) : 'Błąd grafiku'
+                }, 'WARN');
             }
-        } catch (err) {
-            logAction('schedule', { phase: 'load_failed', message: err?.message ? String(err.message) : 'Błąd' }, 'WARN');
         }
     }
 
     function getDriverNamesForRouteOnDate(routeCode, date) {
-        const d = date instanceof Date ? date : new Date();
-        const year = d.getFullYear();
-        const month = d.getMonth() + 1;
-        const day = d.getDate();
-        const cache = getMonthCache(year, month);
+        const targetDate = date instanceof Date ? date : new Date();
+        const cache = getMonthCache(targetDate.getFullYear(), targetDate.getMonth() + 1);
         if (!cache) return null;
-        const iso = isoDateFromParts(year, month, day);
+
+        const iso = isoDateFromParts(targetDate.getFullYear(), targetDate.getMonth() + 1, targetDate.getDate());
         const byRoute = cache.byIsoDate.get(iso);
-        if (!byRoute) return null;
+        if (!(byRoute instanceof Map)) return null;
+
         const normalized = normalizeScheduleRouteCodeForLookup(routeCode);
         const drivers = byRoute.get(normalized);
         if (!(drivers instanceof Set) || drivers.size === 0) return null;
+
         const names = Array.from(drivers).map(normalizeDriverDisplayName).filter(Boolean);
         names.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
         return names.length > 0 ? names : null;
     }
 
-    /**
-     * Zwraca listę dni miesiąca wraz z trasami występującymi danego dnia.
-     * Domyślnie zwraca wszystkie dni miesiąca (także puste), aby UI mogło stabilnie renderować kalendarz.
-     * Jeśli dany miesiąc nie został wczytany do cache, zwraca `null`.
-     *
-     * @param {number} year
-     * @param {number} month
-     * @param {{ includeEmptyDays?: boolean }} [opts]
-     * @returns {{ isoDate: string, day: number, routes: string[] }[] | null}
-     */
-    function listMonthDays(year, month, opts = {}) {
-        const y = Number(year);
-        const m = Number(month);
-        if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return null;
-
-        const includeEmptyDays = opts?.includeEmptyDays !== false;
-        const monthCache = getMonthCache(y, m);
-        if (!monthCache) return null;
-        const derived = ensureMonthDerivedIndex(monthCache);
-        const maxDays = daysInMonth(y, m);
-
-        const out = [];
-        for (let day = 1; day <= maxDays; day++) {
-            const iso = isoDateFromParts(y, m, day);
-            if (!iso) continue;
-
-            const routes = derived?.dayRoutesSortedByIso?.get(iso) ?? [];
-            if (!includeEmptyDays && routes.length === 0) continue;
-
-            out.push(Object.freeze({ isoDate: iso, day, routes: Object.freeze([...routes]) }));
-        }
-
-        return Object.freeze(out);
-    }
-
-    /**
-     * Zwraca unikalną, posortowaną listę tras występujących w grafiku dla danego miesiąca.
-     *
-     * @param {number} year
-     * @param {number} month
-     * @returns {string[] | null}
-     */
-    function listMonthRoutes(year, month) {
-        const y = Number(year);
-        const m = Number(month);
-        if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return null;
-        const monthCache = getMonthCache(y, m);
-        if (!monthCache) return null;
-        const derived = ensureMonthDerivedIndex(monthCache);
-        return Object.freeze([...derived.routesSorted]);
-    }
-
-    /**
-     * Zwraca trasy (posortowane) dla konkretnego dnia w formacie ISO (YYYY-MM-DD).
-     *
-     * @param {string} isoDate
-     * @returns {string[] | null}
-     */
-    function listDayRoutes(isoDate) {
-        const parsed = parseIsoDateStrict(isoDate);
-        if (!parsed) return null;
-        const monthCache = getMonthCache(parsed.year, parsed.month);
-        if (!monthCache) return null;
-        const derived = ensureMonthDerivedIndex(monthCache);
-        const routes = derived.dayRoutesSortedByIso.get(parsed.iso) ?? [];
-        return Object.freeze([...routes]);
-    }
-
-    /**
-     * Zwraca listę przypisań (trasa -> kierowcy) dla konkretnego dnia w formacie ISO (YYYY-MM-DD).
-     *
-     * @param {string} isoDate
-     * @returns {{ routeCode: string, driverNames: string[] }[] | null}
-     */
-    function listDayAssignments(isoDate) {
-        const parsed = parseIsoDateStrict(isoDate);
-        if (!parsed) return null;
-        const monthCache = getMonthCache(parsed.year, parsed.month);
-        if (!monthCache) return null;
-
-        const byRoute = monthCache.byIsoDate.get(parsed.iso);
-        if (!(byRoute instanceof Map) || byRoute.size === 0) return Object.freeze([]);
-
-        const routes = Array.from(byRoute.keys()).filter(Boolean);
-        routes.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-
-        const out = [];
-        for (const routeCode of routes) {
-            const drivers = byRoute.get(routeCode);
-            if (!(drivers instanceof Set) || drivers.size === 0) continue;
-            const names = Array.from(drivers).map(normalizeDriverDisplayName).filter(Boolean);
-            names.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
-            out.push(Object.freeze({ routeCode, driverNames: Object.freeze(names) }));
-        }
-
-        return Object.freeze(out);
-    }
-
-    /**
-     * Zwraca kierowców przypisanych do trasy w konkretnym dniu (YYYY-MM-DD).
-     * To wariant preferowany dla API (nie zależy od `Date` i stref czasowych).
-     *
-     * @param {string} routeCode
-     * @param {string} isoDate
-     * @returns {string[] | null}
-     */
     function getDriverNamesForRouteOnIsoDate(routeCode, isoDate) {
         const parsed = parseIsoDateStrict(isoDate);
         if (!parsed) return null;
-        const monthCache = getMonthCache(parsed.year, parsed.month);
-        if (!monthCache) return null;
+        const cache = getMonthCache(parsed.year, parsed.month);
+        if (!cache) return null;
 
-        const byRoute = monthCache.byIsoDate.get(parsed.iso);
+        const byRoute = cache.byIsoDate.get(parsed.iso);
         if (!(byRoute instanceof Map)) return null;
 
         const normalized = normalizeScheduleRouteCodeForLookup(routeCode);
@@ -692,57 +507,105 @@ export function createScheduleService(cfg = {}) {
         return names.length > 0 ? Object.freeze(names) : null;
     }
 
-    /**
-     * Zwraca strukturę tabeli grafiku dla danego miesiąca:
-     * - dni miesiąca jako lista ISO (`YYYY-MM-DD`) wraz z flagą weekendu,
-     * - wiersze kierowców w kolejności z pliku grafiku,
-     * - komórki zawierające tokeny w oryginalnej kolejności (trasy i markery).
-     *
-     * @param {number} year
-     * @param {number} month
-     * @returns {{
-     *   year: number,
-     *   month: number,
-     *   days: { isoDate: string, day: number, weekday: number, isWeekend: boolean }[],
-     *   rows: { driverName: string, cells: { isoDate: string, tokens: { kind: 'route'|'marker', code: string, category?: 'STANDARD'|'WIECZOREK'|'SOBOTA'|'NIEDZIELA' }[] }[] }[]
-     * } | null}
-     */
+    function listMonthRoutes(year, month) {
+        const cache = getMonthCache(year, month);
+        if (!cache) return null;
+        return Object.freeze([...ensureMonthDerivedIndex(cache).routesSorted]);
+    }
+
+    function listDayRoutes(isoDate) {
+        const parsed = parseIsoDateStrict(isoDate);
+        if (!parsed) return null;
+        const cache = getMonthCache(parsed.year, parsed.month);
+        if (!cache) return null;
+        const routes = ensureMonthDerivedIndex(cache).dayRoutesSortedByIso.get(parsed.iso) || [];
+        return Object.freeze([...routes]);
+    }
+
+    function listMonthDays(year, month, opts = {}) {
+        const y = Number(year);
+        const m = Number(month);
+        if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return null;
+
+        const cache = getMonthCache(y, m);
+        if (!cache) return null;
+        const includeEmptyDays = opts?.includeEmptyDays !== false;
+        const derived = ensureMonthDerivedIndex(cache);
+        const out = [];
+
+        for (let day = 1; day <= daysInMonth(y, m); day++) {
+            const iso = isoDateFromParts(y, m, day);
+            if (!iso) continue;
+            const routes = derived.dayRoutesSortedByIso.get(iso) || [];
+            if (!includeEmptyDays && routes.length === 0) continue;
+            out.push(Object.freeze({ isoDate: iso, day, routes: Object.freeze([...routes]) }));
+        }
+        return Object.freeze(out);
+    }
+
+    function listDayAssignments(isoDate) {
+        const parsed = parseIsoDateStrict(isoDate);
+        if (!parsed) return null;
+        const cache = getMonthCache(parsed.year, parsed.month);
+        if (!cache) return null;
+
+        const byRoute = cache.byIsoDate.get(parsed.iso);
+        if (!(byRoute instanceof Map) || byRoute.size === 0) return Object.freeze([]);
+
+        const out = [];
+        const routes = Array.from(byRoute.keys()).filter(Boolean);
+        routes.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+
+        for (const routeCode of routes) {
+            const drivers = byRoute.get(routeCode);
+            if (!(drivers instanceof Set) || drivers.size === 0) continue;
+            const names = Array.from(drivers).map(normalizeDriverDisplayName).filter(Boolean);
+            names.sort((a, b) => String(a).localeCompare(String(b), 'pl', { sensitivity: 'base' }));
+            out.push(Object.freeze({ routeCode, driverNames: Object.freeze(names) }));
+        }
+        return Object.freeze(out);
+    }
+
     function getMonthScheduleTable(year, month) {
         const y = Number(year);
         const m = Number(month);
         if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) return null;
-        const monthCache = getMonthCache(y, m);
-        if (!monthCache) return null;
 
-        const maxDays = daysInMonth(y, m);
+        const cache = getMonthCache(y, m);
+        if (!cache) return null;
+
         const days = [];
-        for (let day = 1; day <= maxDays; day++) {
+        for (let day = 1; day <= daysInMonth(y, m); day++) {
             const iso = isoDateFromParts(y, m, day);
             if (!iso) continue;
             const weekday = new Date(y, m - 1, day).getDay();
-            const isWeekend = weekday === 0 || weekday === 6;
-            days.push(Object.freeze({ isoDate: iso, day, weekday, isWeekend }));
+            days.push(Object.freeze({
+                isoDate: iso,
+                day,
+                weekday,
+                isWeekend: weekday === 0 || weekday === 6
+            }));
         }
 
-        const driverRows = Array.isArray(monthCache.driverRows) ? monthCache.driverRows : [];
         const rows = [];
-        for (const dr of driverRows) {
-            const driverName = String(dr?.driverName ?? '').trim();
+        for (const driverRow of (Array.isArray(cache.driverRows) ? cache.driverRows : [])) {
+            const driverName = String(driverRow?.driverName ?? '').trim();
             if (!driverName) continue;
-            const byIso = dr?.byIsoDate instanceof Map ? dr.byIsoDate : new Map();
-            const cells = [];
-            for (const d of days) {
-                const list = byIso.get(d.isoDate);
-                const tokens = Array.isArray(list) ? list : [];
-                cells.push(Object.freeze({ isoDate: d.isoDate, tokens: Object.freeze(tokens.slice()) }));
-            }
+
+            const byIso = driverRow?.byIsoDate instanceof Map ? driverRow.byIsoDate : new Map();
+            const cells = days.map((day) => Object.freeze({
+                isoDate: day.isoDate,
+                tokens: Object.freeze((Array.isArray(byIso.get(day.isoDate))
+                    ? byIso.get(day.isoDate)
+                    : []).slice())
+            }));
             rows.push(Object.freeze({ driverName, cells: Object.freeze(cells) }));
         }
 
         return Object.freeze({
             year: y,
             month: m,
-            fileName: String(monthCache.fileName || ''),
+            fileName: String(cache.fileName || ''),
             days: Object.freeze(days),
             rows: Object.freeze(rows)
         });
@@ -763,6 +626,8 @@ export function createScheduleService(cfg = {}) {
         processScheduleFile,
         loadScheduleFiles,
         invalidateScheduleFile,
+        parseScheduleCellToRoutes,
+        parseScheduleCellToTokens,
         getDriverNamesForRouteOnDate,
         listMonthDays,
         listMonthRoutes,
