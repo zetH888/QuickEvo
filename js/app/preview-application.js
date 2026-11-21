@@ -25,6 +25,36 @@
 export function createPreviewApplication(cfg) {
     if (!cfg || typeof cfg.getTableModel !== 'function') throw new Error('preview-application: brak getTableModel');
 
+    let pendingScroll = null;
+
+    function scrollToResult(row) {
+        const viewport = document.scrollingElement;
+        if (!viewport) {
+            row.classList.add('highlighted-row');
+            return;
+        }
+
+        const rect = row.getBoundingClientRect();
+        const centeredTop = viewport.scrollTop + rect.top + (rect.height - viewport.clientHeight) / 2;
+        const top = Math.round(Math.max(0, Math.min(centeredTop, viewport.scrollHeight - viewport.clientHeight)));
+        const shouldAnimate = 'onscrollend' in document
+            && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+            && Math.abs(top - viewport.scrollTop) >= 1;
+
+        if (!shouldAnimate) {
+            window.scrollTo({ top, behavior: 'instant' });
+            row.classList.add('highlighted-row');
+            return;
+        }
+
+        pendingScroll = new AbortController();
+        document.addEventListener('scrollend', () => {
+            pendingScroll = null;
+            if (row.isConnected) row.classList.add('highlighted-row');
+        }, { once: true, signal: pendingScroll.signal });
+        window.scrollTo({ top, behavior: 'smooth' });
+    }
+
     /**
      * Lekka walidacja daty ISO w formacie `YYYY-MM-DD`.
      * Wymusza stabilny kontrakt na granicy warstwy aplikacyjnej (UI może przekazać śmieci).
@@ -60,10 +90,12 @@ export function createPreviewApplication(cfg) {
 
         try { cfg.setLastPreviewState?.({ fileName: name, rowIndex: idx, contextIsoDate: iso }); } catch { }
 
+        pendingScroll?.abort();
+        pendingScroll = null;
         let highlightedRowEl = null;
         try { highlightedRowEl = cfg.showPreview?.({ fileName: name, tableModel, highlightRowIndex: idx, contextIsoDate: iso }); } catch { }
 
-        try { if (highlightedRowEl && typeof highlightedRowEl.scrollIntoView === 'function') highlightedRowEl.scrollIntoView({ block: 'center' }); } catch { }
+        try { if (highlightedRowEl) scrollToResult(highlightedRowEl); } catch { }
         try { cfg.queuePreviewReadyEvent?.(name); } catch { }
         try { cfg.logClientEvent?.('preview', { fileName: name, rowIndex: idx, contextIsoDate: iso }); } catch { }
     }
@@ -72,6 +104,8 @@ export function createPreviewApplication(cfg) {
      * Przechodzi do widoku wyszukiwania.
      */
     function openSearch({ source } = {}) {
+        pendingScroll?.abort();
+        pendingScroll = null;
         try { cfg.showSearch?.(); } catch { }
         try { cfg.logClientEvent?.('navigate', { to: 'search', source: String(source || '') }); } catch { }
     }

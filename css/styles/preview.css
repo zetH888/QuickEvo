@@ -112,15 +112,17 @@ tbody tr:nth-child(even) td:nth-child(even) {
     background-color: var(--grid-row-col);
 }
 
-.highlighted-row .address-column,
-.highlighted-row:not(:has(.address-column)) td {
+.highlighted-row td {
     color: var(--primary-accent-color);
     font-weight: 600;
 }
 
+.highlighted-row .lab-badge {
+    color: inherit;
+}
+
 @media (prefers-reduced-motion: no-preference) {
-    .highlighted-row .address-column,
-    .highlighted-row:not(:has(.address-column)) td {
+    .highlighted-row td {
         animation: preview-result-pulse 850ms ease-out;
     }
 }

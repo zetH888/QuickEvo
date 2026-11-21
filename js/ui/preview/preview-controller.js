@@ -143,7 +143,6 @@ export function createPreviewController(cfg) {
         for (const rowObj of rows) {
             const tr = document.createElement('tr');
             if (rowObj?.originalRowIndex === highlightRowIndex) {
-                tr.classList.add('highlighted-row');
                 highlightedRowEl = tr;
             }
             const cells = Array.isArray(rowObj?.cells) ? rowObj.cells : [];
@@ -154,7 +153,6 @@ export function createPreviewController(cfg) {
                 const header = headers[cellIdx];
                 if (header) {
                     const h = normalizeText(String(header));
-                    if (h.includes('adres')) td.classList.add('address-column');
                     if (h.includes('nazwa') || h.includes('placowk')) td.classList.add('facility-column');
                 }
                 tr.appendChild(td);
