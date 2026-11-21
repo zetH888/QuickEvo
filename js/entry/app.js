@@ -3005,9 +3005,7 @@ function displayImportSummary(summary) {
 function highlightLabsInPreviewTable() {
     highlightLabsInPreviewTableDom({
         tbody: previewTableBody,
-        rowMatchesKeyLab,
-        escapeHtml,
-        toTitleCase
+        getLabLabel: (text) => searchEngine.getLabLabel(text, compiledKeyLabTokenSets)
     });
 }
 
