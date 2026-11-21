@@ -112,11 +112,26 @@ tbody tr:nth-child(even) td:nth-child(even) {
     background-color: var(--grid-row-col);
 }
 
-.highlighted-row td {
-    text-decoration-line: underline;
-    text-decoration-color: var(--primary-accent-color);
-    text-decoration-thickness: 1.5px;
-    text-underline-offset: 0.2em;
+.highlighted-row .address-column,
+.highlighted-row:not(:has(.address-column)) td {
+    color: var(--primary-accent-color);
+    font-weight: 600;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .highlighted-row .address-column,
+    .highlighted-row:not(:has(.address-column)) td {
+        animation: preview-result-pulse 850ms ease-out;
+    }
+}
+
+@keyframes preview-result-pulse {
+    from {
+        box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--primary-accent-color) 30%, transparent);
+    }
+    to {
+        box-shadow: inset 0 0 0 100vmax transparent;
+    }
 }
 
 .highlight-lab {
@@ -125,6 +140,7 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 .highlight-lab td {
+    font-weight: 700;
     background-image: linear-gradient(var(--lab-row-tint), var(--lab-row-tint));
     --lab-row-tint: color-mix(in srgb, var(--primary-accent-color) 12%, transparent);
     border-top: 1px solid var(--lab-row-border);
