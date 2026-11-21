@@ -121,30 +121,31 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 .highlight-lab {
-    --lab-row-border: color-mix(in srgb, var(--primary-accent-color) 75%, transparent);
+    --lab-row-border: var(--primary-accent-color);
+    --lab-row-tint: color-mix(in srgb, var(--primary-accent-color) 30%, transparent);
     --lab-row-radius: 4px;
 }
 
 .highlight-lab.highlighted-row {
-    --lab-row-border: var(--primary-accent-color);
+    --lab-row-border: var(--text-color);
+    --lab-row-tint: color-mix(in srgb, var(--primary-accent-color) 45%, transparent);
     --lab-row-radius: 3px;
 }
 
 .highlight-lab td {
     background-image: linear-gradient(var(--lab-row-tint), var(--lab-row-tint));
-    --lab-row-tint: color-mix(in srgb, var(--primary-accent-color) 12%, transparent);
-    border-top: 1px solid var(--lab-row-border);
-    border-bottom: 1px solid var(--lab-row-border);
+    border-top: 2px solid var(--lab-row-border);
+    border-bottom: 2px solid var(--lab-row-border);
 }
 
 .highlight-lab td:first-child {
-    border-left: 1px solid var(--lab-row-border);
+    border-left: 5px solid var(--lab-row-border);
     border-top-left-radius: var(--lab-row-radius);
     border-bottom-left-radius: var(--lab-row-radius);
 }
 
 .highlight-lab td:last-child {
-    border-right: 1px solid var(--lab-row-border);
+    border-right: 2px solid var(--lab-row-border);
     border-top-right-radius: var(--lab-row-radius);
     border-bottom-right-radius: var(--lab-row-radius);
 }
