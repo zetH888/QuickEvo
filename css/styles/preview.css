@@ -112,22 +112,16 @@ tbody tr:nth-child(even) td:nth-child(even) {
     background-color: var(--grid-row-col);
 }
 
-.highlighted-row {
-    background-color: var(--state-active) !important;
-}
-
 .highlighted-row td {
-    background-color: var(--state-active) !important;
+    text-decoration-line: underline;
+    text-decoration-color: var(--primary-accent-color);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.2em;
 }
 
 .highlight-lab {
     --lab-row-border: color-mix(in srgb, var(--primary-accent-color) 75%, transparent);
     --lab-row-radius: 4px;
-}
-
-.highlight-lab.highlighted-row {
-    --lab-row-border: var(--primary-accent-color);
-    --lab-row-radius: 3px;
 }
 
 .highlight-lab td {
@@ -147,6 +141,18 @@ tbody tr:nth-child(even) td:nth-child(even) {
     border-right: 1px solid var(--lab-row-border);
     border-top-right-radius: var(--lab-row-radius);
     border-bottom-right-radius: var(--lab-row-radius);
+}
+
+.highlight-lab + .highlight-lab td {
+    border-top: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+}
+
+.highlight-lab:has(+ .highlight-lab) td {
+    border-bottom: 1px solid var(--grid-border);
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
 }
 
 .lab-badge {
