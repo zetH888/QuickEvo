@@ -67,10 +67,28 @@ export function compileKeyLabTokenSets(tokenSets) {
  * @returns {boolean}
  */
 export function rowMatchesKeyLab(text, compiledTokenSets) {
+    return Boolean(findLabRule(text, compiledTokenSets));
+}
+
+const labLabels = new Map([
+    ['szpital', 'LAB WILANÓW'],
+    ['wilanow', 'LAB WILANÓW'],
+    ['dzika', 'LAB DZIKA'],
+    ['piaseczno', 'LAB PIASECZNO'],
+    ['lodz', 'LAB ŁÓDŹ'],
+    ['wolomin', 'LAB WOŁOMIN']
+]);
+
+export function getLabLabel(text, compiledTokenSets) {
+    const rule = findLabRule(text, compiledTokenSets);
+    return rule ? labLabels.get(rule[0]) || '' : '';
+}
+
+function findLabRule(text, compiledTokenSets) {
     const normalized = fuzzyNormalizeText(text).replace(/[^a-z0-9]+/g, ' ').trim();
-    if (!normalized) return false;
+    if (!normalized) return null;
     const tokens = normalized.split(/\s+/g).filter(Boolean);
-    if (tokens.length === 0) return false;
+    if (tokens.length === 0) return null;
     const tokenSet = new Set(tokens);
     for (let i = 0; i < tokens.length - 1; i++) {
         if (tokens[i].length === 1 && tokens[i + 1].length === 1) tokenSet.add(tokens[i] + tokens[i + 1]);
@@ -83,9 +101,9 @@ export function rowMatchesKeyLab(text, compiledTokenSets) {
         for (const token of requiredTokens) {
             if (!tokenSet.has(token)) { ok = false; break; }
         }
-        if (ok) return true;
+        if (ok) return requiredTokens;
     }
-    return false;
+    return null;
 }
  
 /**

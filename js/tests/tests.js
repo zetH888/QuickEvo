@@ -1126,12 +1126,14 @@ const QuickEvoTests = {
             trLab.appendChild(notesLab);
             tbody.appendChild(trLab);
 
-            ctx.previewLabsHighlight.highlightLabsInPreviewTableDom({
+            const highlight = () => ctx.previewLabsHighlight.highlightLabsInPreviewTableDom({
                 tbody,
-                rowMatchesKeyLab,
-                escapeHtml: (x) => String(x ?? ''),
-                toTitleCase: (x) => String(x ?? '')
+                getLabLabel: (text) => ctx.searchEngine.getLabLabel(text, compiled)
             });
+            highlight();
+            highlight();
+            this.assert(facilityLab.textContent === 'LAB DZIKA', 'Stabilna etykieta po ponownym renderowaniu');
+            this.assert(facilityLab.dataset.originalText === 'Dzika Laboratorium', 'Zachowana nazwa źródłowa');
 
             this.assert(!trFalsePositive.classList.contains('highlight-lab'), 'Nie oznacza jako laboratorium, gdy tokeny są tylko w innych kolumnach');
             this.assert(!facilityFalsePositive.querySelector('.lab-badge'), 'Nie renderuje badge w kolumnie placówki dla fałszywego trafienia');

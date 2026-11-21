@@ -121,34 +121,27 @@ tbody tr:nth-child(even) td:nth-child(even) {
 }
 
 .highlight-lab td {
-    /* Rezygnacja z akcentu tła całego wiersza na rzecz wyróżnienia samej placówki */
-    background-color: transparent !important;
-    font-weight: normal;
-    border-top: none !important;
-    border-bottom: none !important;
+    border-top: 1px solid var(--qe-lab-badge-border);
+    border-bottom: 1px solid var(--qe-lab-badge-border);
 }
 
 .highlight-lab td:first-child {
-    border-left: none !important;
+    border-left: 1px solid var(--qe-lab-badge-border);
+    border-top-left-radius: 12px;
+    border-bottom-left-radius: 12px;
 }
 
 .highlight-lab td:last-child {
-    border-right: none !important;
+    border-right: 1px solid var(--qe-lab-badge-border);
+    border-top-right-radius: 12px;
+    border-bottom-right-radius: 12px;
 }
 
 .lab-badge {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 12px;
     font-weight: 700;
     font-size: 0.85rem;
     letter-spacing: 0.3px;
-    /* Badge LAB: biały, neutralny (używany w podglądzie tabeli) */
-    border: 1px solid var(--qe-lab-badge-border);
-    background: var(--qe-lab-badge-bg);
     color: var(--qe-lab-badge-text);
-    box-shadow: none;
-    white-space: nowrap;
 }
 
 .row-num {

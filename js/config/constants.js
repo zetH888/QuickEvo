@@ -14,6 +14,8 @@ export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
  * @type {ReadonlyArray<ReadonlyArray<string>>}
  */
 export const KEY_LAB_TOKEN_SETS = Object.freeze([
+    Object.freeze(['szpital', 'wilanow']),
+    Object.freeze(['szpital', 'medicover']),
     Object.freeze(['dzika', 'laboratorium']),
     Object.freeze(['dzika', 'lm']),
     Object.freeze(['dzika', 'lab']),
@@ -29,8 +31,7 @@ export const KEY_LAB_TOKEN_SETS = Object.freeze([
     Object.freeze(['wolomin', 'lab.']),
     Object.freeze(['wilanow', 'laboratorium']),
     Object.freeze(['wilanow', 'lab']),
-    Object.freeze(['wilanow', 'lab.']),
-    Object.freeze(['szpital', 'medicover'])
+    Object.freeze(['wilanow', 'lab.'])
 ]);
 
 export const WELCOME_LOGO_ENTER_DELAY_MS = 420;

@@ -1,44 +1,22 @@
-/**
- * Podświetla wiersze „laboratorium” w tabeli podglądu.
- *
- * Reguła bezpieczeństwa: dopasowanie wykonuje wyłącznie na nazwie placówki (kolumna .facility-column),
- * aby tokeny występujące w innych kolumnach (np. „do lab. Dzika” w uwagach) nie aktywowały badge.
- */
-export function highlightLabsInPreviewTableDom(cfg) {
-    const tbody = cfg?.tbody || null;
-    const rowMatchesKeyLab = typeof cfg?.rowMatchesKeyLab === 'function' ? cfg.rowMatchesKeyLab : (() => false);
-    const escapeHtml = typeof cfg?.escapeHtml === 'function' ? cfg.escapeHtml : ((x) => String(x ?? ''));
-    const toTitleCase = typeof cfg?.toTitleCase === 'function' ? cfg.toTitleCase : ((x) => String(x || ''));
-    const getFacilityTextFromRow = typeof cfg?.getFacilityTextFromRow === 'function'
-        ? cfg.getFacilityTextFromRow
-        : (tr) => {
-            const cell = tr?.querySelector?.('.facility-column') || null;
-            return cell ? String(cell.textContent || '') : '';
-        };
-
-    if (!tbody || !tbody.rows) return;
-
-    for (let r = 0; r < tbody.rows.length; r++) {
-        const tr = tbody.rows[r];
-        const facilityText = getFacilityTextFromRow(tr);
-        const isLab = rowMatchesKeyLab(facilityText);
-        tr.classList.toggle('highlight-lab', isLab);
-
-        const facilityCell = tr.querySelector?.('.facility-column') || null;
-        if (!facilityCell) continue;
-
-        const existingBadge = facilityCell.querySelector?.('.lab-badge') || null;
-        if (isLab) {
-            if (!existingBadge) {
-                facilityCell.dataset.originalText = String(facilityCell.textContent || '');
-                facilityCell.innerHTML = `<span class="lab-badge">${escapeHtml(toTitleCase(facilityCell.dataset.originalText))}</span>`;
-            }
+/** Wyróżnia laboratoria na podstawie źródłowej nazwy placówki. */
+export function highlightLabsInPreviewTableDom({ tbody, getLabLabel }) {
+    if (!tbody?.rows) return;
+    for (const row of tbody.rows) {
+        const cell = row.querySelector('.facility-column');
+        if (!cell) continue;
+        const badge = cell.querySelector('.lab-badge');
+        const original = badge ? cell.dataset.originalText ?? cell.textContent : cell.textContent;
+        const label = getLabLabel(original);
+        row.classList.toggle('highlight-lab', Boolean(label));
+        if (label) {
+            const span = badge || cell.ownerDocument.createElement('span');
+            span.className = 'lab-badge';
+            span.textContent = label;
+            cell.dataset.originalText = original;
+            if (!badge) cell.replaceChildren(span);
         } else {
-            if (existingBadge) {
-                const original = String(facilityCell.dataset.originalText || '');
-                facilityCell.textContent = original;
-                delete facilityCell.dataset.originalText;
-            }
+            if (badge) cell.textContent = original;
+            delete cell.dataset.originalText;
         }
     }
 }
