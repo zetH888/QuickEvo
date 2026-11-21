@@ -154,6 +154,7 @@ export function createPreviewController(cfg) {
                 const header = headers[cellIdx];
                 if (header) {
                     const h = normalizeText(String(header));
+                    if (h.includes('adres')) td.classList.add('address-column');
                     if (h.includes('nazwa') || h.includes('placowk')) td.classList.add('facility-column');
                 }
                 tr.appendChild(td);
